@@ -3,7 +3,8 @@ import axios from 'axios';
 import { useAppStore } from '../store/useAppStore';
 
 export const apiClient = axios.create({
-  baseURL: 'http://localhost:8080/api', // Pointing to your Go Backend
+  // Use the environment variable if available, otherwise fallback to localhost
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080/api', 
   headers: {
     'Content-Type': 'application/json',
   },
