@@ -1,8 +1,11 @@
 package repository
 
 import (
-	"chattie-backend/models"
+	"context"
 	"database/sql"
+	"strings"
+
+	"chattie-backend/models"
 )
 
 type ChatRepository struct {
@@ -218,4 +221,102 @@ func (r *ChatRepository) GetInbox(userID string) ([]models.InboxItem, error) {
 	}
 
 	return inbox, nil
+}
+
+// AutoCreateReport is called when the real-time WebSocket filter catches a violation
+func (r *ChatRepository) AutoCreateReport(reportedID, reporter, reason, originalContent string) error {
+	var reporterUUID interface{}
+	if reporter != "SYSTEM" && reporter != "SYSTEM_NSFW" {
+		reporterUUID = reporter
+	}
+
+	// We store the ORIGINAL uncensored message in the 'description' field for evidence
+	query := `
+        INSERT INTO reports (reporter_id, reported_id, reason, status, description)
+        VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, 'Automated Flag', 'pending', $3)
+    `
+	_, err := r.DB.Exec(query, reporterUUID, reportedID, originalContent)
+	return err
+}
+
+// GetUserInsights retrieves contextual user data for models/operators when they open a chat
+func (r *ChatRepository) GetUserInsights(ctx context.Context, targetUserID string) (models.UserInsight, error) {
+	var insight models.UserInsight
+	var rawPreferences string
+
+	// Grabs join date, totals up transactions, fetches behavior risk scores and preferences
+	query := `
+        SELECT 
+            TO_CHAR(u.created_at, 'YYYY-MM-DD') as join_date,
+            COALESCE((SELECT SUM(amount) FROM transactions WHERE user_id = u.id), 0.00) as total_spent,
+            COALESCE(cb.risk_score, 0) as risk_score,
+            COALESCE(cb.flags_count, 0) as previous_flags,
+            COALESCE(up.interested_in, '') as preferences
+        FROM users u
+        LEFT JOIN client_behavior cb ON u.id = cb.user_id
+        LEFT JOIN user_preferences up ON u.id = up.user_id
+        WHERE u.id = $1
+    `
+
+	err := r.DB.QueryRowContext(ctx, query, targetUserID).Scan(
+		&insight.JoinDate,
+		&insight.TotalSpent,
+		&insight.RiskScore,
+		&insight.PreviousFlags,
+		&rawPreferences,
+	)
+
+	if err != nil && err != sql.ErrNoRows {
+		return insight, err
+	}
+
+	// Simple CSV split for preferences (e.g. "brunettes,sports,casual")
+	if rawPreferences != "" {
+		insight.Preferences = strings.Split(rawPreferences, ",")
+	} else {
+		insight.Preferences = []string{"None specified"}
+	}
+
+	// Flag for frontend UI warning if user has a sketchy history
+	if insight.RiskScore > 50 {
+		insight.IsSuspicious = true
+	}
+
+	return insight, nil
+}
+
+// SetUserOnlineStatus updates user presence in users and creator_stats tables
+func (r *ChatRepository) SetUserOnlineStatus(userID string, isOnline bool) error {
+	status := "offline"
+	if isOnline {
+		status = "online"
+	}
+
+	_, err := r.DB.Exec(`
+		UPDATE users 
+		SET status = $1, updated_at = NOW() 
+		WHERE id = $2
+	`, status, userID)
+	if err != nil {
+		return err
+	}
+
+	// Also sync creator stats presence if user is a model
+	_, _ = r.DB.Exec(`
+		UPDATE creator_stats 
+		SET is_online = $1 
+		WHERE user_id = $2
+	`, isOnline, userID)
+
+	return nil
+}
+
+// MarkMessagesAsRead updates all incoming unread messages from a target partner to 'read'
+func (r *ChatRepository) MarkMessagesAsRead(userID string, partnerID string) error {
+	_, err := r.DB.Exec(`
+		UPDATE messages 
+		SET status = 'read' 
+		WHERE recipient_id = $1 AND sender_id = $2 AND status = 'sent'
+	`, userID, partnerID)
+	return err
 }

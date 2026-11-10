@@ -15,11 +15,15 @@ type Message struct {
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 
-	Type     string `json:"type,omitempty"`      // 'incoming_call', 'call_answered', 'reaction'
+	Type     string `json:"type,omitempty"`      // 'chat', 'notification', 'incoming_call', 'call_answered', 'reaction'
 	Mode     string `json:"mode,omitempty"`      // 'video' or 'audio'
 	FromName string `json:"from_name,omitempty"` // Name of the caller
 	Emoji    string `json:"emoji,omitempty"`     // Emoji reaction string
 	Reason   string `json:"reason,omitempty"`
+
+	// --- MODERATION FIELDS (NEW) ---
+	IsFlagged bool   `json:"is_flagged,omitempty"` // True if caught by regex filters
+	Role      string `json:"role,omitempty"`       // 'model' or 'user' (travels with message for frontend UI)
 }
 
 type InboxItem struct {
@@ -32,4 +36,25 @@ type InboxItem struct {
 	UnreadCount     int       `json:"unread_count"`
 	Status          string    `json:"status"`
 	IsMuted         bool      `json:"is_muted"`
+}
+
+// --- NEW MODERATION & TRACKING STRUCTS ---
+
+// ActionLog is pushed to the async logger channel
+type ActionLog struct {
+	UserID     string `json:"user_id"`
+	ActionType string `json:"action_type"` // e.g., 'PROFILE_UPDATE', 'REPORT_USER', 'NSFW_FLAG'
+	TargetID   string `json:"target_id,omitempty"`
+	IP         string `json:"ip_address,omitempty"`
+	Metadata   string `json:"metadata,omitempty"` // JSON string of extra context (e.g., {"word_used": "telegram"})
+}
+
+// UserInsight provides context to Operators/Models about the user they are chatting with
+type UserInsight struct {
+	JoinDate      string   `json:"join_date"`
+	TotalSpent    float64  `json:"total_spent"`
+	Preferences   []string `json:"preferences"`
+	RiskScore     int      `json:"risk_score"`
+	PreviousFlags int      `json:"previous_flags"`
+	IsSuspicious  bool     `json:"is_suspicious"` // True if RiskScore > 50
 }

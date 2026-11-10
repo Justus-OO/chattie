@@ -1,9 +1,9 @@
 package repository
 
 import (
+	"chattie-backend/models"
 	"context"
 	"database/sql"
-	"chattie-backend/models"
 )
 
 type AdminRepository struct {
@@ -14,36 +14,36 @@ func NewAdminRepository(db *sql.DB) *AdminRepository {
 	return &AdminRepository{DB: db}
 }
 
-// GetPendingQueue fetches unresolved reports and flags
+// GetPendingQueue fetches unresolved reports and flags, including the exact evidence
 func (r *AdminRepository) GetPendingQueue(ctx context.Context) ([]models.ModerationItem, error) {
 	query := `
-		SELECT 
-			r.id::text,
-			COALESCE(u.username, 'Unknown User'),
-			r.reporter_id::text,
-			COALESCE(tu.username, 'System Flag'),
-			r.reason,
-			CASE 
-				WHEN cb.risk_score > 80 THEN 'CRITICAL'
-				WHEN cb.risk_score > 50 THEN 'HIGH'
-				ELSE 'MEDIUM'
-			END as severity,
-			TO_CHAR(r.created_at, 'HH24:MI:SS'),
-			r.status,
-			COALESCE(r.description, 'Flagged by system or user.'),
-			COALESCE(cb.risk_score, 0),
-			COALESCE(cs.last_ip, 'Unknown'),
-			COALESCE(cs.location, 'Unknown'),
-			'Flags: ' || COALESCE(cb.flags_count, 0) as history
-		FROM reports r
-		LEFT JOIN users u ON r.reporter_id = u.id
-		LEFT JOIN users tu ON r.reported_id = tu.id
-		LEFT JOIN client_behavior cb ON r.reporter_id = cb.user_id
-		LEFT JOIN client_security cs ON r.reporter_id = cs.user_id
-		WHERE r.status = 'pending'
-		ORDER BY cb.risk_score DESC, r.created_at DESC
-		LIMIT 50;
-	`
+       SELECT 
+          r.id::text,
+          COALESCE(u.username, 'Unknown User'),
+          r.reporter_id::text,
+          COALESCE(tu.username, 'System Flag'),
+          r.reason,
+          CASE 
+             WHEN cb.risk_score > 80 THEN 'CRITICAL'
+             WHEN cb.risk_score > 50 THEN 'HIGH'
+             ELSE 'MEDIUM'
+          END as severity,
+          TO_CHAR(r.created_at, 'HH24:MI:SS'),
+          r.status,
+          COALESCE(r.description, 'Flagged by system or user.'),
+          COALESCE(cb.risk_score, 0),
+          COALESCE(cs.last_ip, 'Unknown'),
+          COALESCE(cs.location, 'Unknown'),
+          'Flags: ' || COALESCE(cb.flags_count, 0) as history
+       FROM reports r
+       LEFT JOIN users u ON r.reporter_id = u.id
+       LEFT JOIN users tu ON r.reported_id = tu.id
+       LEFT JOIN client_behavior cb ON r.reporter_id = cb.user_id
+       LEFT JOIN client_security cs ON r.reporter_id = cs.user_id
+       WHERE r.status = 'pending'
+       ORDER BY cb.risk_score DESC, r.created_at DESC
+       LIMIT 50;
+    `
 	rows, err := r.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -53,18 +53,26 @@ func (r *AdminRepository) GetPendingQueue(ctx context.Context) ([]models.Moderat
 	var items []models.ModerationItem
 	for rows.Next() {
 		var item models.ModerationItem
+		var rawDescription string
+
 		if err := rows.Scan(
 			&item.ID, &item.User, &item.UserID, &item.TargetProfile, &item.Type,
-			&item.Severity, &item.Time, &item.Status, &item.Content,
+			&item.Severity, &item.Time, &item.Status, &rawDescription,
 			&item.RiskScore, &item.IP, &item.Location, &item.History,
 		); err != nil {
 			return nil, err
 		}
 
-		// In a real app, you would run a secondary query here to fetch exact
-		// message evidence for this incident. For now, we seed empty evidence.
-		item.Evidence = []models.Evidence{}
-		items = append(items, item)
+		// Inject the stored description as direct message evidence
+		item.Evidence = []models.Evidence{
+			{
+				Sender: item.User,
+				Text:   rawDescription,
+				Time:   item.Time,
+			},
+		} // <-- Added the missing closing brace here
+
+		items = append(items, item) // <-- Fixed typo from 'item =' to 'items ='
 	}
 	return items, nil
 }
@@ -77,7 +85,6 @@ func (r *AdminRepository) ResolveIncident(ctx context.Context, adminID string, r
 	}
 	defer tx.Rollback()
 
-	// 1. Update the report status
 	status := "resolved"
 	if req.ActionType == "DISMISS" {
 		status = "dismissed"
@@ -87,12 +94,28 @@ func (r *AdminRepository) ResolveIncident(ctx context.Context, adminID string, r
 		return err
 	}
 
-	// 2. Apply Punitive Action to the Target User if not dismissed
 	if req.ActionType != "DISMISS" {
 		userStatus := "active"
+
 		if req.ActionType == "DEVICE/IP BAN" {
 			userStatus = "banned"
-			// Also add to blocks list globally or IP ban list
+
+			// Extract the user's latest IP address from the action logs
+			var userIP string
+			err := tx.QueryRowContext(ctx, `
+             SELECT ip_address FROM user_action_logs 
+             WHERE user_id = $1 AND ip_address IS NOT NULL 
+             ORDER BY created_at DESC LIMIT 1
+          `, req.TargetID).Scan(&userIP)
+
+			// Insert into the global ban list so the middleware blocks them
+			if err == nil && userIP != "" {
+				_, _ = tx.ExecContext(ctx, `
+                INSERT INTO banned_ips (ip_address, reason) 
+                VALUES ($1, $2) ON CONFLICT DO NOTHING
+             `, userIP, req.Note)
+			}
+
 		} else if req.ActionType == "SHADOWBAN" {
 			userStatus = "suspended"
 		} else if req.ActionType == "FORMAL WARNING" {
@@ -104,23 +127,21 @@ func (r *AdminRepository) ResolveIncident(ctx context.Context, adminID string, r
 			return err
 		}
 
-		// Increment flags count
 		_, err = tx.ExecContext(ctx, "UPDATE client_behavior SET flags_count = flags_count + 1 WHERE user_id = $1", req.TargetID)
 		if err != nil {
 			return err
 		}
 	}
 
-	// 3. Insert Audit Log
 	adminUsername := "SYSTEM"
 	if adminID != "" {
 		tx.QueryRowContext(ctx, "SELECT username FROM users WHERE id = $1", adminID).Scan(&adminUsername)
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO admin_audit_logs (admin_id, admin_username, action, target_id, reason)
-		VALUES (NULLIF($1, '')::uuid, $2, $3, NULLIF($4, '')::uuid, $5)
-	`, adminID, adminUsername, req.ActionType, req.TargetID, req.Note)
+       INSERT INTO admin_audit_logs (admin_id, admin_username, action, target_id, reason)
+       VALUES (NULLIF($1, '')::uuid, $2, $3, NULLIF($4, '')::uuid, $5)
+    `, adminID, adminUsername, req.ActionType, req.TargetID, req.Note)
 	if err != nil {
 		return err
 	}
@@ -128,20 +149,46 @@ func (r *AdminRepository) ResolveIncident(ctx context.Context, adminID string, r
 	return tx.Commit()
 }
 
+// NEW: Fetches the chronological telemetry for a specific user
+func (r *AdminRepository) GetUserTelemetry(ctx context.Context, targetUserID string) ([]models.ActionLog, error) {
+	query := `
+       SELECT action_type, COALESCE(target_id::text, ''), COALESCE(metadata::text, ''), COALESCE(ip_address, '')
+       FROM user_action_logs
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 100
+    `
+	rows, err := r.DB.QueryContext(ctx, query, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []models.ActionLog
+	for rows.Next() {
+		var l models.ActionLog
+		if err := rows.Scan(&l.ActionType, &l.TargetID, &l.Metadata, &l.IP); err != nil {
+			continue
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
 // GetAuditLogs retrieves the admin action history
 func (r *AdminRepository) GetAuditLogs(ctx context.Context) ([]models.AuditLog, error) {
 	query := `
-		SELECT 
-			id::text, 
-			COALESCE(admin_username, 'SYSTEM'), 
-			action, 
-			COALESCE((SELECT username FROM users WHERE id = target_id), 'Unknown'), 
-			reason,
-			TO_CHAR(created_at, 'HH24:MI:SS') as time,
-			TO_CHAR(created_at, 'YYYY-MM-DD') as date
-		FROM admin_audit_logs 
-		ORDER BY created_at DESC LIMIT 100
-	`
+       SELECT 
+          id::text, 
+          COALESCE(admin_username, 'SYSTEM'), 
+          action, 
+          COALESCE((SELECT username FROM users WHERE id = target_id), 'Unknown'), 
+          reason,
+          TO_CHAR(created_at, 'HH24:MI:SS') as time,
+          TO_CHAR(created_at, 'YYYY-MM-DD') as date
+       FROM admin_audit_logs 
+       ORDER BY created_at DESC LIMIT 100
+    `
 	rows, err := r.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

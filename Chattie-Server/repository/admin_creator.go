@@ -198,7 +198,7 @@ func (r *Repository) CreatePersona(ctx context.Context, name, archetype, avatarU
 	var userID string
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO users (email, username, password_hash, role, status)
-		VALUES ($1, $2, $3, 'model', 'active')
+		VALUES ($1, $2, $3, 'persona', 'active')
 		RETURNING id::text
 	`, email, username, string(hashedPassword)).Scan(&userID)
 	if err != nil {

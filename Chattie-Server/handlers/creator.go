@@ -8,16 +8,21 @@ import (
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
 	"chattie-backend/repository"
+	"chattie-backend/services"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type CreatorHandler struct {
-	Repo *repository.Repository
+	Repo   *repository.Repository
+	Events *services.EventHandler // For creator notifications
 }
 
-func NewCreatorHandler(repo *repository.Repository) *CreatorHandler {
-	return &CreatorHandler{Repo: repo}
+func NewCreatorHandler(repo *repository.Repository, events *services.EventHandler) *CreatorHandler {
+	return &CreatorHandler{
+		Repo:   repo,
+		Events: events,
+	}
 }
 
 // helper to send standard JSON responses
@@ -38,14 +43,14 @@ func sendError(w http.ResponseWriter, status int, message string) {
 func (h *CreatorHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "ErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	stats, err := h.Repo.GetCreatorStats(r.Context(), userID)
 	if err != nil {
 		log.Printf("Error fetching creator stats for user %s: %v", userID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load dashboard data")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadDashboardData", "Failed to load dashboard data"))
 		return
 	}
 
@@ -56,55 +61,67 @@ func (h *CreatorHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 func (h *CreatorHandler) ProcessQueueAction(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "ErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	profileID := r.URL.Query().Get("profile_id")
 	if profileID == "" {
-		sendError(w, http.StatusBadRequest, "Missing profile_id query parameter")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrMissingProfileIdParameter", "Missing profile_id query parameter"))
 		return
 	}
 	reqID := chi.URLParam(r, "request_id")
 	if reqID == "" {
-		sendError(w, http.StatusBadRequest, "Missing request_id URL parameter")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrMissingRequestIdParameter", "Missing request_id URL parameter"))
 		return
 	}
 
 	var payload models.QueueActionRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendError(w, http.StatusBadRequest, "Invalid request payload")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload"))
 		return
 	}
 
 	if payload.Action != "accept" && payload.Action != "reject" {
-		sendError(w, http.StatusBadRequest, "Invalid action type: must be 'accept' or 'reject'")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidActionType", "Invalid action type: must be 'accept' or 'reject'"))
 		return
 	}
 
 	err := h.Repo.ProcessQueueAction(r.Context(), reqID, profileID, payload.Action)
 	if err != nil {
 		log.Printf("Error processing queue action for req %s: %v", reqID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to process request")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedProcessRequest", "Failed to process request"))
 		return
 	}
 
-	sendJSON(w, http.StatusOK, map[string]string{"message": "Queue updated successfully"})
+	// Log the action for audit trail
+	actionType := "REQUEST_ACCEPTED"
+	if payload.Action == "reject" {
+		actionType = "REQUEST_REJECTED"
+	}
+	ActionLogQueue <- models.ActionLog{
+		UserID:     userID,
+		ActionType: actionType,
+		TargetID:   profileID,
+		IP:         r.RemoteAddr,
+	}
+
+	sendJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgQueueUpdated", "Queue updated successfully")})
 }
 
 // GetLedger returns the transaction history
 func (h *CreatorHandler) GetLedger(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "ErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	txs, err := h.Repo.GetTransactions(r.Context(), userID)
 	if err != nil {
 		log.Printf("Error fetching ledger for user %s: %v", userID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load transactions")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadTransactions", "Failed to load transactions"))
 		return
 	}
 
@@ -115,21 +132,21 @@ func (h *CreatorHandler) GetLedger(w http.ResponseWriter, r *http.Request) {
 func (h *CreatorHandler) RequestPayout(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "ErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	var payload models.PayoutRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendError(w, http.StatusBadRequest, "Invalid request payload")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload"))
 		return
 	}
 
 	err := h.Repo.RequestPayout(r.Context(), userID, payload.Amount)
 	if err != nil {
 		log.Printf("Payout error for user %s: %v", userID, err)
-		sendError(w, http.StatusBadRequest, err.Error()) // Pass through exact reason (e.g., "insufficient funds")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrPayoutFailed", err.Error())) // Pass through exact reason (e.g., "insufficient funds")
 		return
 	}
 

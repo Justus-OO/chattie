@@ -1,7 +1,7 @@
 package main
 
 import (
-	"chattie-backend/models"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,56 +14,147 @@ import (
 	"chattie-backend/database"
 	"chattie-backend/handlers"
 	"chattie-backend/middlewares"
+	"chattie-backend/models"
 	"chattie-backend/repository"
+	"chattie-backend/services"
+	"chattie-backend/workers"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
 
 func main() {
-	// 1. Load Configuration
+	// =======================================================
+	// 1. LOAD CONFIGURATION, LOCALIZATION & DATABASE
+	// =======================================================
 	cfg := config.LoadConfig()
 
-	// 2. Initialize PostgreSQL Database
+	if err := services.InitI18n(); err != nil {
+		log.Fatalf("Failed to load translations: %v", err)
+	}
+
 	db := database.ConnectDB(cfg.DBUrl)
 	defer db.Close()
 
-	// 3. Initialize Repository and All Handlers
+	handlers.ReloadFilters(db)
+
+	// =======================================================
+	// 2. INITIALIZE ALL REPOSITORIES FIRST
+	// =======================================================
 	repo := repository.NewRepository(db)
-	authHandler := handlers.NewAuthHandler(repo)
-	onboardingHandler := handlers.NewOnboardingHandler(repo)
-	discoverHandler := handlers.NewDiscoverHandler(repo)
-	gridHandler := handlers.NewGridHandler(repo)
-	interactionHandler := handlers.NewInteractionHandler(repo)
-	extrasHandler := handlers.NewExtrasHandler(repo)
-	creatorHandler := handlers.NewCreatorHandler(repo)
-
-	// Initialize Settings Infrastructure
 	settingsRepo := repository.NewSettingsRepository(db)
-	settingsHandler := handlers.NewSettingsHandler(settingsRepo)
-
-	// Initialize Room Infrastructure
 	roomRepo := repository.NewRoomRepository(db)
-	roomHandler := handlers.NewRoomHandler(roomRepo)
-
-	// Initialize Chat Infrastructure & WebSocket Hub
 	chatRepo := repository.NewChatRepository(db)
-	chatHub := handlers.NewHub()
+	adminTSRepo := repository.NewAdminRepository(db)
+
+	// After Dark Repositories
+	adPerformerRepo := repository.NewADPerformerRepository(db)
+	adProfileRepo := repository.NewADProfileRepository(db)
+	adMediaRepo := repository.NewADMediaRepository(db)
+	adDiscoveryRepo := repository.NewADDiscoveryRepository(db)
+	adBillingRepo := repository.NewADBillingRepository(db)
+	adInteractionsRepo := repository.NewADInteractionsRepository(db)
+	adChatRepo := repository.NewADChatRepository(db)
+	adFinanceRepo := repository.NewADFinanceRepository(db)
+	adSubscriptionRepo := repository.NewADSubscriptionRepository(db)
+	adLiveRepo := repository.NewADLiveRepository(db)
+	adSettingsRepo := repository.NewADSettingsRepository(db)
+	// =======================================================
+	// 3. INITIALIZE CORE SERVICES & EVENT HUB
+	// =======================================================
+	// Storage Service (Backblaze B2)
+	uploadService := services.NewUploadService()
+
+	// AWS SDK Configuration (Required for Rekognition)
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
+	if err != nil {
+		log.Fatalf("CRITICAL: Failed to load AWS config for Verification Service: %v", err)
+	}
+	verificationService := services.NewVerificationService(awsCfg)
+
+	// Chat & WebSockets
+	chatHub := handlers.NewHub(chatRepo)
 	go chatHub.Run()
 	chatHandler := handlers.NewWebSocketHandler(chatHub, chatRepo)
 
-	// Initialize Admin Infrastructure
-	adminCreatorHandler := handlers.NewAdminCreatorHandler(repo)
-	adminClientHandler := handlers.NewAdminClientHandler(repo)
+	// Email Engine
+	emailClient := services.NewEmailClient()
+	emailClient.ConfigureQueue(repo)
+	go emailClient.ProcessQueue(context.Background())
+	emailHandler := handlers.NewEmailHandler(repo, emailClient)
+
+	// SMS Engine
+	smsClient := services.NewSMSClient()
+	smsClient.ConfigureQueue(repo)
+	go smsClient.ProcessQueue(context.Background())
+
+	// Dynamic Billing Router
+	stripeGateway := services.NewStripeGateway()
+	paystackGateway := services.NewPaystackGateway()
+	billingRouter := services.NewBillingRouter(stripeGateway, paystackGateway)
+
+	// Notification Engine & Event Handler
+	notifService := services.NewNotificationService(repo, emailClient, chatHub)
+	eventHandler := services.NewEventHandler(repo, notifService)
+
+	// =======================================================
+	// 4. START BACKGROUND WORKERS
+	// =======================================================
+	go handlers.StartActionLogger(repo)
+	go handlers.ProcessActionJobs(context.Background(), repo)
+	go handlers.ProcessExportJobs(context.Background(), repo, settingsRepo, emailHandler)
+
+	cronWorker := workers.NewCronWorker(repo, notifService)
+	cronWorker.Start(context.Background())
+
+	// =======================================================
+	// 5. INITIALIZE HTTP HANDLERS
+	// =======================================================
+	// Onboarding & Auth Handlers
+	otpHandler := handlers.NewOTPHandler(repo, smsClient, emailHandler)
+	onboardingHandler := handlers.NewOnboardingHandler(repo, emailHandler, uploadService)
+	authHandler := handlers.NewAuthHandler(repo, eventHandler)
+
+	// Core Handlers
+	discoverHandler := handlers.NewDiscoverHandler(repo)
+	gridHandler := handlers.NewGridHandler(repo)
+	interactionHandler := handlers.NewInteractionHandler(repo, eventHandler)
+	roomHandler := handlers.NewRoomHandler(roomRepo, eventHandler)
+	notificationHandler := handlers.NewNotificationHandler(repo)
+
+	// Settings & Billing Handlers
+	billingHandler := handlers.NewBillingHandler(repo, billingRouter, eventHandler)
+	extrasHandler := handlers.NewExtrasHandler(repo, eventHandler)
+	settingsHandler := handlers.NewSettingsHandler(settingsRepo, uploadService, emailHandler, eventHandler, verificationService)
+	creatorHandler := handlers.NewCreatorHandler(repo, eventHandler)
+
+	// After Dark Handlers
+	adPerformerHandler := handlers.NewADPerformerHandler(adPerformerRepo)
+	adProfileHandler := handlers.NewADProfileHandler(adProfileRepo)
+	adMediaHandler := handlers.NewADMediaHandler(adMediaRepo, uploadService)
+	adDiscoveryHandler := handlers.NewADDiscoveryHandler(adDiscoveryRepo)
+	adBillingHandler := handlers.NewADBillingHandler(adBillingRepo)
+	adInteractionsHandler := handlers.NewADInteractionsHandler(adInteractionsRepo)
+	adChatHandler := handlers.NewADChatHandler(adChatRepo, adMediaRepo, uploadService)
+	adFinanceHandler := handlers.NewADFinanceHandler(adFinanceRepo)
+	adSubscriptionHandler := handlers.NewADSubscriptionHandler(adSubscriptionRepo)
+	adLiveHandler := handlers.NewADLiveHandler(adLiveRepo)
+	adSettingsHandler := handlers.NewADSettingsHandler(adSettingsRepo)
+	// adMediaHandler := handlers.NewADMediaHandler(adMediaRepo, uploadService) // Ready for Phase 2 completion
+
+	// Admin Infrastructure Handlers
+	adminCreatorHandler := handlers.NewAdminCreatorHandler(repo, eventHandler)
+	adminClientHandler := handlers.NewAdminClientHandler(repo, eventHandler)
 	adminMediaHandler := handlers.NewAdminMediaHandler(repo)
-	adminRoomHandler := handlers.NewAdminRoomHandler(repo)
+	adminRoomHandler := handlers.NewAdminRoomHandler(repo, chatHub)
+	pdfHandler := handlers.NewPDFHandler(repo)
+	adminTSHandler := handlers.NewAdminHandler(adminTSRepo, eventHandler)
 
-	// Initialize Trust & Safety Moderation Infrastructure
-	adminTSRepo := repository.NewAdminRepository(db)
-	adminTSHandler := handlers.NewAdminHandler(adminTSRepo)
-
-	// 4. Setup Router
+	// =======================================================
+	// 6. SETUP ROUTER & MIDDLEWARES
+	// =======================================================
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -71,24 +162,119 @@ func main() {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Accept-Language"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+	// Security & Localization Middlewares
+	r.Use(middlewares.IPBanMiddleware(db))
+	r.Use(services.I18nMiddleware)
 
-	// 5. Register Public API Routes
+	// Public API Routes
 	r.Post("/api/auth/register", authHandler.Register)
 	r.Post("/api/auth/login", authHandler.Login)
-
-	// WebSocket Endpoint (Handles real-time communication protocol upgrade)
+	r.Post("/api/auth/google", authHandler.GoogleSignIn)
+	r.Post("/api/auth/apple", authHandler.AppleSignIn)
 	r.Get("/ws", chatHandler.HandleWebSocket)
 
-	// 6. Register Protected API Routes (Requires JWT Authentication)
+	// Protected API Routes (Requires JWT Authentication)
 	r.Group(func(r chi.Router) {
-		r.Use(middlewares.AuthMiddleware) // Secures every route inside this group!
+		r.Use(middlewares.AuthMiddleware)
+
+		// -----------------------------------------------------
+		// AFTER DARK (AD) ROUTES
+		// -----------------------------------------------------
+		r.Route("/api/afterdark", func(r chi.Router) {
+			// Onboarding & Consents
+			r.Post("/me/creator-application", adPerformerHandler.SubmitApplication)
+
+			// Creator Profile Management
+			r.Get("/me/creator-profile", adProfileHandler.GetMyPerformerProfile)
+			r.Patch("/me/creator-profile", adProfileHandler.UpdateMyPerformerProfile)
+			r.Post("/me/creator-profile/{kind}-upload", adMediaHandler.UploadCreatorImage)
+
+			r.Get("/me/posts", adMediaHandler.GetVaultPosts)
+			r.Post("/me/posts", adMediaHandler.CreatePost)
+			r.Patch("/me/posts/{postId}", adMediaHandler.UpdatePost)
+
+			r.Get("/creators", adDiscoveryHandler.GetDirectory)
+			r.Get("/creators/{creatorId}", adDiscoveryHandler.GetCreatorProfile)
+			r.Get("/feed", adDiscoveryHandler.GetFeed)
+			r.Get("/posts/{postId}/media-url", adMediaHandler.GetPostMediaURL)
+
+			r.Get("/wallet", adBillingHandler.GetWallet)
+			r.Post("/checkout-intents", adBillingHandler.UnlockPostWithWallet)
+			r.Get("/checkout-intents/{intentId}", adFinanceHandler.GetCheckoutIntent)
+
+			r.Post("/posts/{postId}/likes", adInteractionsHandler.ToggleLike)
+			r.Get("/posts/{postId}/comments", adInteractionsHandler.GetComments)
+			r.Post("/posts/{postId}/comments", adInteractionsHandler.AddComment)
+			r.Post("/moderation/reports", adInteractionsHandler.SubmitReport)
+
+			r.Post("/conversations", adChatHandler.InitConversation)
+			r.Get("/conversations", adChatHandler.GetConversations)
+			r.Post("/conversations/{conversationId}/attachments", adChatHandler.UploadAttachment)
+			r.Get("/conversations/{conversationId}/messages", adChatHandler.GetMessages)
+			r.Post("/conversations/{conversationId}/messages", adChatHandler.SendMessage)
+
+			r.Post("/wallet/deposits", adFinanceHandler.InitiateDeposit)
+			r.Post("/wallet/withdrawals", adFinanceHandler.RequestWithdrawal)
+
+			r.Post("/creators/{creatorId}/subscriptions", adSubscriptionHandler.Subscribe)
+			r.Post("/creators/{creatorId}/tips", adFinanceHandler.SendTip)
+			r.Get("/me/subscriptions", adSubscriptionHandler.GetMySubscriptions)
+
+			r.Get("/live-sessions", adLiveHandler.GetLiveSessions)
+			r.Post("/live-sessions", adLiveHandler.StartLive)
+			r.Post("/live-sessions/{sessionId}/leave", adLiveHandler.LeaveLive)
+			r.Post("/live-sessions/{sessionId}/join", adLiveHandler.JoinLive)
+			r.Post("/live-sessions/{sessionId}/end", adLiveHandler.EndLive)
+			r.Post("/live-sessions/{sessionId}/guest-requests", adLiveHandler.RequestStage)
+			r.Post("/live-sessions/{sessionId}/guest-requests/{viewerId}/approve", adLiveHandler.ApproveGuest)
+			r.Post("/live-sessions/{sessionId}/guest-requests/{viewerId}/deny", adLiveHandler.DenyGuest)
+
+			r.Post("/me/creator-pause", adSettingsHandler.PauseCreator)
+			r.Delete("/me/creator-pause", adSettingsHandler.ResumeCreator)
+			r.Delete("/me/creator-status", adSettingsHandler.DeactivateCreator)
+			r.Patch("/me/settings", adSettingsHandler.UpdateSettings)
+			r.Put("/me/settings/security", adSettingsHandler.UpdateSecuritySettings)
+			r.Post("/me/data-export", adSettingsHandler.RequestDataExport)
+
+			r.Get("/stories", adDiscoveryHandler.GetStories)
+			r.Delete("/me/posts/{postId}", adMediaHandler.DeletePost)
+			r.Post("/conversations/{conversationId}/read", adChatHandler.MarkRead)
+			r.Post("/live-sessions/{sessionId}/stage/{participantId}/remove", adLiveHandler.RemoveGuest)
+
+			r.Post("/creators/{creatorId}/follow", adDiscoveryHandler.ToggleFollow)
+			r.Post("/share-links", adDiscoveryHandler.CreateShareLink)
+			r.Post("/me/payout-methods", adFinanceHandler.AddPayoutMethod)
+
+			r.Get("/me/settings", adSettingsHandler.GetSettings)
+			r.Get("/wallet/history", adFinanceHandler.GetTransactionHistory)
+			r.Get("/wallet/transactions", adFinanceHandler.GetTransactionHistory)
+			r.Get("/me/payout-methods", adFinanceHandler.GetPayoutMethods)
+
+			r.Get("/me/earnings", adFinanceHandler.GetEarnings)
+
+			// 2. Fix for 405 on /wallet/withdrawals
+			r.Get("/wallet/withdrawals", adFinanceHandler.GetWithdrawals)
+			// Note: You should already have r.Post("/wallet/withdrawals", ...) defined.
+			// The 405 means the POST exists but the GET is missing. Ensure both are there.
+
+			// 3. Fix for 404 on /me/subscribers
+			r.Get("/me/subscribers", adProfileHandler.GetSubscribers)
+
+			// r.Post("/uploads", adMediaHandler.ReserveUpload)
+			// r.Post("/uploads/{uploadId}/complete", adMediaHandler.CompleteUpload)
+			// r.Get("/me/posts", adMediaHandler.GetVaultPosts)
+			// r.Post("/me/posts", adMediaHandler.CreatePost)
+		})
 
 		// Profile & Onboarding Routes
 		r.Route("/api/profile", func(r chi.Router) {
+			r.Post("/request-otp", otpHandler.RequestOTP)
+			r.Post("/verify-otp", onboardingHandler.VerifyOTP)
+			r.Post("/media/initial", onboardingHandler.SetupInitialMedia)
 			r.Post("/setup", onboardingHandler.SetupProfile)
 			r.Post("/location", onboardingHandler.SetupLocation)
 			r.Post("/preferences", onboardingHandler.SetupPreferences)
@@ -99,9 +285,16 @@ func main() {
 		r.Route("/api/settings", func(r chi.Router) {
 			r.Get("/", settingsHandler.GetSettings)
 			r.Put("/", settingsHandler.UpdateSettings)
+			r.Post("/password", authHandler.ChangePassword)
 			r.Delete("/account", settingsHandler.DeleteAccount)
 
-			// Media Vault Routes
+			r.Get("/verification-config", settingsHandler.GetVerificationConfig)
+			r.Post("/verify", settingsHandler.VerifyProfile)
+			r.Post("/request-data", settingsHandler.RequestDataDownload)
+			r.Post("/terminate-sessions", settingsHandler.TerminateOtherSessions)
+			r.Get("/blocked", settingsHandler.GetBlockedUsers)
+			r.Delete("/blocked/{id}", settingsHandler.UnblockUser)
+
 			r.Get("/media", settingsHandler.GetMediaVault)
 			r.Post("/media", settingsHandler.UploadMedia)
 			r.Delete("/media/{media_id}", settingsHandler.DeleteMedia)
@@ -110,8 +303,6 @@ func main() {
 
 		// Discovery Routes
 		r.Get("/api/discover/deck", discoverHandler.GetSwipeDeck)
-
-		// Grid Discovery & Filter Routes
 		r.Get("/api/grid", gridHandler.GetGridBrowse)
 
 		// Interaction & Match Routes
@@ -123,6 +314,14 @@ func main() {
 		})
 		r.Get("/api/matches", interactionHandler.GetMatches)
 
+		// Notifications Routes
+		r.Route("/api/notifications", func(r chi.Router) {
+			r.Get("/", notificationHandler.List)
+			r.Patch("/read", notificationHandler.MarkAllRead)
+			r.Patch("/{id}/read", notificationHandler.MarkRead)
+			r.Delete("/{id}", notificationHandler.Delete)
+		})
+
 		// Rooms Routes
 		r.Route("/api/rooms", func(r chi.Router) {
 			r.Get("/", roomHandler.GetRooms)
@@ -133,11 +332,18 @@ func main() {
 			r.Get("/{roomId}/participants", roomHandler.GetRoomParticipants)
 			r.Get("/{roomId}/admin-details", roomHandler.GetRoomAdminDetails)
 			r.Post("/{roomId}/manage-request", roomHandler.ManageJoinRequest)
+			r.Put("/{roomId}", roomHandler.UpdateRoom)
+			r.Post("/{roomId}/leave", roomHandler.LeaveRoom)
+			r.Post("/{roomId}/moderate", roomHandler.KickOrBanParticipant)
 		})
 
 		// Subscriptions & Monetization Routes
 		r.Route("/api/subscriptions", func(r chi.Router) {
-			r.Post("/upgrade", extrasHandler.HandleUpgrade)
+			r.Post("/upgrade", billingHandler.UpgradeTier)
+			r.Get("/plans", billingHandler.GetPlans)
+			r.Get("/verify", billingHandler.VerifyPayment)
+			r.Post("/kyc", settingsHandler.VerifyIdentityKYC)
+			r.Post("/extras", extrasHandler.HandleUpgrade)
 		})
 
 		// Extras, Moderation & Guidelines Routes
@@ -148,8 +354,10 @@ func main() {
 			r.Post("/guidelines/agree", extrasHandler.HandleAgreeGuidelines)
 		})
 
+		// Admin Routes
 		r.Route("/api/admin", func(r chi.Router) {
-			// Media Vault Management
+			r.Use(middlewares.RequireRole("admin"))
+
 			r.Route("/media", func(r chi.Router) {
 				r.Get("/vaults", adminMediaHandler.GetVaults)
 				r.Get("/vaults/{id}/gallery", adminMediaHandler.GetVaultGallery)
@@ -159,18 +367,15 @@ func main() {
 				r.Get("/audit-logs", adminMediaHandler.GetAuditLogs)
 			})
 
-			// Rooms Management (STATIC ROUTES PLACED ABOVE DYNAMIC ROUTES)
 			r.Route("/rooms", func(r chi.Router) {
 				r.Get("/", adminRoomHandler.GetRooms)
 				r.Get("/knocks", adminRoomHandler.GetKnocks)
 				r.Post("/knocks/{knockId}/resolve", adminRoomHandler.ResolveKnock)
-
 				r.Delete("/{id}", adminRoomHandler.TerminateRoom)
 				r.Get("/{id}/participants", adminRoomHandler.GetParticipants)
 				r.Delete("/{id}/participants/{userId}", adminRoomHandler.KickParticipant)
 			})
 
-			// Trust & Safety / Moderation
 			r.Route("/moderation", func(r chi.Router) {
 				r.Get("/queue", adminTSHandler.GetQueue)
 				r.Post("/action", adminTSHandler.ResolveIncident)
@@ -179,32 +384,33 @@ func main() {
 				r.Post("/rules/toggle", adminTSHandler.ToggleFirewallRule)
 			})
 
-			// Operator & Roster Management
 			r.Get("/operators", adminCreatorHandler.GetAdminRoster)
 			r.Patch("/operators/{id}/commission", adminCreatorHandler.UpdateCommission)
 			r.Patch("/operators/{id}/status", adminCreatorHandler.UpdateOperatorStatus)
 			r.Patch("/operators/{id}/autopilot", adminCreatorHandler.ToggleAutoPilot)
 
-			// Persona Binding
 			r.Post("/operators/{id}/personas/{personaId}", adminCreatorHandler.BindPersona)
 			r.Delete("/operators/{id}/personas/{personaId}", adminCreatorHandler.UnbindPersona)
 
-			// Metrics & Provisioning
 			r.Get("/personas-metrics", adminCreatorHandler.GetPersonasMetrics)
 			r.Post("/creators/provision", adminCreatorHandler.CreateCreatorAccount)
 
-			// Client Directory & Telemetry
 			r.Get("/clients", adminClientHandler.GetClientDirectory)
-			r.Get("/clients/telemetry", adminClientHandler.GetClientTelemetry)
+			r.Get("/clients/{id}/telemetry", adminTSHandler.GetClientTelemetry)
 			r.Patch("/clients/{id}/ban", adminClientHandler.ToggleBan)
 			r.Patch("/clients/{id}/revoke-tier", adminClientHandler.RevokeTier)
 
 			r.Post("/personas", adminCreatorHandler.CreatePersona)
+
+			// Report Routes (PDF generation)
+			r.Route("/reports", func(r chi.Router) {
+				r.Get("/user/{userId}", pdfHandler.GenerateUserReport)
+				r.Get("/financial", pdfHandler.GenerateFinancialLedger)
+				r.Get("/security", pdfHandler.GenerateSecurityReport)
+			})
 		})
 
-		// =====================================================================
-		// CREATOR / MODEL ROUTES (SECURED BY JWT + ROLE CHECK)
-		// =====================================================================
+		// Creator / Model Routes
 		r.Route("/api/creator", func(r chi.Router) {
 			r.Use(middlewares.RequireRole("model"))
 
@@ -217,10 +423,12 @@ func main() {
 			r.Get("/ledger", creatorHandler.GetLedger)
 			r.Post("/payout", creatorHandler.RequestPayout)
 			r.Get("/profiles/{profile_id}/media", creatorHandler.GetProfileMedia)
+			r.Get("/insights/{userId}", chatHandler.GetUserInsights)
 		})
 
 		// Chat & Inbox Routes
 		r.Route("/api/chats", func(r chi.Router) {
+			r.Post("/media", handlers.UploadChatMedia)
 			r.Get("/inbox", chatHandler.GetInbox)
 
 			r.Patch("/{target_id}/read", func(w http.ResponseWriter, r *http.Request) {
@@ -232,16 +440,18 @@ func main() {
 					return
 				}
 
-				_, err := db.Exec(`
-                UPDATE messages 
-                SET status = 'read' 
-                WHERE recipient_id = $1 AND sender_id = $2 AND status = 'sent'
-             `, userID, targetID)
-
+				err := chatRepo.MarkMessagesAsRead(userID, targetID)
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
+
+				handlers.ActionLogQueue <- models.ActionLog{
+					UserID:     userID,
+					ActionType: "MESSAGES_READ_HTTP",
+					TargetID:   targetID,
+				}
+
 				w.WriteHeader(http.StatusOK)
 			})
 
@@ -278,11 +488,14 @@ func main() {
 		})
 	})
 
+	// Static Assets Server
 	workDir, _ := os.Getwd()
 	filesDir := http.Dir(filepath.Join(workDir, "uploads"))
 	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(filesDir)))
 
-	// 7. Configure & Start Server
+	// =======================================================
+	// 7. CONFIGURE & START SERVER
+	// =======================================================
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,

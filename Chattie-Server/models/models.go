@@ -12,12 +12,13 @@ type User struct {
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Provider  string    `json:"provider"`
 }
 
-// Step 2: Demographics
 type UserProfile struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
+	PhoneNumber string `json:"phone_number"`
 	DateOfBirth string `json:"date_of_birth"` // Format: YYYY-MM-DD
 	Gender      string `json:"gender"`
 	Bio         string `json:"bio"`
@@ -25,7 +26,6 @@ type UserProfile struct {
 	Verified    bool   `json:"verified"`
 }
 
-// Step 3: Location
 type UserLocation struct {
 	UserID    string  `json:"user_id"`
 	Latitude  float64 `json:"latitude"`
@@ -64,4 +64,9 @@ type DiscoverProfile struct {
 	Tags        []string `json:"tags"`        // Aggregated from user_tags
 	Images      []string `json:"images"`      // Aggregated from UserMedia
 	Intent      string   `json:"intent"`      // e.g., "Casual", "Dating"
+}
+type ConsentLog struct {
+	UserID    string `json:"user_id"`
+	IPAddress string `json:"ip_address"`
+	UserAgent string `json:"user_agent"`
 }

@@ -1,0 +1,40 @@
+package models
+
+import "time"
+
+type ADConversation struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ADConversationSummary struct {
+	ID             string            `json:"id"`
+	ConversationID string            `json:"conversation_id"`
+	OtherUserID    string            `json:"other_user_id"`
+	OtherUser      ADChatParticipant `json:"other_user"`
+	LastMessage    string            `json:"last_message"`
+	LastMessageAt  time.Time         `json:"last_message_at"`
+	UnreadCount    int               `json:"unread_count"`
+	HasAccess      bool              `json:"has_access"`
+}
+
+type ADChatParticipant struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	Username    string `json:"username,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+}
+
+type ADMessage struct {
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	SenderID       string    `json:"sender_id"`
+	Content        string    `json:"content"`
+	MediaAssetID   string    `json:"media_asset_id,omitempty"`
+	MediaURL       string    `json:"media_url,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	IsExplicit     bool      `json:"is_explicit"`
+	IsRead         bool      `json:"is_read"`
+	CreatedAt      time.Time `json:"created_at"`
+}

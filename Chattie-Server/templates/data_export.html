@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #000; color: #fff; margin: 0; padding: 40px; }
+        .header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+        h1 { color: #fff; text-transform: uppercase; letter-spacing: 2px; margin: 0; }
+        .meta { font-size: 10px; color: #888; text-transform: uppercase; margin-top: 5px; }
+        h2 { color: #facc15; text-transform: uppercase; border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 40px; font-size: 14px; }
+        .card { background: #111; border: 1px solid #333; padding: 20px; margin-bottom: 15px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .label { font-size: 9px; color: #888; text-transform: uppercase; }
+        .val { font-size: 13px; font-weight: bold; margin-bottom: 10px; }
+        .list-item { border-bottom: 1px solid #222; padding: 10px 0; }
+        .list-item:last-child { border-bottom: none; }
+        .sub-text { font-size: 10px; color: #888; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>Personal Data Dossier</h1>
+    <div class="meta">Account: {{.UserID}} | Exported: {{.ExportDate}}</div>
+</div>
+
+<h2>1. Profile & Settings</h2>
+<div class="card">
+    <div class="grid">
+        <div><div class="label">Global Mode</div><div class="val">{{.Settings.ShowMe}}</div></div>
+        <div><div class="label">Show Me</div><div class="val">{{.Settings.ShowMe}}</div></div>
+        <div><div class="label">Incognito Browsing</div><div class="val">{{.Settings.ShowMe}}</div></div>
+        <div><div class="label">Read Receipts</div><div class="val">{{.Settings.ShowMe}}</div></div>
+    </div>
+</div>
+
+<h2>2. Connection Roster ({{.MatchCount}} Matches)</h2>
+<div class="card">
+    {{range .Matches}}
+    <div class="list-item">
+        <div class="val">Match ID: {{.ID}}</div>
+        <div class="sub-text">Matched on: {{.CreatedAt}}</div>
+    </div>
+    {{else}}
+    <div class="sub-text">No matches found on record.</div>
+    {{end}}
+</div>
+
+<h2>3. Communication Logs ({{.MsgCount}} Messages)</h2>
+<div class="card">
+    {{range .Messages}}
+    <div class="list-item">
+        <div class="sub-text">[{{.CreatedAt}}] - <b>Type:</b> {{.Type}}</div>
+        <div class="val" style="margin-top: 5px;">{{.Content}}</div>
+    </div>
+    {{else}}
+    <div class="sub-text">No message history found on record.</div>
+    {{end}}
+</div>
+
+</body>
+</html>

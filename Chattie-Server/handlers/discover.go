@@ -22,7 +22,7 @@ func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
 	// Extract user ID from JWT
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -37,7 +37,7 @@ func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
 	// Fetch curated profiles
 	profiles, err := h.Repo.GetSwipeDeck(r.Context(), userID, limit, offset)
 	if err != nil {
-		http.Error(w, "Failed to generate discover deck", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedGenerateDiscoverDeck", "Failed to generate discover deck"), http.StatusInternalServerError)
 		return
 	}
 

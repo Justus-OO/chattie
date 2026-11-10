@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -8,17 +9,22 @@ import (
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
 	"chattie-backend/repository"
+	"chattie-backend/services"
 
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AdminCreatorHandler struct {
-	Repo *repository.Repository
+	Repo   *repository.Repository
+	Events *services.EventHandler // For operator notifications
 }
 
-func NewAdminCreatorHandler(repo *repository.Repository) *AdminCreatorHandler {
-	return &AdminCreatorHandler{Repo: repo}
+func NewAdminCreatorHandler(repo *repository.Repository, events *services.EventHandler) *AdminCreatorHandler {
+	return &AdminCreatorHandler{
+		Repo:   repo,
+		Events: events,
+	}
 }
 
 func sendAdminJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -38,7 +44,7 @@ func (h *AdminCreatorHandler) GetAdminRoster(w http.ResponseWriter, r *http.Requ
 	operators, err := h.Repo.GetOperatorRoster(r.Context())
 	if err != nil {
 		log.Printf("Error fetching operator roster: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load roster")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadRoster", "Failed to load roster"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, operators)
@@ -52,22 +58,22 @@ func (h *AdminCreatorHandler) UpdateCommission(w http.ResponseWriter, r *http.Re
 		Rate float64 `json:"rate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidPayload", "Invalid payload"))
 		return
 	}
 
 	if payload.Rate < 0 || payload.Rate > 100 {
-		sendAdminError(w, http.StatusBadRequest, "Commission rate must be between 0 and 100")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrCommissionRateRange", "Commission rate must be between 0 and 100"))
 		return
 	}
 
 	err := h.Repo.UpdateOperatorCommission(r.Context(), operatorID, payload.Rate)
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to update commission")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedUpdateCommission", "Failed to update commission"))
 		return
 	}
 
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Commission rate updated successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgCommissionUpdated", "Commission rate updated successfully")})
 }
 
 // UpdateOperatorStatus handles PATCH /api/admin/operators/{id}/status (Overrides & Suspensions)
@@ -76,19 +82,39 @@ func (h *AdminCreatorHandler) UpdateOperatorStatus(w http.ResponseWriter, r *htt
 	var payload models.StatusUpdateRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid request payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload"))
 		return
 	}
 
 	// Validate status
 	if payload.Status != "ONLINE" && payload.Status != "OFFLINE" && payload.Status != "SUSPENDED" {
-		sendAdminError(w, http.StatusBadRequest, "Invalid status state")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidStatusState", "Invalid status state"))
 		return
 	}
 
 	if err := h.Repo.UpdateOperatorStatus(r.Context(), operatorID, payload.Status); err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to update status")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedUpdateStatus", "Failed to update status"))
 		return
+	}
+
+	// Notify operator of status change if it's a significant action
+	if payload.Status == "SUSPENDED" {
+		// FIX: Use r.Context() to get the request's context before detaching
+		detachedCtx := context.WithoutCancel(r.Context())
+
+		go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
+			RecipientID:   operatorID,
+			WSEventType:   "OPERATOR_SUSPENDED",
+			WSPayload:     map[string]interface{}{"status": payload.Status},
+			EmailTemplate: "operator_suspended",
+		})
+
+	} else if payload.Status == "ONLINE" {
+		// ActionLogQueue <- models.ActionLog{
+		// 	UserID:     operatorID,
+		// 	ActionType: "OPERATOR_ACTIVATED",
+		// 	IP:         r.RemoteAddr,
+		// }
 	}
 
 	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Status updated successfully"})
@@ -100,16 +126,16 @@ func (h *AdminCreatorHandler) ToggleAutoPilot(w http.ResponseWriter, r *http.Req
 	var payload models.AutoPilotRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid request payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload"))
 		return
 	}
 
 	if err := h.Repo.ToggleOperatorAutoPilot(r.Context(), operatorID, payload.Active); err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to toggle AI auto-pilot")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToggleAutoPilot", "Failed to toggle AI auto-pilot"))
 		return
 	}
 
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Auto-Pilot state updated"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgAutoPilotUpdated", "Auto-Pilot state updated")})
 }
 
 // BindPersona handles POST /api/admin/operators/{id}/personas/{personaId}
@@ -156,19 +182,19 @@ func (h *AdminCreatorHandler) GetPersonasMetrics(w http.ResponseWriter, r *http.
 func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "ErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	var payload models.AdminCreateCreatorRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid request payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload"))
 		return
 	}
 
 	if payload.Email == "" || payload.Username == "" || payload.Password == "" {
-		sendAdminError(w, http.StatusBadRequest, "Email, username, and password are required")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrEmailUsernamePasswordRequired", "Email, username, and password are required"))
 		return
 	}
 
@@ -182,10 +208,10 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 
 	var userID string
 	err = h.Repo.DB.QueryRowContext(ctx, `
-		INSERT INTO users (email, username, password_hash, role, status)
-		VALUES ($1, $2, $3, 'model', 'active')
-		RETURNING id::text
-	`, payload.Email, payload.Username, string(hashedPassword)).Scan(&userID)
+       INSERT INTO users (email, username, password_hash, role, status)
+       VALUES ($1, $2, $3, 'model', 'active')
+       RETURNING id::text
+    `, payload.Email, payload.Username, string(hashedPassword)).Scan(&userID)
 
 	if err != nil {
 		sendAdminError(w, http.StatusBadRequest, "Email or username already exists")
@@ -193,9 +219,9 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 	}
 
 	_, err = h.Repo.DB.ExecContext(ctx, `
-		INSERT INTO user_profiles (user_id, display_name, date_of_birth, gender, bio, avatar_url, intent, verified)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
-	`, userID, payload.DisplayName, payload.DateOfBirth, payload.Gender, payload.Bio, payload.AvatarURL, payload.Intent)
+       INSERT INTO user_profiles (user_id, display_name, date_of_birth, gender, bio, avatar_url, intent, verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+    `, userID, payload.DisplayName, payload.DateOfBirth, payload.Gender, payload.Bio, payload.AvatarURL, payload.Intent)
 
 	if err != nil {
 		sendAdminError(w, http.StatusInternalServerError, "Failed to create user profile metadata")
@@ -203,15 +229,15 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 	}
 
 	_, _ = h.Repo.DB.ExecContext(ctx, `
-		INSERT INTO creator_stats (user_id, current_balance, total_earned, is_online)
-		VALUES ($1, 0.00, 0.00, FALSE)
-		ON CONFLICT (user_id) DO NOTHING
-	`, userID)
+       INSERT INTO creator_stats (user_id, current_balance, total_earned, is_online)
+       VALUES ($1, 0.00, 0.00, FALSE)
+       ON CONFLICT (user_id) DO NOTHING
+    `, userID)
 
 	_, _ = h.Repo.DB.ExecContext(ctx, `
-		INSERT INTO managed_profiles (manager_id, name, avatar_url, status)
-		VALUES ($1, $2, $3, 'offline')
-	`, userID, payload.DisplayName, payload.AvatarURL)
+       INSERT INTO managed_profiles (manager_id, name, avatar_url, status)
+       VALUES ($1, $2, $3, 'offline')
+    `, userID, payload.DisplayName, payload.AvatarURL)
 
 	sendAdminJSON(w, http.StatusCreated, map[string]string{
 		"message": "Creator account provisioned successfully",

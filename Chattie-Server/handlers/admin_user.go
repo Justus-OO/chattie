@@ -1,20 +1,26 @@
 package handlers
 
 import (
+	"context"
 	"log"
 	"net/http"
 
 	"chattie-backend/repository"
+	"chattie-backend/services"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type AdminClientHandler struct {
-	Repo *repository.Repository
+	Repo   *repository.Repository
+	Events *services.EventHandler // For client notifications
 }
 
-func NewAdminClientHandler(repo *repository.Repository) *AdminClientHandler {
-	return &AdminClientHandler{Repo: repo}
+func NewAdminClientHandler(repo *repository.Repository, events *services.EventHandler) *AdminClientHandler {
+	return &AdminClientHandler{
+		Repo:   repo,
+		Events: events,
+	}
 }
 
 // GetClientDirectory GET /api/admin/clients
@@ -42,10 +48,32 @@ func (h *AdminClientHandler) GetClientTelemetry(w http.ResponseWriter, r *http.R
 func (h *AdminClientHandler) ToggleBan(w http.ResponseWriter, r *http.Request) {
 	clientID := chi.URLParam(r, "id")
 
+	// FIX: Pass r.Context() to GetUserByID
+	user, err := h.Repo.GetUserByID(r.Context(), clientID)
+	if err != nil {
+		sendAdminError(w, http.StatusInternalServerError, "User not found")
+		return
+	}
+	isBanned := user.Status == "BANNED"
+
 	if err := h.Repo.ToggleClientBan(r.Context(), clientID); err != nil {
 		sendAdminError(w, http.StatusInternalServerError, "Failed to update ban status")
 		return
 	}
+
+	// Notify client if they're being banned
+	if !isBanned {
+		// FIX: Detach the context so the goroutine survives after the HTTP response is sent
+		detachedCtx := context.WithoutCancel(r.Context())
+
+		go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
+			RecipientID:   clientID,
+			WSEventType:   "USER_BANNED",
+			WSPayload:     map[string]interface{}{"reason": "Account violation"},
+			EmailTemplate: "account_banned",
+		})
+	}
+
 	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Ban status updated"})
 }
 
