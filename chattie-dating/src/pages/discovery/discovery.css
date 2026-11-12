@@ -1,0 +1,158 @@
+.discovery-shell {
+  background: var(--app-bg) !important;
+  color: var(--text-primary);
+  position: relative;
+}
+
+.discovery-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(92, 74, 61, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(92, 74, 61, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+.discovery-header {
+  background: var(--glass) !important;
+  border-color: var(--border) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.discovery-kicker {
+  color: var(--accent-strong);
+  letter-spacing: 0.16em;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.discovery-title {
+  color: var(--text-primary) !important;
+  letter-spacing: -0.035em !important;
+  font-size: clamp(1.8rem, 3vw, 3rem) !important;
+  line-height: 0.98 !important;
+  text-transform: none !important;
+}
+
+.discovery-subtitle {
+  color: var(--text-secondary) !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  font-size: 0.82rem !important;
+  font-weight: 500 !important;
+}
+
+.discovery-toolbar,
+.discovery-control {
+  background: var(--surface-strong) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow-soft);
+}
+
+.discovery-control:hover,
+.discovery-card:hover {
+  border-color: var(--accent) !important;
+}
+
+.discovery-content {
+  background: transparent !important;
+  position: relative;
+  z-index: 1;
+}
+
+.discovery-card {
+  background: color-mix(in srgb, var(--surface-strong) 94%, var(--accent-soft)) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1.2rem !important;
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.discovery-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-floating);
+}
+
+.discovery-card-image {
+  border: 0 !important;
+  border-radius: 0.9rem !important;
+  background: var(--surface-alt) !important;
+}
+
+.discovery-card-image img {
+  filter: saturate(0.82) contrast(1.02) !important;
+}
+
+.discovery-chip {
+  background: var(--surface-strong) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  border-radius: 999px !important;
+  letter-spacing: 0.06em !important;
+}
+
+.discovery-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+  border-radius: 0.8rem !important;
+  box-shadow: 0 10px 24px rgba(210, 79, 116, 0.2);
+}
+
+.discovery-primary:hover {
+  background: var(--accent-strong) !important;
+  border-color: var(--accent-strong) !important;
+}
+
+.discovery-empty {
+  background: var(--surface-strong) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: var(--shadow-soft);
+}
+
+.discovery-swipe-card {
+  border: 1px solid var(--border) !important;
+  border-radius: 1.5rem !important;
+  box-shadow: 0 28px 70px rgba(67, 51, 36, 0.2) !important;
+}
+
+.discovery-swipe-card > div:first-child {
+  background: var(--surface-strong) !important;
+}
+
+.discovery-swipe-info {
+  background: linear-gradient(180deg, transparent, rgba(17, 12, 10, 0.92)) !important;
+  border-top: 0 !important;
+}
+
+.discovery-action {
+  border-radius: 999px !important;
+  border-color: var(--border) !important;
+  background: var(--surface-strong) !important;
+  box-shadow: var(--shadow-soft) !important;
+}
+
+.discovery-action:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  transform: translateY(-2px);
+}
+
+.discovery-filter-panel,
+.discovery-modal {
+  background: var(--surface-strong) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: var(--shadow-floating) !important;
+}
+
+@media (max-width: 640px) {
+  .discovery-title { font-size: 1.8rem !important; }
+  .discovery-card { border-radius: 1rem !important; }
+}

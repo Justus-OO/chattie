@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  * CHATTIE IMAGE PROCESSING ENGINE
- * Utility suite for cropping, rotating, flipping, and compressing user images.
+ * Utility suite for cropping, rotating, flipping, compressing, and AI Face Detection.
  * ============================================================================
  */
 
@@ -35,13 +35,6 @@ export function rotateSize(width, height, rotation) {
 
 /**
  * Generates a cropped (and optionally rotated/flipped) version of an image.
- * Returns a Blob, Object URL, and File payload ready for Spring Boot.
- * 
- * @param {string} imageSrc - The source URL or Base64 of the image
- * @param {Object} pixelCrop - { x, y, width, height }
- * @param {number} rotation - Rotation in degrees (default: 0)
- * @param {Object} flip - { horizontal: boolean, vertical: boolean }
- * @param {Object} config - { format: 'image/jpeg' | 'image/webp' | 'image/png', quality: number }
  */
 export async function getCroppedImg(
   imageSrc,
@@ -84,11 +77,9 @@ export async function getCroppedImg(
     throw new Error('No 2d context available for cropped canvas.');
   }
 
-  // Set the size of the cropped canvas
   croppedCanvas.width = pixelCrop.width;
   croppedCanvas.height = pixelCrop.height;
 
-  // Draw the extracted data onto the cropped canvas
   croppedCtx.drawImage(
     canvas,
     pixelCrop.x,
@@ -110,21 +101,13 @@ export async function getCroppedImg(
           return;
         }
         
-        // Append a timestamp to prevent browser caching issues when uploading
         const fileName = `chattie_avatar_${Date.now()}.${config.format.split('/')[1]}`;
         blob.name = fileName;
         
-        // Generate a URL for immediate UI preview (Remember to URL.revokeObjectURL(url) later to avoid memory leaks)
         const previewUrl = URL.createObjectURL(blob);
-        
-        // Create an actual File object, which Spring Boot MultiPartFile expects
         const file = new File([blob], fileName, { type: config.format });
 
-        resolve({ 
-          blob, 
-          file,
-          url: previewUrl 
-        });
+        resolve({ blob, file, url: previewUrl });
       },
       config.format,
       config.quality
@@ -134,7 +117,6 @@ export async function getCroppedImg(
 
 /**
  * Utility: Converts a File or Blob directly to a Base64 string.
- * Extremely useful for sending small attachments over the WebSocket in the LiveRoom.
  */
 export const fileToBase64 = (file) => {
   return new Promise((resolve, reject) => {
@@ -146,8 +128,7 @@ export const fileToBase64 = (file) => {
 };
 
 /**
- * Utility: Quick compressor for massive camera uploads before sending to crop.
- * Prevents mobile browsers from crashing when loading 12MB photos into memory.
+ * Utility: Quick compressor for massive camera uploads.
  */
 export const compressImageFile = async (file, maxWidth = 1200, quality = 0.8) => {
   const base64 = await fileToBase64(file);
@@ -178,6 +159,76 @@ export const compressImageFile = async (file, maxWidth = 1200, quality = 0.8) =>
       },
       'image/jpeg',
       quality
+    );
+  });
+};
+
+/**
+ * ============================================================================
+ * AI SMART CROP (MAGIC SELFIE DETECTION)
+ * Uses native browser ML to detect a face, validate it's a solo selfie,
+ * and calculate the perfect padded bounding box for an avatar.
+ * ============================================================================
+ */
+export const smartFaceCrop = async (file, config = { format: 'image/jpeg', quality: 0.9 }) => {
+  const base64 = await fileToBase64(file);
+  const image = await createImage(base64);
+
+  if (!('FaceDetector' in window)) {
+    throw new Error('UNSUPPORTED_BROWSER');
+  }
+
+  const detector = new window.FaceDetector({ fastMode: false, maxDetectedFaces: 3 });
+  const faces = await detector.detect(image);
+
+  if (faces.length === 0) throw new Error('NO_FACE_DETECTED');
+  if (faces.length > 1) throw new Error('MULTIPLE_FACES_DETECTED');
+
+  const face = faces[0].boundingBox;
+
+  const paddingMultiplier = 0.8;
+  let cropSize = Math.max(face.width, face.height) * (1 + paddingMultiplier);
+  
+  cropSize = Math.min(cropSize, image.width, image.height);
+
+  const faceCenterX = face.x + (face.width / 2);
+  const faceCenterY = face.y + (face.height / 2);
+
+  let cropX = faceCenterX - (cropSize / 2);
+  let cropY = faceCenterY - (cropSize / 2);
+
+  if (cropX < 0) cropX = 0;
+  if (cropY < 0) cropY = 0;
+  if (cropX + cropSize > image.width) cropX = image.width - cropSize;
+  if (cropY + cropSize > image.height) cropY = image.height - cropSize;
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  
+  canvas.width = cropSize;
+  canvas.height = cropSize;
+
+  ctx.drawImage(
+    image,
+    cropX, cropY, cropSize, cropSize,
+    0, 0, cropSize, cropSize
+  );
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return reject(new Error('Canvas empty'));
+        
+        const fileName = `chattie_magic_avatar_${Date.now()}.${config.format.split('/')[1]}`;
+        blob.name = fileName;
+        
+        const previewUrl = URL.createObjectURL(blob);
+        const croppedFile = new File([blob], fileName, { type: config.format });
+
+        resolve({ blob, file: croppedFile, url: previewUrl });
+      },
+      config.format,
+      config.quality
     );
   });
 };

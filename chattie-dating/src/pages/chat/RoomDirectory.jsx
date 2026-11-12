@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 // Services & Store
 import { chatService } from '../../api/chat.service';
 import { useAppStore } from '../../store/useAppStore';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
 // CONSTANTS
@@ -21,6 +22,7 @@ const CATEGORIES = ['All', 'Trending', 'Naps & Chill', 'Playtime', 'Treats', 'Gr
 // ============================================================================
 export default function RoomDirectory() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   
   // --- STORE & PERMISSIONS ---
   const currentUser = useAppStore((state) => state.user) || { id: 'me', name: 'You', tier: 'STANDARD' };
@@ -63,7 +65,7 @@ export default function RoomDirectory() {
         setRooms(formattedRooms);
       } catch (error) {
         console.error("Failed to load rooms:", error);
-        toast.error('SYS_ERROR: UNABLE TO FETCH LOUNGES');
+        toast.error(t('unableFetchGroups'));
       } finally {
         setIsLoading(false);
       }
@@ -163,11 +165,11 @@ export default function RoomDirectory() {
   // ============================================================================
   const handleJoinRoom = (room) => {
     if (room.category === 'Exclusive' && !canAccessExclusive) {
-      toast.error('VIP REQUIRED: Upgrade to access exclusive lounges.');
+      toast.error(t('vipRequired'));
       return;
     }
     if (room.isPrivate && !canAccessPrivate) {
-      toast.error('PREMIUM REQUIRED: Upgrade to access private lounges.');
+      toast.error(t('premiumRequired'));
       return;
     }
 
@@ -185,7 +187,7 @@ export default function RoomDirectory() {
     const isVoiceRoom = formData.get('isVoiceRoom') === 'on';
 
     if (isPrivate && !canCreatePrivate) {
-      toast.error('PREMIUM REQUIRED: Upgrade to create private lounges.');
+      toast.error(t('premiumRequired'));
       return;
     }
 
@@ -210,12 +212,12 @@ export default function RoomDirectory() {
 
       setRooms(prev => [formattedRoom, ...prev]);
       setShowCreateModal(false);
-      toast.success(`Lounge "${formattedRoom.name}" opened successfully.`);
+      toast.success(t('loungeOpened', { name: formattedRoom.name }));
       
       navigate(`/rooms/${formattedRoom.id}`, { state: { selectedRoom: formattedRoom } });
     } catch (error) {
       console.error("Failed to create room:", error);
-      toast.error('SYS_ERROR: FAILED TO CREATE LOUNGE');
+      toast.error(t('createLoungeFailed'));
     }
   };
 
@@ -226,7 +228,7 @@ export default function RoomDirectory() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center font-mono text-zinc-300 w-full h-full" style={{ fontFamily: 'Roboto, sans-serif' }}>
         <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
-        <h2 className="text-sm font-black text-white uppercase tracking-widest">SNIFFING OUT THE LOUNGES...</h2>
+        <h2 className="text-sm font-black text-white uppercase tracking-widest">{t('loading')} {t('lounges').toUpperCase()}...</h2>
       </div>
     );
   }
@@ -246,10 +248,10 @@ export default function RoomDirectory() {
             </div>
             <div>
               <h1 className="text-lg font-black text-white uppercase tracking-widest flex items-center gap-2">
-                The Cat Lounge
+                {t('lounge')}
               </h1>
               <span className="text-[9px] font-bold text-green-400 uppercase tracking-widest flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-green-500 animate-pulse rounded-full" /> {processedRooms.length} ROOMS ACTIVE
+                <span className="w-1.5 h-1.5 bg-green-500 animate-pulse rounded-full" /> {t('roomCountActive', { count: processedRooms.length })}
               </span>
             </div>
           </div>
@@ -270,7 +272,7 @@ export default function RoomDirectory() {
               onClick={() => setShowCreateModal(true)}
               className="px-4 py-2 md:px-6 md:py-2 border-2 border-white bg-white text-black font-black uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2"
             >
-              <Plus className="w-4 h-4" /> <span className="hidden md:inline">Start a Lounge</span>
+                <Plus className="w-4 h-4" /> <span className="hidden md:inline">{t('startLounge')}</span>
             </button>
           </div>
         </div>
@@ -281,7 +283,7 @@ export default function RoomDirectory() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input 
               type="text" 
-              placeholder="SEARCH LOUNGES OR TAGS..."
+              placeholder={t('roomSearchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-zinc-950 border-2 border-zinc-800 rounded-none pl-9 pr-4 py-2.5 text-xs font-bold text-white uppercase tracking-widest focus:outline-none focus:border-zinc-500 transition-colors placeholder:text-zinc-700"
@@ -298,7 +300,7 @@ export default function RoomDirectory() {
                   key={cat}
                   onClick={() => {
                     if (isLocked) {
-                      toast.error('VIP REQUIRED: Upgrade to view Exclusive Lounges.');
+                      toast.error(t('vipRequired'));
                       return;
                     }
                     setActiveCategory(cat);
@@ -313,7 +315,7 @@ export default function RoomDirectory() {
                 >
                   {cat === 'Trending' && <Flame className="w-3.5 h-3.5" />}
                   {isExclusive && (isLocked ? <Lock className="w-3.5 h-3.5 text-red-500/50" /> : <Shield className="w-3.5 h-3.5 text-yellow-500" />)}
-                  {cat}
+                  {cat === 'Trending' ? t('hotCategory') : cat === 'All' ? t('allLikes') : cat}
                 </button>
               );
             })}
@@ -327,7 +329,7 @@ export default function RoomDirectory() {
           <div className="flex items-center justify-between mb-4 border-b-2 border-zinc-800 pb-2">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2">
               {activeCategory === 'Trending' ? <Flame className="w-3.5 h-3.5 text-zinc-400" /> : <Hash className="w-3.5 h-3.5 text-zinc-400" />} 
-              {activeCategory === 'All' ? 'Available Lounges' : `${activeCategory} Lounges`}
+              {activeCategory === 'All' ? t('availableLounges') : t('categoryLounges', { category: activeCategory })}
             </h2>
           </div>
           
@@ -336,15 +338,15 @@ export default function RoomDirectory() {
               <div className="w-16 h-16 bg-black flex items-center justify-center border-2 border-zinc-800 mb-4">
                 <Search className="w-6 h-6 text-zinc-600" />
               </div>
-              <h3 className="text-sm font-black text-white mb-2 uppercase tracking-widest">No Lounges Found</h3>
+              <h3 className="text-sm font-black text-white mb-2 uppercase tracking-widest">{t('noLounges')}</h3>
               <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest max-w-sm mb-6 leading-relaxed">
-                We couldn't find any rooms. Start your own room and invite friends.
+                {t('roomsNotFoundStart')}
               </p>
               <button 
                 onClick={() => setShowCreateModal(true)}
                 className="px-6 py-3 border-2 border-zinc-600 bg-zinc-800 text-white font-black uppercase tracking-widest text-[10px] hover:bg-zinc-700 transition-colors"
               >
-                Start a Lounge
+                {t('startLounge')}
               </button>
             </div>
           ) : (
@@ -378,7 +380,7 @@ export default function RoomDirectory() {
                         <span className={`px-2 py-0.5 border text-[8px] font-black uppercase tracking-widest flex items-center gap-1
                           ${room.isVoiceRoom ? 'bg-purple-950/40 border-purple-800 text-purple-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}
                         `}>
-                          {room.isVoiceRoom ? <><Mic className="w-2.5 h-2.5" /> VOICE</> : <><MessageSquare className="w-2.5 h-2.5" /> TEXT</>}
+                          {room.isVoiceRoom ? <><Mic className="w-2.5 h-2.5" /> {t('voice')}</> : <><MessageSquare className="w-2.5 h-2.5" /> {t('text')}</>}
                         </span>
                       </div>
 
@@ -390,7 +392,7 @@ export default function RoomDirectory() {
                         {room.category === 'Exclusive' ? (
                           <><Shield className="w-3 h-3" /> VIP</>
                         ) : room.isPrivate ? (
-                          <><Lock className="w-3 h-3" /> PRV</>
+                          <><Lock className="w-3 h-3" /> {t('privateShort')}</>
                         ) : (
                           <><span className="w-1.5 h-1.5 bg-green-500"></span> {room.active || 0}</>
                         )}
@@ -403,7 +405,7 @@ export default function RoomDirectory() {
                         {isRoomLocked && <Lock className="w-3.5 h-3.5 text-zinc-600" />}
                       </h3>
                       <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest line-clamp-2 mb-4 leading-relaxed min-h-[30px]">
-                        {room.desc || 'No description provided.'}
+                        {room.desc || t('noDescription')}
                       </p>
                       
                       <div className="mt-auto flex flex-wrap gap-1.5">
@@ -438,7 +440,7 @@ export default function RoomDirectory() {
                   <span className={`px-2 py-0.5 border text-[8px] font-black uppercase tracking-widest inline-flex items-center gap-1 mb-1
                     ${previewRoom.isVoiceRoom ? 'bg-purple-950/40 border-purple-800 text-purple-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}
                   `}>
-                    {previewRoom.isVoiceRoom ? <><Mic className="w-2.5 h-2.5" /> VOICE STAGE</> : <><MessageSquare className="w-2.5 h-2.5" /> TEXT LOUNGE</>}
+                    {previewRoom.isVoiceRoom ? <><Mic className="w-2.5 h-2.5" /> {t('voiceStageType')}</> : <><MessageSquare className="w-2.5 h-2.5" /> {t('textLoungeType')}</>}
                   </span>
                 </div>
               </div>
@@ -461,14 +463,14 @@ export default function RoomDirectory() {
                 <span className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" /> {previewRoom.category || 'General'}</span>
                 <span>|</span>
                 <span className="flex items-center gap-1 text-green-500">
-                  <Users className="w-3.5 h-3.5" /> {previewRoom.active || 0} ACTIVE
+                  <Users className="w-3.5 h-3.5" /> {t('activeCount', { count: previewRoom.active || 0 })}
                 </span>
               </div>
 
               <div className="bg-zinc-950 p-4 border-2 border-zinc-800 mb-6">
-                <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-2">ABOUT THE LOUNGE</h3>
+                <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-2">{t('aboutLounge')}</h3>
                 <p className="text-xs font-bold text-zinc-300 uppercase tracking-widest leading-relaxed mb-4">
-                  {previewRoom.desc || 'No description provided.'}
+                  {previewRoom.desc || t('noDescription')}
                 </p>
                 <div className="flex flex-wrap gap-2 pt-3 border-t-2 border-zinc-800">
                   {(previewRoom.tags || []).map(tag => (
@@ -499,11 +501,11 @@ export default function RoomDirectory() {
                     `}
                   >
                     {isLocked ? (
-                      <><Lock className="w-4 h-4" /> UPGRADE TO UNLOCK</>
+                      <><Lock className="w-4 h-4" /> {t('upgradeUnlock')}</>
                     ) : previewRoom.isVoiceRoom ? (
-                      <><Mic className="w-4 h-4" /> JOIN VOICE STAGE</>
+                      <><Mic className="w-4 h-4" /> {t('joinVoice')}</>
                     ) : (
-                      <><MessageSquare className="w-4 h-4" /> ENTER TEXT LOUNGE</>
+                      <><MessageSquare className="w-4 h-4" /> {t('enterText')}</>
                     )}
                   </button>
                 );
@@ -522,7 +524,7 @@ export default function RoomDirectory() {
             
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="font-black text-sm uppercase tracking-widest text-white flex items-center gap-2">
-                <Plus className="w-4 h-4 text-zinc-400" /> Start a Lounge
+                <Plus className="w-4 h-4 text-zinc-400" /> {t('startLounge')}
               </h2>
               <button onClick={() => setShowCreateModal(false)} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors">
                 <X className="w-5 h-5" />
@@ -534,7 +536,7 @@ export default function RoomDirectory() {
                 
                 <div className="flex gap-4">
                   <div className="w-20 shrink-0">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Icon</label>
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('icon')}</label>
                     <input 
                       type="text" 
                       name="roomIcon"
@@ -543,19 +545,19 @@ export default function RoomDirectory() {
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Lounge Name</label>
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('loungeName')}</label>
                     <input 
                       type="text" 
                       name="roomName"
                       required
-                      placeholder="E.G. MIDNIGHT MEOWS"
+                      placeholder={t('loungeSearchExample')}
                       className="w-full h-10 bg-zinc-950 border-2 border-zinc-800 px-3 text-xs font-bold text-white uppercase tracking-widest focus:border-zinc-500 outline-none placeholder:text-zinc-700"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Category</label>
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('category')}</label>
                   <select 
                     name="category" 
                     className="w-full h-10 bg-zinc-950 border-2 border-zinc-800 px-3 text-xs font-bold text-white uppercase tracking-widest focus:border-zinc-500 outline-none appearance-none cursor-pointer"
@@ -569,22 +571,22 @@ export default function RoomDirectory() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Description</label>
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('description')}</label>
                   <textarea 
                     name="desc"
                     required
                     rows="3"
-                    placeholder="WHAT IS THIS LOUNGE ABOUT?"
+                    placeholder={t('loungeDescriptionPlaceholder')}
                     className="w-full bg-zinc-950 border-2 border-zinc-800 p-3 text-xs font-bold text-white uppercase tracking-widest focus:border-zinc-500 outline-none resize-none custom-scrollbar placeholder:text-zinc-700"
                   ></textarea>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Tags (Comma separated)</label>
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('tags')}</label>
                   <input 
                     type="text" 
                     name="tags"
-                    placeholder="NAPS, TREATS, ZOOMIES"
+                    placeholder={t('loungeTagsExample')}
                     className="w-full h-10 bg-zinc-950 border-2 border-zinc-800 px-3 text-xs font-bold text-white uppercase tracking-widest focus:border-zinc-500 outline-none placeholder:text-zinc-700"
                   />
                 </div>

@@ -5,8 +5,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { discoveryService } from '../../api/discovery.service';
+import './discovery.css';
+import { useI18n } from '../../i18n';
 
 export default function Likes() {
+  const { t } = useI18n();
   // --- CORE STATE ---
   const [isPremium, setIsPremium] = useState(false);
   const [likes, setLikes] = useState([]);
@@ -32,7 +35,7 @@ export default function Likes() {
       setIsPremium(data.is_premium);
       setLikes(data.admirers || []);
     } catch (error) {
-      toast.error(error.message || 'Failed to load secret admirers');
+      toast.error(error.message || t('failedLoadAdmirers'));
     } finally {
       setLoading(false);
     }
@@ -76,9 +79,9 @@ export default function Likes() {
       await discoveryService.sendInteraction(user.id, 'LIKE');
       setLikes(prev => prev.filter(u => u.id !== user.id));
       setSelectedProfile(null);
-      toast.success(`MATCHED WITH ${user.display_name.toUpperCase()}`);
+      toast.success(t('matchedWith', { name: user.display_name }));
     } catch (error) {
-      toast.error(error.message || 'Failed to match');
+      toast.error(error.message || t('failedMatch'));
     }
   };
 
@@ -88,7 +91,7 @@ export default function Likes() {
       setLikes(prev => prev.filter(u => u.id !== user.id));
       setSelectedProfile(null);
     } catch (error) {
-      toast.error(error.message || 'Failed to pass');
+      toast.error(error.message || t('failedPass'));
     }
   };
 
@@ -96,22 +99,23 @@ export default function Likes() {
   // RENDER
   // ============================================================================
   return (
-    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden font-mono text-zinc-300 rounded-none">
+    <div className="discovery-shell flex-1 flex flex-col w-full h-full relative overflow-hidden font-mono text-zinc-300 rounded-none">
       
       {/* =====================================================================
           HEADER
           ===================================================================== */}
-      <header className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 shrink-0 z-10 sticky top-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="discovery-header p-4 md:p-6 border-b-2 shrink-0 z-10 sticky top-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-1.5 bg-zinc-100 border-2 border-zinc-100">
             <Heart className="w-5 h-5 text-black fill-black" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white flex items-center gap-2 uppercase tracking-widest leading-none mb-1">
-              Secret Admirers
+            <p className="discovery-kicker mb-1">{t('incomingEnergy')}</p>
+            <h1 className="discovery-title font-bold flex items-center gap-2">
+              {t('secretAdmirers')}
             </h1>
-            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-              {likes.length} PEOPLE HAVE SWIPED RIGHT ON YOU.
+            <p className="discovery-subtitle">
+              {t('swipedRight', { count: likes.length })}
             </p>
           </div>
         </div>
@@ -125,7 +129,7 @@ export default function Likes() {
             >
               <span className="flex items-center gap-2">
                 <Filter className="w-3.5 h-3.5" />
-                {filter === 'all' ? 'ALL LIKES' : filter === 'new' ? 'NEW FIRST' : 'NEARBY'}
+                  {filter === 'all' ? t('allLikes') : filter === 'new' ? t('newFirst') : t('nearby')}
               </span>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilterDropdown ? 'rotate-180' : ''}`} />
             </button>
@@ -133,9 +137,9 @@ export default function Likes() {
             {showFilterDropdown && (
               <div className="absolute top-full right-0 mt-2 w-full md:w-48 bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] overflow-hidden z-20 animate-in fade-in duration-200">
                 {[
-                  { id: 'all', label: 'ALL LIKES' },
-                  { id: 'new', label: 'NEW FIRST' },
-                  { id: 'nearby', label: 'NEARBY' }
+                  { id: 'all', label: t('allLikes') },
+                  { id: 'new', label: t('newFirst') },
+                  { id: 'nearby', label: t('nearby') }
                 ].map((f) => (
                   <button
                     key={f.id}
@@ -158,7 +162,7 @@ export default function Likes() {
               onClick={() => setShowUpgradeModal(true)}
               className="hidden md:flex items-center justify-center gap-2 px-6 py-2.5 bg-white border-2 border-white text-black font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors"
             >
-              <Sparkles className="w-4 h-4" /> SEE WHO LIKES YOU
+              <Sparkles className="w-4 h-4" /> {t('seeWhoLikes')}
             </button>
           )}
         </div>
@@ -167,11 +171,11 @@ export default function Likes() {
       {/* =====================================================================
           GRID CONTENT
           ===================================================================== */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-black relative">
+      <div className="discovery-content flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
         {loading ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-zinc-500 text-xs uppercase tracking-widest animate-pulse flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> LOADING ADMIRERS...
+              <Loader2 className="w-4 h-4 animate-spin" /> {t('loadingAdmirers')}
             </p>
           </div>
         ) : filteredLikes.length === 0 ? (
@@ -179,15 +183,15 @@ export default function Likes() {
             <div className="w-16 h-16 bg-zinc-950 flex items-center justify-center border-2 border-zinc-800 mb-2">
               <Heart className="w-6 h-6 text-zinc-600" />
             </div>
-            <h2 className="text-sm font-bold text-white uppercase tracking-widest">NO LIKES FOUND</h2>
+            <h2 className="text-sm font-bold text-white uppercase tracking-widest">{t('noLikes')}</h2>
             <p className="text-zinc-500 text-[10px] uppercase tracking-widest leading-relaxed">
-              We couldn't find any admirers matching this filter. Try adjusting your settings.
+              {t('adjustFilters')}
             </p>
             <button 
               onClick={() => setFilter('all')}
               className="px-6 py-3 bg-white text-black border-2 border-white text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors mt-4"
             >
-              CLEAR FILTERS
+              {t('clearFilters')}
             </button>
           </div>
         ) : (
@@ -196,10 +200,10 @@ export default function Likes() {
               <div 
                 key={user.id}
                 onClick={() => handleProfileClick(user)}
-                className="relative bg-black border-2 border-zinc-800 cursor-pointer group hover:border-zinc-500 transition-colors p-3 flex flex-col"
+                className="discovery-card relative cursor-pointer group transition-colors p-3 flex flex-col"
               >
                 {/* Profile Image Container */}
-                <div className="aspect-[3/4] relative border-2 border-zinc-800 mb-3 overflow-hidden bg-zinc-950">
+                <div className="discovery-card-image aspect-[3/4] relative border-2 mb-3 overflow-hidden">
                   <img 
                     src={user.images?.[0] || 'https://images.unsplash.com/photo-1500000000000?auto=format&fit=crop&w=400&q=80'} 
                     alt="Secret Admirer" 
@@ -245,7 +249,7 @@ export default function Likes() {
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center border-t-2 border-dashed border-zinc-800 pt-2">
-                    <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">HIDDEN IDENTITY</p>
+                    <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('hiddenIdentity')}</p>
                   </div>
                 )}
               </div>
@@ -410,7 +414,7 @@ export default function Likes() {
                 )}
 
                 <section>
-                  <h3 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-3">ABOUT ME</h3>
+                  <h3 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-3">{t('aboutMe')}</h3>
                   <p className="text-zinc-300 text-[10px] md:text-xs leading-relaxed uppercase tracking-widest bg-zinc-950 p-4 border-2 border-zinc-800">
                     {selectedProfile.bio || "No bio provided."}
                   </p>

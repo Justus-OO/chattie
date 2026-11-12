@@ -1,21 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
-  Flame, Zap, Users, Heart, Search, ShieldCheck, 
-  Grid, MessageSquare, Settings, Loader2, Radio
+  Flame, Zap, Users, ShieldCheck, 
+  Grid, MessageSquare, Settings, Loader2, Radio, Bell
 } from 'lucide-react';
 
 // Services
-import { apiClient } from '../api/client';
-import { settingsService } from '../api/settings.service';
+import { ChattieService } from '../api/chattie.service';
 import { discoveryService } from '../api/discovery.service';
+import { chatService } from '../api/chat.service';
+import { useAppStore } from '../store/useAppStore';
+import { getUserRole } from '../utils/roles';
+import { useI18n } from '../i18n';
 
 export default function Sidebar() {
   const [activeTab, setActiveTab] = useState('rooms');
+  const sessionUser = useAppStore((state) => state.user);
+  const role = getUserRole(sessionUser);
+  const { t } = useI18n();
+  const location = useLocation();
+  const navigate = useNavigate();
   
   // Real State
   const [user, setUser] = useState({ name: '', avatar: '' });
   const [rooms, setRooms] = useState([]);
+  const [roomsLoadError, setRoomsLoadError] = useState(false);
   const [matches, setMatches] = useState([]);
   
   const [isLoadingUser, setIsLoadingUser] = useState(true);
@@ -28,7 +37,7 @@ export default function Sidebar() {
     // 1. Fetch Logged-in User Profile for Footer
     const fetchUserProfile = async () => {
       try {
-        const data = await settingsService.getSettings();
+        const data = await ChattieService.getSettings();
         setUser({
           name: data.name || 'My Account',
           avatar: data.avatar || ''
@@ -45,15 +54,17 @@ export default function Sidebar() {
       setIsLoadingList(true);
       try {
         const [roomsRes, matchesRes] = await Promise.allSettled([
-          apiClient.get('/rooms'),
+          // apiClient.get('/rooms'),
+          chatService.getAllRooms(),
           discoveryService.getMatches()
         ]);
 
         if (roomsRes.status === 'fulfilled') {
-          const roomData = roomsRes.value?.data;
-          setRooms(Array.isArray(roomData) ? roomData : []);
+          setRooms(roomsRes.value);
+          setRoomsLoadError(false);
         } else {
           setRooms([]);
+          setRoomsLoadError(true);
         }
 
         if (matchesRes.status === 'fulfilled') {
@@ -77,17 +88,22 @@ export default function Sidebar() {
     // ========================================================================
     const intervalId = setInterval(async () => {
       try {
-        const res = await apiClient.get('/rooms');
-        if (res.data && Array.isArray(res.data)) {
-          setRooms(res.data);
-        }
-      } catch (err) {
-        // Silently fail so we don't spam the console if the user goes offline
+        setRooms(await chatService.getAllRooms());
+        setRoomsLoadError(false);
+      } catch {
+        setRoomsLoadError(true);
+        console.warn('Could not refresh sidebar rooms; keeping the last available list.', error);
       }
     }, 10000);
 
     return () => clearInterval(intervalId); // Cleanup on unmount
   }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('notifications') === 'open') {
+      navigate('/notifications', { replace: true });
+    }
+  }, [location.search, navigate]);
 
   return (
     <aside 
@@ -106,31 +122,44 @@ export default function Sidebar() {
               <h1 className="font-bold text-xl leading-none text-white tracking-widest uppercase">
                 Chattie
               </h1>
-              <span className="text-[10px] tracking-widest text-zinc-500 uppercase">Online</span>
+              <span className="text-[10px] tracking-widest text-zinc-500 uppercase">{role} workspace</span>
             </div>
           </Link>
-          <Link to="/upgrade" className="px-2 py-1 text-xs flex items-center gap-1 font-bold transition-colors uppercase" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--warning)', border: '1px solid rgba(197, 138, 24, 0.35)' }}>
-            <Zap className="w-3 h-3" /> VIP
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/notifications')}
+              title={t('viewNotifications')}
+              aria-label={t('viewNotifications')}
+              className="relative p-2 transition-colors hover:text-white"
+              style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+            >
+              <Bell className="w-4 h-4" />
+              <span className="absolute top-1 right-1 w-1.5 h-1.5" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+            </button>
+            <Link to="/upgrade" className="px-2 py-1 text-xs flex items-center gap-1 font-bold transition-colors uppercase" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--warning)', border: '1px solid rgba(197, 138, 24, 0.35)' }}>
+              <Zap className="w-3 h-3" /> {t('vip')}
+            </Link>
+          </div>
         </div>
 
         {/* Global Navigation Links */}
         <div className="p-2 grid grid-cols-4 gap-1 shrink-0" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
           <NavLink to="/rooms" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <Users className="w-5 h-5" />
-            <span className="text-[9px] font-bold uppercase">Rooms</span>
+            <span className="text-[9px] font-bold uppercase">{t('rooms')}</span>
           </NavLink>
           <NavLink to="/discover" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <Flame className="w-5 h-5" />
-            <span className="text-[9px] font-bold uppercase">Swipe</span>
+            <span className="text-[9px] font-bold uppercase">{t('swipe')}</span>
           </NavLink>
           <NavLink to="/browse" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <Grid className="w-5 h-5" />
-            <span className="text-[9px] font-bold uppercase">Browse</span>
+            <span className="text-[9px] font-bold uppercase">{t('browse')}</span>
           </NavLink>
           <NavLink to="/messages" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <MessageSquare className="w-5 h-5" />
-            <span className="text-[9px] font-bold uppercase">Inbox</span>
+            <span className="text-[9px] font-bold uppercase">{t('inbox')}</span>
           </NavLink>
         </div>
 
@@ -141,14 +170,14 @@ export default function Sidebar() {
             className={`flex-1 py-2 text-xs font-bold uppercase transition-colors ${activeTab === 'rooms' ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
             style={{ backgroundColor: activeTab === 'rooms' ? 'var(--surface-alt)' : 'var(--surface)', borderRight: '1px solid var(--border)' }}
           >
-            [ Live Rooms ]
+            [ {t('liveRooms')} ]
           </button>
           <button 
             onClick={() => setActiveTab('matches')} 
             className={`flex-1 py-2 text-xs font-bold uppercase transition-colors ${activeTab === 'matches' ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
             style={{ backgroundColor: activeTab === 'matches' ? 'var(--surface-alt)' : 'var(--surface)' }}
           >
-            [ Matches ]
+            [ {t('matches')} ]
           </button>
         </div>
 
@@ -157,12 +186,31 @@ export default function Sidebar() {
           {isLoadingList ? (
               <div className="p-6 text-center flex flex-col items-center justify-center gap-2" style={{ color: 'var(--text-muted)' }}>
               <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
-              <span className="text-xs uppercase">Loading...</span>
+              <span className="text-xs uppercase">{t('loading')}</span>
             </div>
           ) : activeTab === 'rooms' ? (
-            rooms.length === 0 ? (
+            roomsLoadError && rooms.length === 0 ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsLoadingList(true);
+                  try {
+                    setRooms(await chatService.getAllRooms());
+                    setRoomsLoadError(false);
+                  } catch {
+                    setRoomsLoadError(true);
+                  } finally {
+                    setIsLoadingList(false);
+                  }
+                }}
+                className="p-6 text-center text-xs uppercase border-2 border-dashed w-full"
+                style={{ color: 'var(--warning)', borderColor: 'var(--border)' }}
+              >
+                {t('unableFetchGroups')} · Retry
+              </button>
+            ) : rooms.length === 0 ? (
               <div className="p-6 text-center text-xs uppercase border-2 border-dashed" style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}>
-                No active rooms found
+                {t('noActiveRooms')}
               </div>
             ) : (
               rooms.map((room) => {
@@ -183,7 +231,7 @@ export default function Sidebar() {
                         <p className="text-xs font-bold uppercase tracking-wide">{room.name}</p>
                         <p className="text-[10px] flex items-center gap-1.5 mt-0.5" style={{ color: 'var(--text-muted)' }}>
                           <span className={`w-1.5 h-1.5 rounded-full ${isPulse ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}`}></span>
-                          {liveCount} ONLINE
+                          {liveCount} {t('online').toUpperCase()}
                         </p>
                       </div>
                     </div>
@@ -194,7 +242,7 @@ export default function Sidebar() {
           ) : (
             matches.length === 0 ? (
               <div className="p-6 text-center text-xs uppercase border-2 border-dashed" style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}>
-                No matches yet
+                {t('noMatches')}
               </div>
             ) : (
               matches.map((match) => (
@@ -224,7 +272,7 @@ export default function Sidebar() {
                     <div>
                       <p className="text-xs font-bold uppercase">{match.name || match.display_name}</p>
                       <p className="text-[10px] uppercase" style={{ color: 'var(--text-muted)' }}>
-                        {match.matchPct || match.match_pct || '100'}% Match
+                        {match.matchPct || match.match_pct || '100'}% {t('match')}
                       </p>
                     </div>
                   </div>

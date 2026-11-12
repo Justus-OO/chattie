@@ -5,6 +5,7 @@ import {
   Radio, Terminal, DollarSign, MessageSquare, 
   Mic, UserCheck, UserPlus, Cpu, AlertTriangle
 } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 const INITIAL_LOGS = [
   { id: 1, time: '14:52:01', type: 'SECURE', text: 'ADMIN_ROOT OVERRODE PAYOUT LOCKOUT FOR MOD_02', color: 'border-yellow-500', badge: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30' },
@@ -21,6 +22,7 @@ const INITIAL_NODES = [
 ];
 
 export default function AdminDashboard() {
+  const { t } = useI18n();
   // Technical Metrics
   const [systemLoad, setSystemLoad] = useState(18.4);
   const [activeConnections, setActiveConnections] = useState(1428);
@@ -106,7 +108,7 @@ export default function AdminDashboard() {
           className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors bg-black border-2 border-zinc-800 px-3 py-1"
         >
           <RefreshCcw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-white' : ''}`} /> 
-          <span className="hidden sm:inline">REFRESH METRICS</span>
+          <span className="hidden sm:inline">{t('refreshMetrics')}</span>
         </button>
       </div>
 
@@ -114,15 +116,15 @@ export default function AdminDashboard() {
       <div className="p-6 md:p-8 border-b-2 border-zinc-800 bg-black shrink-0 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
-            <Terminal className="w-8 h-8 text-red-500" /> Command Center
+            <Terminal className="w-8 h-8 text-red-500" /> {t('commandCenter')}
           </h1>
           <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-            REAL-TIME TELEMETRY, NODE HEALTH, AND PLATFORM TRAFFIC MONITORING
+            {t('commandSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2 bg-zinc-950 border-2 border-zinc-800 px-4 py-2">
           <Radio className="w-4 h-4 text-green-500 animate-pulse" />
-          <span className="text-xs font-black text-white uppercase tracking-widest">GATEWAY ONLINE</span>
+          <span className="text-xs font-black text-white uppercase tracking-widest">{t('gatewayOnline')}</span>
         </div>
       </div>
 
@@ -134,7 +136,7 @@ export default function AdminDashboard() {
             ========================================= */}
         <div>
           <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-            <Activity className="w-4 h-4" /> Platform Traffic & Revenue
+            <Activity className="w-4 h-4" /> {t('platformTrafficRevenue')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             
@@ -195,7 +197,7 @@ export default function AdminDashboard() {
             ========================================= */}
         <div>
           <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-            <Cpu className="w-4 h-4" /> Node Telemetry
+            <Cpu className="w-4 h-4" /> {t('nodeTelemetry')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             

@@ -8,8 +8,10 @@ import { toast } from 'sonner';
 
 // Services
 import { creatorService } from '../../api/creator.service';
+import { useI18n } from '../../i18n';
 
 export default function ModelEarnings() {
+  const { t } = useI18n();
   const [transactions, setTransactions] = useState([]);
   const [balance, setBalance] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,7 +39,7 @@ export default function ModelEarnings() {
         setTransactions(ledgerRes || []);
       } catch (error) {
         console.error("Failed to load earnings data:", error);
-        toast.error('Failed to load financial data');
+        toast.error(t('financialDataFailed'));
       } finally {
         setIsLoading(false);
       }
@@ -72,7 +74,7 @@ export default function ModelEarnings() {
 
   // --- ACTIONS ---
   const handleExport = () => {
-    toast.info("SYSTEM: Compiling CSV ledger. Download will begin shortly.");
+    toast.info(t('exportLedger'));
   };
 
   const executePayout = async () => {
@@ -101,7 +103,7 @@ export default function ModelEarnings() {
       setIsProcessing(false);
       setPayoutSuccess(true);
       
-      toast.success("Wire transfer successfully initiated.");
+      toast.success(t('wireInitiated'));
 
       // Auto-close success modal after 2s
       setTimeout(() => {
@@ -112,7 +114,7 @@ export default function ModelEarnings() {
       
     } catch (error) {
       console.error("Payout error:", error);
-      toast.error(error.message || 'Payout request failed');
+      toast.error(error.message || t('payoutFailed'));
       setIsProcessing(false);
     }
   };
@@ -135,10 +137,10 @@ export default function ModelEarnings() {
         <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b-2 border-zinc-800 pb-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
-              <Wallet className="w-8 h-8 text-zinc-500" /> Financial Ledger
+              <Wallet className="w-8 h-8 text-zinc-500" /> {t('financialLedger')}
             </h1>
             <p className="text-xs text-zinc-500 uppercase font-bold tracking-widest">
-              EARNINGS, TIPS & PAYOUT PROTOCOLS
+              {t('earningsTipsPayouts')}
             </p>
           </div>
           <div className="text-[10px] bg-zinc-950 border-2 border-zinc-800 px-4 py-2 font-black uppercase text-zinc-400">
@@ -154,7 +156,7 @@ export default function ModelEarnings() {
           
           <div className="relative z-10">
             <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-              <TrendingUp className="w-3 h-3 text-green-400" /> Available for Payout
+              <TrendingUp className="w-3 h-3 text-green-400" /> {t('availableForPayout')}
             </h2>
             <div className="text-5xl md:text-6xl font-black text-white tracking-tighter mb-4">
               ${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -169,13 +171,13 @@ export default function ModelEarnings() {
               onClick={() => setIsPayoutModalOpen(true)}
               className="flex items-center justify-center gap-2 px-8 py-4 bg-white border-2 border-white text-black text-xs font-black uppercase tracking-widest hover:bg-black hover:text-white transition-all rounded-none shadow-[8px_8px_0px_0px_rgba(255,255,255,0.1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1"
             >
-              Request Wire Transfer <ArrowRight className="w-4 h-4" />
+              {t('requestWire')} <ArrowRight className="w-4 h-4" />
             </button>
             <button 
               onClick={handleExport}
               className="flex items-center justify-center gap-2 px-8 py-3 bg-black border-2 border-zinc-700 text-zinc-400 text-[10px] font-black uppercase tracking-widest hover:border-white hover:text-white transition-colors rounded-none"
             >
-              <Download className="w-3 h-3" /> Export Tax Statement
+              <Download className="w-3 h-3" /> {t('exportTax')}
             </button>
           </div>
         </div>

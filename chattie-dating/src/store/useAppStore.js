@@ -13,6 +13,7 @@ export const useAppStore = create(
       isAuthenticated: false,
       userPreferences: {
         theme: 'light',
+        language: 'en',
         notificationsEnabled: true,
         isPremium: false,
       },
@@ -20,19 +21,36 @@ export const useAppStore = create(
       login: (userData, token) => set({ 
         user: userData, 
         token: token, 
-        isAuthenticated: true 
+        isAuthenticated: true,
+        // Hydrate creator state if provided in login payload
+        isCreator: userData?.isCreator || false,
+        afterDarkCreatorAlias: userData?.afterDarkCreatorAlias || '',
+        afterDarkCreatorApplicationStatus: userData?.afterDarkCreatorApplicationStatus || '',
+        isIdentityVerified: Boolean(userData?.verified || userData?.isVerified || userData?.identityVerified),
+        identityVerificationKnown: ['verified', 'isVerified', 'identityVerified'].some(key => typeof userData?.[key] === 'boolean'),
+        walletBalance: userData?.walletBalance || 0,
       }),
       
       logout: () => set({ 
         user: null, 
         token: null, 
         isAuthenticated: false,
-        // Clear sensitive data on logout, but keep preferences
+        isCreator: false,
+        afterDarkCreatorAlias: '',
+        afterDarkCreatorApplicationStatus: '',
+        isIdentityVerified: false,
+        identityVerificationKnown: false,
+        walletBalance: 0,
+        afterDarkConversations: {},
+        afterDarkChatAccess: {},
+        afterDarkSubscriptions: {},
+        afterDarkLivePasses: {},
+        // Clear sensitive data on logout, but keep preferences & terms agreement
         messagesByRoom: {},
         matches: []
       }),
 
-      // NEW: Allows partial updates to the user object (e.g., flipping status to 'active' after onboarding)
+      // Allows partial updates to the user object
       updateUser: (updates) => set((state) => ({
         user: state.user ? { ...state.user, ...updates } : null
       })),
@@ -49,7 +67,66 @@ export const useAppStore = create(
       })),
 
       // ======================================================================
-      // 2. DISCOVERY & DIRECTORIES (In-Memory for Session)
+      // 2. AFTER DARK CREATOR STATE (Persisted)
+      // ======================================================================
+      isCreator: false,
+      afterDarkCreatorAlias: '',
+      afterDarkCreatorApplicationStatus: '',
+      isIdentityVerified: false,
+      identityVerificationKnown: false,
+      walletBalance: 0,
+      hasAgreedToAfterDarkTerms: false,
+      afterDarkConversations: {},
+      afterDarkChatAccess: {},
+      afterDarkSubscriptions: {},
+      afterDarkLivePasses: {},
+
+      setCreatorStatus: (status) => set((state) => ({
+        isCreator: status,
+        user: state.user ? { ...state.user, isCreator: status } : null,
+      })),
+      setAfterDarkCreatorAlias: (alias) => set({ afterDarkCreatorAlias: alias }),
+      setAfterDarkCreatorApplicationStatus: (status) => set({ afterDarkCreatorApplicationStatus: status }),
+      setIdentityVerificationStatus: (status) => set({
+        isIdentityVerified: Boolean(status),
+        identityVerificationKnown: true,
+      }),
+      
+      setWalletBalance: (balance) => set({ walletBalance: balance }),
+      
+      updateWalletBalance: (amount) => set((state) => ({ 
+        walletBalance: state.walletBalance + amount 
+      })),
+      
+      setAfterDarkTermsAgreement: (agreed) => set({ hasAgreedToAfterDarkTerms: agreed }),
+      grantAfterDarkChatAccess: (creatorId) => set((state) => ({
+        afterDarkChatAccess: { ...state.afterDarkChatAccess, [creatorId]: true },
+      })),
+      grantAfterDarkSubscription: (creatorId) => set((state) => ({
+        afterDarkSubscriptions: { ...state.afterDarkSubscriptions, [creatorId]: true },
+      })),
+      grantAfterDarkLivePass: (creatorId, sessionId) => set((state) => ({
+        afterDarkLivePasses: {
+          ...state.afterDarkLivePasses,
+          [`${creatorId}:${sessionId}`]: true,
+        },
+      })),
+      sendAfterDarkMessage: (conversationId, message) => set((state) => ({
+        afterDarkConversations: {
+          ...state.afterDarkConversations,
+          [conversationId]: [
+            ...(state.afterDarkConversations?.[conversationId] || []),
+            {
+              id: `afterdark_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              ...message,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      })),
+
+      // ======================================================================
+      // 3. DISCOVERY & DIRECTORIES (In-Memory for Session)
       // ======================================================================
       rooms: MOCK_ROOMS,
       matches: MOCK_MATCHES,
@@ -63,21 +140,15 @@ export const useAppStore = create(
       })),
 
       // ======================================================================
-      // 3. WEBSOCKET & CHAT ENGINE
+      // 4. WEBSOCKET & CHAT ENGINE
       // ======================================================================
       socketConnected: false,
       setSocketStatus: (status) => set({ socketConnected: status }),
 
-      // Dictionary Pattern: { [roomId]: [ {id, text, time, ...}, ... ] }
-      // Initializes with MOCK_MESSAGES in a 'default' room for backwards compatibility
       messagesByRoom: {
         'default': MOCK_MESSAGES 
       },
 
-      /**
-       * OPTIMISTIC UI UPDATE: Instantly renders the user's message before 
-       * the server confirms it, preventing UI lag.
-       */
       sendMessage: (roomId, newMessage) => set((state) => {
         const targetRoom = roomId || 'default';
         const currentMessages = state.messagesByRoom[targetRoom] || [];
@@ -87,7 +158,7 @@ export const useAppStore = create(
           ...newMessage,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isMe: true,
-          status: 'sending' // Will update to 'sent'/'read' via WebSocket confirmation
+          status: 'sending'
         };
 
         return {
@@ -98,15 +169,10 @@ export const useAppStore = create(
         };
       }),
 
-      /**
-       * WEBSOCKET LISTENER: Injects messages received from the Go WebSocket broker 
-       * directly into the correct room's array.
-       */
       addIncomingMessage: (roomId, incomingMessage) => set((state) => {
         const targetRoom = roomId || 'default';
         const currentMessages = state.messagesByRoom[targetRoom] || [];
         
-        // Prevent duplicate renders if the server echoes our own message back
         if (currentMessages.some(msg => msg.id === incomingMessage.id)) {
           return state;
         }
@@ -120,10 +186,8 @@ export const useAppStore = create(
       }),
 
       // ======================================================================
-      // 4. REAL-TIME PRESENCE & TYPING INDICATORS
+      // 5. REAL-TIME PRESENCE & TYPING INDICATORS
       // ======================================================================
-      
-      // Dictionary Pattern: { [roomId]: ['Elena', 'Marcus'] }
       typingIndicators: {},
 
       setTypingStatus: (roomId, userName, isTyping) => set((state) => {
@@ -146,9 +210,9 @@ export const useAppStore = create(
       }),
 
       // ======================================================================
-      // 5. NOTIFICATIONS & UNREAD COUNTS
+      // 6. NOTIFICATIONS & UNREAD COUNTS
       // ======================================================================
-      unreadCountsByRoom: {}, // { 'room_1': 2, 'user_5': 1 }
+      unreadCountsByRoom: {},
 
       incrementUnread: (roomId) => set((state) => ({
         unreadCountsByRoom: {
@@ -167,15 +231,36 @@ export const useAppStore = create(
     }),
     {
       name: 'chattie-session-storage',
-      storage: createJSONStorage(() => localStorage), // Explicitly define storage
-      // SECURITY: We only persist authentication and user preferences.
-      // Chat messages, typing states, and socket statuses should NEVER be stored 
-      // in local storage due to memory bloat and XSS security risks.
+      storage: createJSONStorage(() => localStorage),
+      version: 1,
+      migrate: (persistedState) => {
+        if (!persistedState || typeof persistedState !== 'object') return persistedState;
+        const userCreatorStatus = persistedState.user?.isCreator;
+        return {
+          ...persistedState,
+          isCreator: typeof userCreatorStatus === 'boolean'
+            ? userCreatorStatus
+            : Boolean(persistedState.isCreator),
+          afterDarkCreatorApplicationStatus: persistedState.afterDarkCreatorApplicationStatus || '',
+        };
+      },
+      // SECURITY: Added After Dark state fields to persistence 
       partialize: (state) => ({ 
         user: state.user, 
         token: state.token, 
         isAuthenticated: state.isAuthenticated,
-        userPreferences: state.userPreferences
+        userPreferences: state.userPreferences,
+        isCreator: state.isCreator,
+        afterDarkCreatorAlias: state.afterDarkCreatorAlias,
+        afterDarkCreatorApplicationStatus: state.afterDarkCreatorApplicationStatus,
+        isIdentityVerified: state.isIdentityVerified,
+        identityVerificationKnown: state.identityVerificationKnown,
+        walletBalance: state.walletBalance,
+        hasAgreedToAfterDarkTerms: state.hasAgreedToAfterDarkTerms,
+        afterDarkConversations: state.afterDarkConversations,
+        afterDarkChatAccess: state.afterDarkChatAccess,
+        afterDarkSubscriptions: state.afterDarkSubscriptions,
+        afterDarkLivePasses: state.afterDarkLivePasses,
       }),
     }
   )

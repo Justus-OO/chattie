@@ -27,6 +27,7 @@ import { Track, LocalAudioTrack } from 'livekit-client';
 import { creatorService } from '../../api/creator.service';
 import { chatService } from '../../api/chat.service'; 
 import { apiClient } from '../../api/client';
+import { useI18n } from '../../i18n';
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880";
 
@@ -49,6 +50,7 @@ const getUserTier = (spend, flagged) => {
 // ============================================================================
 export default function ModelChatQueue() {
   const { activeProfileId, activeProfile = { id: '', name: 'Select Profile' } } = useOutletContext();
+  const { t } = useI18n();
   const theme = useAppStore((state) => state.userPreferences.theme);
 
   const [masterQueue, setMasterQueue] = useState([]);
@@ -80,10 +82,10 @@ export default function ModelChatQueue() {
       const queueList = Array.isArray(data) ? data : [];
       setMasterQueue(queueList);
       
-      if (isManual) toast.success("Queue refreshed.");
+      if (isManual) toast.success(t('queueRefreshed'));
     } catch (error) {
       console.error("Queue fetch error:", error);
-      if (isManual) toast.error("Failed to refresh queue.");
+      if (isManual) toast.error(t('queueRefreshFailed'));
     } finally {
       setIsLoading(false);
       if (isManual) setIsRefreshing(false);
@@ -122,6 +124,7 @@ export default function ModelChatQueue() {
         
         // STANDARDIZE THE CHAT OBJECT FOR PRIVATE INBOX / DM ROUTING
         setActiveChatRoom({
+          queueId: targetReq.id,
           id: targetReq.client_id || targetReq.clientId || targetReq.id, // Ensure we use the client's UUID for DM routing
           user_id: targetReq.client_id || targetReq.clientId || targetReq.id, // Fallback property
           type: 'dm',
@@ -134,14 +137,14 @@ export default function ModelChatQueue() {
           initialReply: withReply ? selectedReply : ''
         });
 
-        toast.success("Chat request accepted.");
+        toast.success(t('requestAccepted'));
       } else if (action === 'reject') {
         setMasterQueue(prev => prev.filter(q => q.id !== id));
-        toast.info("Chat request rejected.");
+        toast.info(t('requestRejected'));
       }
     } catch (err) {
       console.error("Action failed:", err);
-      toast.error("Failed to process action");
+      toast.error(t('actionFailed'));
     }
   };
 
@@ -173,7 +176,7 @@ export default function ModelChatQueue() {
         activeProfileId={activeProfileId}
         onBack={() => setActiveChatRoom(null)} 
         onEnd={() => { 
-          setMasterQueue(prev => prev.filter(q => q.id !== activeChatRoom.id)); 
+          setMasterQueue(prev => prev.filter(q => q.id !== activeChatRoom.queueId)); 
           setActiveChatRoom(null); 
         }}
         modelName={activeProfile.name}
@@ -190,82 +193,98 @@ export default function ModelChatQueue() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-black text-zinc-300 font-mono rounded-none">
-      
-      {/* Metrics Bar */}
-      <div className="border-b-2 border-zinc-800 bg-zinc-950 p-2 flex flex-wrap justify-between items-center text-[10px] uppercase font-black tracking-widest shrink-0">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-2 text-green-400">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" /> LIVE SYNC [{activeProfile.name}]
-          </span>
-          <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500">
-            QUEUE VALUE: <span className="text-white">${totalValue}.00</span>
-          </span>
-        </div>
-        <button 
-          onClick={() => fetchQueue(true)}
-          disabled={isRefreshing}
-          className="flex items-center gap-1.5 px-3 py-1 bg-black border-2 border-zinc-700 text-zinc-300 hover:border-white hover:text-white transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isRefreshing ? 'REFRESHING...' : 'REFRESH LIST'}
-        </button>
-      </div>
-
-      {/* Header & Filters */}
-      <div className="p-4 md:p-6 border-b-2 border-zinc-800 bg-black shrink-0 relative overflow-hidden flex flex-col gap-6">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 relative z-10">
-          <div>
-            <h1 className="text-3xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
-              <MessageSquare className="w-8 h-8 text-zinc-500" /> Chat Requests
-            </h1>
-            <p className="text-xs text-zinc-500 font-bold tracking-widest flex items-center gap-2 uppercase">
-              <Zap className="w-4 h-4 text-yellow-400" /> 
-              {filteredQueue.filter(q => q.status === 'PENDING').length} PENDING FOR [{activeProfile.name}]
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 w-full lg:w-auto">
-            <div className="flex flex-wrap bg-zinc-950 border-2 border-zinc-800 p-1">
-              {['ALL', 'VIP', 'HIGH_TIPPERS', 'FLAGGED'].map(f => (
-                <button 
-                  key={f} onClick={() => setActiveFilter(f)}
-                  className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-none border-2 rounded-none flex-1 lg:flex-none ${
-                    activeFilter === f ? 'bg-white text-black border-white' : 'bg-transparent text-zinc-500 border-transparent hover:border-zinc-700 hover:text-white'
-                  }`}
-                >
-                  {f === 'FLAGGED' && <ShieldAlert className="w-3 h-3 inline mr-1 -mt-1 text-red-500" />}
-                  {f.replace('_', ' ')}
-                </button>
-              ))}
+    <div className="flex flex-col h-full text-zinc-300 font-sans rounded-none" style={{ background: 'radial-gradient(circle at top, rgba(210,79,116,0.12), transparent 24%), #0b0c0f' }}>
+      <div className="border-b border-white/10 p-3 md:p-4 shrink-0" style={{ background: 'rgba(17,18,22,0.96)' }}>
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))', color: '#fff' }}>
+              <MessageSquare className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>Live queue</p>
+              <h1 className="text-xl md:text-2xl font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>{activeProfile.name}</h1>
             </div>
           </div>
+
+          <div className="flex items-center flex-wrap gap-3">
+            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5" style={{ background: 'rgba(42,156,107,0.08)', borderColor: 'rgba(42,156,107,0.35)', color: 'var(--success)' }}>
+              <span className="inline-block h-2 w-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }} />
+              <span className="text-[9px] font-black uppercase tracking-[0.18em]">Sync live</span>
+            </div>
+            <button
+              onClick={() => fetchQueue(true)}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] border transition-all disabled:opacity-50"
+              style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)', color: 'var(--text-primary)' }}
+            >
+              <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing' : 'Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Main List Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6 bg-black relative">
-        <div className="max-w-6xl mx-auto space-y-4">
+      <div className="p-4 md:p-6 border-b border-white/10 shrink-0" style={{ background: 'rgba(17,18,22,0.75)' }}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="rounded-2xl border p-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)' }}>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Pending</p>
+            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{filteredQueue.filter(q => q.status === 'PENDING').length}</p>
+          </div>
+          <div className="rounded-2xl border p-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)' }}>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Queue value</p>
+            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>${totalValue}</p>
+          </div>
+          <div className="rounded-2xl border p-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)' }}>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>VIP queue</p>
+            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{filteredQueue.filter(q => q.lifetimeSpend >= 1000).length}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {['ALL', 'VIP', 'HIGH_TIPPERS', 'FLAGGED'].map(f => (
+            <button
+              key={f}
+              onClick={() => setActiveFilter(f)}
+              className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.18em] border transition-all"
+              style={{
+                background: activeFilter === f ? 'linear-gradient(135deg, #ffffff, #e7e5e4)' : 'rgba(255,255,255,0.02)',
+                color: activeFilter === f ? '#111111' : 'var(--text-primary)',
+                borderColor: activeFilter === f ? '#ffffff' : 'var(--border)'
+              }}
+            >
+              {f === 'FLAGGED' && <ShieldAlert className="w-3 h-3 inline mr-1 -mt-0.5 text-red-500" />}
+              {f.replace('_', ' ')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6">
+        <div className="max-w-6xl mx-auto space-y-3">
           {filteredQueue.length === 0 ? (
-            <div className="p-16 border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center text-center bg-zinc-950/50">
-              <Activity className="w-12 h-12 text-zinc-800 mb-4 animate-pulse" />
-              <h3 className="text-xl font-black text-zinc-600 uppercase tracking-widest mb-2">Queue Empty for {activeProfile.name}</h3>
+            <div className="p-16 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center text-center" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)' }}>
+              <Activity className="w-12 h-12 mb-4" style={{ color: 'var(--text-muted)' }} />
+              <h3 className="text-xl font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>Queue empty</h3>
+              <p className="mt-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>No requests for {activeProfile.name}</p>
             </div>
           ) : (
             filteredQueue.map((req) => {
               const isExpanded = expandedId === req.id;
               const isActive = req.status === 'ACTIVE';
               const tier = getUserTier(req.lifetimeSpend, req.flagged);
-              
+
               return (
-                <div 
-                  key={req.id} 
-                  className={`flex flex-col border-2 bg-zinc-950 rounded-none transition-all group overflow-hidden
-                    ${isActive ? 'border-green-500/50 bg-black' : isExpanded ? 'border-white bg-black' : `border-zinc-800 hover:${tier.color}`}
-                  `}
+                <div
+                  key={req.id}
+                  className="rounded-3xl border overflow-hidden transition-all"
+                  style={{
+                    background: isActive ? 'linear-gradient(180deg, rgba(42,156,107,0.08), rgba(17,18,22,0.92))' : 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(17,18,22,0.9))',
+                    borderColor: isActive ? 'rgba(42,156,107,0.4)' : isExpanded ? 'rgba(255,255,255,0.2)' : 'var(--border)',
+                    boxShadow: isActive ? '0 18px 36px rgba(42,156,107,0.12)' : 'none'
+                  }}
                 >
                   <div className="flex flex-col md:flex-row md:items-center justify-between p-3 gap-4">
-                    <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => {
+                    <div className="flex items-center gap-4 cursor-pointer flex-1 min-w-0" onClick={() => {
                       if (isActive) {
                         setActiveChatRoom({
                           id: req.client_id || req.clientId || req.id,
@@ -282,32 +301,36 @@ export default function ModelChatQueue() {
                         setExpandedId(isExpanded ? null : req.id);
                       }
                     }}>
-                      
                       <div className="relative shrink-0">
                         {req.avatar ? (
-                          <img src={req.avatar} alt={req.user} className={`w-14 h-14 rounded-none grayscale object-cover border-2 ${tier.color}`} />
+                          <img src={req.avatar} alt={req.user} className="w-16 h-16 rounded-2xl object-cover border" style={{ borderColor: req.flagged ? '#ef4444' : 'var(--border)' }} />
                         ) : (
-                          <div className={`w-14 h-14 rounded-none bg-zinc-900 border-2 ${tier.color} flex items-center justify-center font-bold text-white`}>
-                            {req.user.charAt(0)}
+                          <div className="w-16 h-16 rounded-2xl flex items-center justify-center border text-lg font-black" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                            {req.user.charAt(0).toUpperCase()}
                           </div>
                         )}
-                        <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 text-[8px] font-black uppercase border-2 border-black ${tier.bg} ${tier.text}`}>
+                        <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] border ${tier.bg} ${tier.text}`}>
                           {tier.label}
                         </div>
                       </div>
 
-                      <div className="flex-1">
-                        <h3 className="text-lg font-black text-white uppercase tracking-widest flex items-center gap-2">
-                          {req.user}
-                          {isActive && <span className="bg-green-500 text-black text-[9px] px-2 py-0.5 ml-2 font-black shadow-[2px_2px_0px_0px_rgba(34,197,94,0.3)] animate-pulse">ACTIVE CHAT</span>}
-                        </h3>
-                        <div className="flex flex-wrap items-center gap-3 mt-1">
-                          <span className={`flex items-center gap-1 text-xs font-black uppercase tracking-widest ${req.tip >= 100 ? 'text-green-400' : 'text-white'}`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-black uppercase tracking-[0.14em] truncate" style={{ color: 'var(--text-primary)' }}>{req.user}</h3>
+                          {isActive && (
+                            <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] border" style={{ background: 'rgba(42,156,107,0.14)', color: 'var(--success)', borderColor: 'rgba(42,156,107,0.3)' }}>
+                              Active
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] font-black uppercase tracking-[0.14em]">
+                          <span className="inline-flex items-center gap-1" style={{ color: req.tip >= 100 ? 'var(--success)' : 'var(--text-primary)' }}>
                             <DollarSign className="w-3 h-3" /> {req.tip}.00
                           </span>
                           {!isActive && (
-                            <span className="flex items-center gap-1 text-[10px] text-zinc-500 font-bold uppercase tracking-widest border-l-2 border-zinc-800 pl-3">
-                              <Clock className="w-3 h-3" /> WAITING: {getWaitTime(req.timeAdded)}
+                            <span className="inline-flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                              <Clock className="w-3 h-3" /> Wait {getWaitTime(req.timeAdded)}
                             </span>
                           )}
                         </div>
@@ -316,7 +339,7 @@ export default function ModelChatQueue() {
 
                     <div className="flex items-center gap-2 w-full md:w-auto">
                       {isActive ? (
-                        <button 
+                        <button
                           onClick={() => setActiveChatRoom({
                             id: req.client_id || req.clientId || req.id,
                             user_id: req.client_id || req.clientId || req.id,
@@ -327,20 +350,21 @@ export default function ModelChatQueue() {
                             lifetimeSpend: req.lifetimeSpend || 0,
                             flagged: req.flagged || false,
                             bio: req.bio || ''
-                          })} 
-                          className="flex-1 md:flex-none px-6 h-12 flex items-center justify-center gap-2 bg-green-500 border-2 border-green-500 text-black text-xs font-black uppercase tracking-widest hover:bg-black hover:text-green-500 transition-all shadow-[4px_4px_0px_0px_rgba(34,197,94,0.2)]"
+                          })}
+                          className="flex-1 md:flex-none px-5 h-12 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] border"
+                          style={{ background: 'linear-gradient(135deg, #2dd4bf, #22c55e)', color: '#0b1220', borderColor: '#22c55e' }}
                         >
-                          <MessageSquare className="w-4 h-4" /> Open Chat
+                          <MessageSquare className="w-4 h-4" /> Open chat
                         </button>
                       ) : (
                         <>
-                          <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'reject'); }} className="h-12 w-12 flex items-center justify-center bg-black border-2 border-zinc-800 text-zinc-500 hover:border-red-500 hover:text-red-500 hover:bg-red-500/10 transition-colors">
+                          <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'reject'); }} className="h-12 w-12 flex items-center justify-center border transition-colors" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
                             <X className="w-5 h-5" />
                           </button>
-                          <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'accept'); }} className="px-6 h-12 flex items-center justify-center gap-2 bg-white border-2 border-white text-black text-xs font-black uppercase tracking-widest hover:bg-zinc-300 transition-all shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]">
+                          <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'accept'); }} className="px-5 h-12 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] border transition-all" style={{ background: 'linear-gradient(135deg, #ffffff, #f3f4f6)', color: '#111111', borderColor: '#ffffff' }}>
                             <Check className="w-4 h-4" /> Accept
                           </button>
-                          <button onClick={() => setExpandedId(isExpanded ? null : req.id)} className={`h-12 w-12 flex items-center justify-center border-2 transition-colors ${isExpanded ? 'bg-white text-black border-white' : 'bg-black border-zinc-800 text-zinc-500'}`}>
+                          <button onClick={() => setExpandedId(isExpanded ? null : req.id)} className="h-12 w-12 flex items-center justify-center border transition-colors" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
                             <ChevronDown className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                           </button>
                         </>
@@ -349,22 +373,23 @@ export default function ModelChatQueue() {
                   </div>
 
                   {isExpanded && !isActive && (
-                    <div className="border-t-2 border-zinc-800 bg-zinc-950 p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="border-2 border-zinc-800 p-4 bg-black">
-                        <h4 className="text-[9px] text-zinc-500 font-black uppercase mb-2 border-b-2 border-zinc-800 pb-2">User Data</h4>
-                        <div className="flex justify-between items-end mb-2">
-                          <span className="text-[9px] text-zinc-500 uppercase font-black">Lifetime Spent</span>
-                          <span className={`text-xs font-black ${tier.text}`}>${req.lifetimeSpend}</span>
+                    <div className="border-t p-4 grid grid-cols-1 md:grid-cols-2 gap-4" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)' }}>
+                      <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'rgba(17,18,22,0.9)' }}>
+                        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-3" style={{ color: 'var(--text-muted)' }}>User data</h4>
+                        <div className="flex items-end justify-between mb-3">
+                          <span className="text-[9px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>Lifetime spent</span>
+                          <span className={`text-sm font-black ${tier.text}`}>${req.lifetimeSpend}</span>
                         </div>
-                        <p className="text-xs font-bold text-zinc-400 uppercase mt-4">"{req.bio || 'No bio provided.'}"</p>
+                        <p className="text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>"{req.bio || 'No bio provided.'}"</p>
                       </div>
-                      <div className="border-2 border-zinc-800 p-4 bg-zinc-900 shadow-inner">
-                        <h4 className="text-[9px] text-zinc-400 font-black uppercase mb-2 border-b-2 border-zinc-700 pb-2">Quick Connect</h4>
-                        <select value={selectedReply} onChange={(e) => setSelectedReply(e.target.value)} className="w-full bg-black border-2 border-zinc-700 text-[10px] font-bold text-white p-2 mb-3 outline-none uppercase cursor-pointer">
+
+                      <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)' }}>
+                        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-3" style={{ color: 'var(--text-muted)' }}>Quick connect</h4>
+                        <select value={selectedReply} onChange={(e) => setSelectedReply(e.target.value)} className="w-full border p-2 mb-3 text-[9px] font-bold uppercase tracking-[0.1em] outline-none" style={{ background: 'rgba(17,18,22,0.9)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
                           {CANNED_REPLIES.map(reply => <option key={reply} value={reply}>{reply}</option>)}
                         </select>
-                        <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'accept', true); }} className="w-full py-3 bg-green-500 border-2 border-green-500 text-black text-[10px] font-black uppercase tracking-widest hover:bg-black hover:text-green-500 transition-all flex items-center justify-center gap-2">
-                          <Check className="w-4 h-4" /> Send Reply & Enter Chat
+                        <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'accept', true); }} className="w-full py-3 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] border" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#0b1220', borderColor: '#22c55e' }}>
+                          <Check className="w-4 h-4" /> Send reply & enter chat
                         </button>
                       </div>
                     </div>
@@ -387,6 +412,10 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
   const [inputText, setInputText] = useState(chatData.initialReply || '');
   const [autoPilot, setAutoPilot] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isChatConnected, setIsChatConnected] = useState(false);
+  const initialReplySentRef = useRef(false);
+  const reconnectTimerRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
   
   // TEXTING & MEDIA VAULT STATES
   const [showMediaVault, setShowMediaVault] = useState(false);
@@ -541,15 +570,18 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
   // --- FETCH CHAT HISTORY ---
   useEffect(() => {
     const loadHistory = async () => {
+      setIsLoadingHistory(true);
+      setMessages([]);
+      initialReplySentRef.current = false;
       try {
         const history = await chatService.getChatHistory(roomId, 'dm');
-        if (history && history.length > 0) {
+        if (Array.isArray(history) && history.length > 0) {
           const formatted = history.map(msg => ({
-            id: msg.id,
-            sender: msg.sender_id === roomId ? 'user' : 'model',
-            text: msg.content || msg.text,
+            id: msg.id || msg.message_id || `history-${Date.now()}-${Math.random()}`,
+            sender: String(msg.sender_id || msg.senderId) === String(roomId) ? 'user' : 'model',
+            text: msg.content || msg.text || '',
             media: msg.media || null,
-            time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            time: msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'
           }));
           setMessages(formatted);
         }
@@ -595,12 +627,19 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//localhost:8080/ws?target_id=${roomId}&token=${encodeURIComponent(cleanToken)}`;
     
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let manuallyClosed = false;
+    const connect = () => {
+      if (manuallyClosed) return;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+        setIsChatConnected(true);
+      };
 
-    ws.onmessage = (event) => {
-      try {
-        const incomingMsg = JSON.parse(event.data);
+      ws.onmessage = (event) => {
+        try {
+          const incomingMsg = JSON.parse(event.data);
 
         if (incomingMsg.type === 'incoming_call') {
           if (isInCall) {
@@ -630,7 +669,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
         if (incomingMsg.type === 'call_rejected') {
           stopRingtone();
           setIncomingCallData(null);
-          toast.error('Call was rejected');
+          toast.error(t('callRejected'));
           setIsInCall(false);
           setCallToken('');
           setCallStartedAt(null);
@@ -638,27 +677,41 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
           return;
         }
 
-        const msgId = incomingMsg.id || `msg-${Date.now()}-${Math.random()}`;
+        const msgId = incomingMsg.id || incomingMsg.message_id || `msg-${Date.now()}-${Math.random()}`;
         setMessages(prev => {
           if (prev.some(m => m.id === msgId)) return prev;
           return [
             ...prev, 
             {
               id: msgId,
-              sender: incomingMsg.sender_id === roomId ? 'user' : 'model',
-              text: incomingMsg.text || incomingMsg.content,
+              sender: String(incomingMsg.sender_id || incomingMsg.senderId) === String(roomId) ? 'user' : 'model',
+              text: incomingMsg.text || incomingMsg.content || '',
               media: incomingMsg.media || null,
               time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }
           ];
         });
-      } catch (err) {}
+        } catch (err) {}
+      };
+
+      ws.onclose = () => {
+        setIsChatConnected(false);
+        if (manuallyClosed) return;
+        const attempt = reconnectAttemptsRef.current++;
+        const delay = Math.min(30000, Math.max(1000, 2 ** attempt * 500));
+        reconnectTimerRef.current = setTimeout(connect, delay);
+      };
+      ws.onerror = () => setIsChatConnected(false);
     };
 
+    connect();
+
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
+      manuallyClosed = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      setIsChatConnected(false);
+      if (wsRef.current) wsRef.current.close();
+      wsRef.current = null;
     };
   }, [roomId]);
 
@@ -710,7 +763,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
           if (incoming.type === 'call_rejected') {
             stopRingtone();
             setIncomingCallData(null);
-            toast.error('Call was rejected');
+            toast.error(t('callRejected'));
             setIsInCall(false);
             setCallToken('');
             setCallStartedAt(null);
@@ -730,11 +783,12 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
   }, [appToken]);
 
   useEffect(() => {
-    if (chatData.initialReply && !isLoadingHistory) {
+    if (chatData.initialReply && !isLoadingHistory && isChatConnected && !initialReplySentRef.current) {
+      initialReplySentRef.current = true;
       handleSend(chatData.initialReply);
       setInputText('');
     }
-  }, [isLoadingHistory]);
+  }, [isLoadingHistory, isChatConnected]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -805,6 +859,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       }
     } catch (err) {
       toast.error("Failed to start secure call.");
+      toast.error(t('secureCallFailed'));
     } finally {
       setIsConnectingCall(false);
     }
@@ -854,6 +909,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify(ack));
     } catch (err) {
       toast.error('Failed to join call.');
+      toast.error(t('joinCallFailed'));
     } finally {
       setIsConnectingCall(false);
     }
@@ -955,11 +1011,13 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       media: attachedMedia
     };
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(messagePayload));
-    } else {
-      toast.error("Chat connection offline.");
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      toast.error("Chat is reconnecting. Your message was not sent.");
+        toast.error(t('reconnecting'));
+      return;
     }
+
+    wsRef.current.send(JSON.stringify(messagePayload));
 
     setMessages(prev => [...prev, {
       id: uniqueMsgId,
@@ -1000,8 +1058,8 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
               <h2 className={`text-lg font-black uppercase tracking-widest flex items-center gap-2 ${tier.text}`}>
                 {chatData.user || chatData.name} <span className={`px-2 py-0.5 text-[8px] font-black border-2 ${tier.color} ${tier.bg}`}>{tier.label}</span>
               </h2>
-              <span className="text-[9px] font-bold text-green-400 uppercase tracking-widest flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-green-500 animate-pulse rounded-full" /> Online [{modelName}]
+              <span className={`text-[9px] font-bold uppercase tracking-widest flex items-center gap-1 ${isChatConnected ? 'text-green-400' : 'text-yellow-400'}`}>
+                <span className={`w-1.5 h-1.5 animate-pulse rounded-full ${isChatConnected ? 'bg-green-500' : 'bg-yellow-500'}`} /> {isChatConnected ? 'Connected' : 'Reconnecting'} [{modelName}]
               </span>
             </div>
           </div>
@@ -1063,7 +1121,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       <div className="flex flex-1 overflow-hidden relative">
         <div className="flex-1 flex flex-col border-r-2 border-zinc-800 bg-zinc-950 relative">
           
-          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar flex flex-col">
             {isLoadingHistory ? (
               <div className="flex items-center justify-center h-full text-zinc-500">
                 <Loader2 className="w-6 h-6 animate-spin" />

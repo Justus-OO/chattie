@@ -3,8 +3,10 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { MOCK_ROOMS, MOCK_MATCHES } from '../mocks/dummyData';
+import { useI18n } from '../i18n';
 
 export default function MainLayout() {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState('rooms');
   const [selectedRoom, setSelectedRoom] = useState(MOCK_ROOMS[0]);
   const [selectedProfile, setSelectedProfile] = useState(MOCK_MATCHES[0]);
@@ -28,7 +30,7 @@ export default function MainLayout() {
   }, [isMobileMenuOpen]);
 
   return (
-    <div className="flex flex-col md:flex-row h-[100dvh] w-full bg-black text-zinc-300 font-mono overflow-hidden">
+    <div className="flex flex-col md:flex-row h-dvh w-full bg-black text-zinc-300 font-mono overflow-hidden">
       
       {/* MOBILE HEADER (Visible only on small screens) */}
       <header className="md:hidden flex items-center justify-between p-3 border-b-2 border-zinc-800 bg-zinc-950 shrink-0 z-20">
@@ -41,7 +43,7 @@ export default function MainLayout() {
         <button 
           onClick={() => setIsMobileMenuOpen(true)}
           className="p-2 border-2 border-zinc-800 bg-black text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
-          aria-label="Open Menu"
+          aria-label={t('openMenu')}
         >
           <Menu className="w-5 h-5" />
         </button>

@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Heart, X, Star, MapPin, RotateCcw, Info, 
-  Flag, MessageCircle, ShieldAlert, ChevronDown, Flame, Loader2, Ban
+  Flag, MessageCircle, ShieldAlert, ChevronDown, Flame, Loader2, Ban, Sliders, BadgeCheck
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+// Services
 import { discoveryService } from '../../api/discovery.service';
+import './discovery.css';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 export default function SwipeDeck() {
+  const navigate = useNavigate();
+  const { t } = useI18n();
+
   // --- CORE STATE ---
   const [deck, setDeck] = useState([]);
   const [history, setHistory] = useState([]);
@@ -42,7 +50,7 @@ export default function SwipeDeck() {
       const profiles = await discoveryService.getSwipeDeck(20, 0);
       setDeck(profiles || []);
     } catch (error) {
-      toast.error(error.message || 'Failed to load swipe deck');
+      toast.error(error.message || t('failedLoadDeck'));
     } finally {
       setLoading(false);
     }
@@ -130,14 +138,15 @@ export default function SwipeDeck() {
         setMatchModal({ show: true, user: targetUser });
       }
     } catch (error) {
-      // Handle Daily Swipe Limits (HTTP 402 Payment Required)
-      if (error.status === 402) {
-        toast.error('Daily swipe limit reached! Upgrade to VIP for unlimited swipes.');
+      // Handle Daily Limits or Upgrades
+      if (error.response?.status === 402 || error.response?.data?.error === 'UPGRADE_REQUIRED') {
+        toast.error(t('dailyLimit'));
+        navigate('/upgrade');
       } else {
-        toast.error(error.message || 'Failed to process interaction');
+        toast.error(error.message || t('interactionFailed'));
       }
     }
-  }, [activeUser]);
+  }, [activeUser, navigate]);
 
   const handleUndo = useCallback(async () => {
     try {
@@ -148,26 +157,26 @@ export default function SwipeDeck() {
       setDeck(prev => [lastUser, ...prev]);
       setShowProfile(false);
       setPhotoIndex(0);
-      toast.success('Action undone successfully');
+      toast.success(t('actionUndone'));
     } catch (error) {
-      if (error.status === 403) {
-        toast.error('Upgrade to Premium/VIP to unlock Rewind/Undo.');
+      if (error.response?.status === 403 || error.response?.data?.error === 'UPGRADE_REQUIRED') {
+        toast.error(t('rewindRequired'));
+        navigate('/upgrade');
       } else {
-        toast.error(error.message || 'Nothing to undo');
+        toast.error(error.message || t('nothingToUndo'));
       }
     }
-  }, [history]);
+  }, [history, navigate]);
 
   const handleReportSubmit = async () => {
     if (!activeUser) return;
     try {
       await discoveryService.reportUser(activeUser.id, reportReason);
       setReportModal(false);
-      toast.success('User reported and blocked successfully');
-      // Instantly swipe left / remove from deck
-      handleAction('left');
+      toast.success(t('reportBlocked'));
+      handleAction('left'); // Remove from deck
     } catch (error) {
-      toast.error(error.message || 'Failed to submit report');
+      toast.error(error.message || t('reportFailed'));
     }
   };
 
@@ -175,14 +184,14 @@ export default function SwipeDeck() {
     if (!activeUser) return;
     try {
       await discoveryService.blockUser(activeUser.id);
-      toast.success('User permanently blocked');
+      toast.success(t('permanentlyBlocked'));
       handleAction('left'); // Remove from deck
     } catch (error) {
-      toast.error(error.message || 'Failed to block user');
+      toast.error(error.message || t('blockFailed'));
     }
   };
 
-  // PROFILE DRAWER HANDLER (Triggers Backend View Tracking!)
+  // PROFILE DRAWER HANDLER (Triggers Backend View Tracking)
   const toggleProfile = async (e) => {
     if (e) e.stopPropagation();
     
@@ -258,8 +267,9 @@ export default function SwipeDeck() {
   // ============================================================================
   if (loading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center font-mono text-zinc-300 w-full h-full border-l-2 border-zinc-800 rounded-none">
-        <p className="text-zinc-500 text-xs uppercase tracking-widest animate-pulse">LOADING SWIPE DECK...</p>
+      <div className="discovery-shell flex-1 flex flex-col items-center justify-center p-6 text-center font-mono text-zinc-300 w-full h-full border-l-2 md:border-zinc-800 rounded-none">
+        <Loader2 className="w-8 h-8 text-white animate-spin mb-4" />
+        <p className="text-zinc-500 text-xs uppercase tracking-widest animate-pulse">{t('scanningNetwork')}</p>
       </div>
     );
   }
@@ -269,20 +279,28 @@ export default function SwipeDeck() {
   // ============================================================================
   if (deck.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center font-mono text-zinc-300 w-full h-full border-l-2 border-zinc-800 rounded-none">
+      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center font-mono text-zinc-300 w-full h-full border-l-2 md:border-zinc-800 rounded-none">
         <div className="w-24 h-24 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center mb-6">
           <Flame className="w-10 h-10 text-zinc-600" />
         </div>
-        <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-widest">You're All Caught Up</h2>
+        <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-widest">{t('caughtUpTitle')}</h2>
         <p className="text-zinc-500 text-[10px] uppercase tracking-widest max-w-sm leading-relaxed mb-8">
-          We're looking for more people in your area. Try expanding your search distance or check back later.
+          {t('caughtUpDescription')}
         </p>
-        <button 
-          onClick={fetchDeck}
-          className="px-8 py-3 bg-white border-2 border-white text-black font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors"
-        >
-          Refresh Deck
-        </button>
+        <div className="flex gap-4">
+          <button 
+            onClick={() => navigate('/settings')}
+            className="px-6 py-3 bg-black border-2 border-zinc-700 text-zinc-400 font-bold uppercase tracking-widest text-[10px] hover:text-white hover:border-white transition-colors flex items-center gap-2"
+          >
+            <Sliders className="w-4 h-4" /> {t('settings')}
+          </button>
+          <button 
+            onClick={fetchDeck}
+            className="px-6 py-3 bg-white border-2 border-white text-black font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors flex items-center gap-2"
+          >
+            <RotateCcw className="w-4 h-4" /> {t('refresh')}
+          </button>
+        </div>
       </div>
     );
   }
@@ -291,14 +309,17 @@ export default function SwipeDeck() {
   // MAIN RENDER
   // ============================================================================
   return (
-    <div className="flex-1 flex flex-col bg-black relative overflow-hidden font-mono text-zinc-300 w-full h-full rounded-none">
+    <div className="discovery-shell flex-1 flex flex-col relative overflow-hidden font-mono text-zinc-300 w-full h-full rounded-none border-l-2 md:border-zinc-800">
       
       {/* HEADER BAR */}
-      <div className="w-full p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center z-10 shrink-0">
+      <div className="discovery-header w-full p-4 md:p-6 border-b-2 flex justify-between items-center z-10 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-white uppercase tracking-widest">Discover</h1>
-          <span className="text-[10px] font-bold text-white bg-black px-2 py-1 border-2 border-zinc-800 uppercase tracking-widest">
-            {deck.length} Nearby
+          <div>
+            <p className="discovery-kicker mb-1">{t('curatedForYou')}</p>
+            <h1 className="discovery-title font-bold">{t('discover')}</h1>
+          </div>
+          <span className="discovery-chip text-[10px] font-bold px-3 py-1.5 uppercase">
+            {t('nearbyCount', { count: deck.length })}
           </span>
         </div>
         
@@ -306,21 +327,21 @@ export default function SwipeDeck() {
         <button 
           onClick={handleUndo}
           disabled={history.length === 0}
-          className="flex items-center gap-2 px-4 py-2 border-2 border-zinc-800 bg-black text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:border-zinc-600 disabled:opacity-30 disabled:hover:border-zinc-800 disabled:hover:text-zinc-400 transition-colors"
+          className="discovery-control flex items-center gap-2 px-4 py-2 border-2 text-[10px] font-bold uppercase tracking-widest disabled:opacity-30 transition-colors"
         >
           <RotateCcw className="w-3 h-3" />
-          <span className="hidden md:inline">Undo</span>
+          <span className="hidden md:inline">{t('undo')}</span>
         </button>
       </div>
 
       {/* SWIPE DECK AREA */}
-      <div className="flex-1 w-full flex flex-col items-center justify-center p-4 md:p-8 relative overflow-hidden bg-black">
+      <div className="discovery-content flex-1 w-full flex flex-col items-center justify-center p-4 md:p-8 relative overflow-hidden">
         
         {/* Keyboard Hint (Top Left) */}
         <div className="absolute top-8 left-8 z-10 hidden lg:block text-zinc-600 text-[10px] font-bold uppercase tracking-widest">
-          <p className="flex items-center gap-2 mb-2"><span className="px-1.5 py-0.5 bg-zinc-950 border-2 border-zinc-800">&lt;</span> PASS</p>
-          <p className="flex items-center gap-2 mb-2"><span className="px-1.5 py-0.5 bg-zinc-950 border-2 border-zinc-800">&gt;</span> LIKE</p>
-          <p className="flex items-center gap-2"><span className="px-1.5 py-0.5 bg-zinc-950 border-2 border-zinc-800">V</span> PROFILE</p>
+          <p className="flex items-center gap-2 mb-2"><span className="px-1.5 py-0.5 bg-zinc-950 border-2 border-zinc-800">&lt;</span> {t('pass')}</p>
+          <p className="flex items-center gap-2 mb-2"><span className="px-1.5 py-0.5 bg-zinc-950 border-2 border-zinc-800">&gt;</span> {t('like')}</p>
+          <p className="flex items-center gap-2"><span className="px-1.5 py-0.5 bg-zinc-950 border-2 border-zinc-800">V</span> {t('profileShortcut')}</p>
         </div>
 
         {/* DRAGGABLE CARD CONTAINER */}
@@ -333,7 +354,7 @@ export default function SwipeDeck() {
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          <div className="absolute inset-0 bg-black border-2 border-zinc-600 overflow-hidden flex flex-col shadow-[12px_12px_0px_rgba(255,255,255,0.05)]">
+          <div className="discovery-swipe-card absolute inset-0 overflow-hidden flex flex-col">
             
             {/* Image Gallery */}
             <div className="relative flex-1 bg-zinc-950 overflow-hidden">
@@ -344,6 +365,14 @@ export default function SwipeDeck() {
                 draggable="false"
               />
               
+              {/* Online Pulse Status */}
+              {activeUser.status === 'online' && (
+                <div className="absolute top-4 left-4 bg-black border-2 border-zinc-800 px-3 py-1.5 flex items-center gap-2 z-10">
+                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                  <span className="text-[10px] font-bold text-white uppercase tracking-widest">{t('online')}</span>
+                </div>
+              )}
+
               {/* Photo Navigation Overlays */}
               <div className="absolute inset-y-0 left-0 w-1/3 z-20" onClick={(e) => handlePhotoTap(e, 'left')} />
               <div className="absolute inset-y-0 right-0 w-1/3 z-20" onClick={(e) => handlePhotoTap(e, 'right')} />
@@ -357,22 +386,27 @@ export default function SwipeDeck() {
 
               {/* Dynamic Action Stamps */}
               <div className="absolute inset-0 z-10 flex items-center justify-between px-8 pointer-events-none">
-                <div style={{ opacity: likeOpacity }} className="border-4 border-white text-white bg-black font-bold text-4xl p-3 rotate-12 tracking-widest uppercase">
-                  LIKE
+                <div style={{ opacity: likeOpacity }} className="border-4 border-white text-white bg-black font-bold text-4xl p-3 rotate-12 tracking-widest uppercase shadow-lg">
+                  {t('like')}
                 </div>
-                <div style={{ opacity: nopeOpacity }} className="border-4 border-red-500 text-red-500 bg-black font-bold text-4xl p-3 -rotate-12 tracking-widest uppercase">
-                  PASS
+                <div style={{ opacity: nopeOpacity }} className="border-4 border-red-500 text-red-500 bg-black font-bold text-4xl p-3 -rotate-12 tracking-widest uppercase shadow-lg">
+                  {t('pass')}
                 </div>
               </div>
 
               {/* Basic Info Overlay */}
-              <div className="absolute bottom-0 inset-x-0 p-4 z-20 pointer-events-none bg-black/80 border-t-2 border-zinc-800">
+              <div className="discovery-swipe-info absolute bottom-0 inset-x-0 p-4 z-20 pointer-events-none">
                 <div className="flex items-end justify-between">
                   <div>
                     <div className="flex items-center gap-3 mb-1">
-                      <h2 className="text-2xl font-bold text-white uppercase tracking-widest">
-                        {activeUser.display_name}
-                      </h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-2xl font-bold text-white uppercase tracking-widest">
+                          {activeUser.display_name}
+                        </h2>
+                        {activeUser.is_verified && (
+                          <BadgeCheck className="w-5 h-5 text-blue-500 shrink-0" title={t('verifiedProfile')} />
+                        )}
+                      </div>
                       <span className="text-xl text-zinc-500">{activeUser.age}</span>
                     </div>
                     <p className="text-zinc-400 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest">
@@ -395,7 +429,10 @@ export default function SwipeDeck() {
               
               <div className="w-full flex items-center justify-between p-4 bg-zinc-950 border-b-2 border-zinc-800 shrink-0 cursor-pointer" onClick={() => setShowProfile(false)}>
                 <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                  {activeUser.display_name}'S PROFILE
+                  {t('aboutProfile', { name: activeUser.display_name })}
+                  {activeUser.is_verified && (
+                    <BadgeCheck className="w-3 h-3 text-blue-500" title={t('verifiedProfile')} />
+                  )}
                   {isLoadingProfile && <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />}
                 </h3>
                 <button className="text-zinc-500 hover:text-white p-1 transition-colors"><ChevronDown className="w-5 h-5" /></button>
@@ -405,18 +442,18 @@ export default function SwipeDeck() {
                 
                 <div className="flex items-center gap-3 p-3 bg-black border-2 border-white text-white shrink-0">
                   <Star className="w-4 h-4" />
-                  <p className="text-[10px] font-bold uppercase tracking-widest">{activeUser.match_pct}% MATCH BASED ON PREFERENCES.</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest">{t('matchBasedPreferences', { percent: activeUser.match_pct })}</p>
                 </div>
 
                 <section>
-                  <h3 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-2">ABOUT ME</h3>
+                  <h3 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-2">{t('aboutMe')}</h3>
                   <p className="text-zinc-300 text-[10px] md:text-xs leading-relaxed uppercase tracking-widest bg-zinc-950 p-4 border-2 border-zinc-800">
-                    {activeUser.bio || "No bio provided."}
+                    {activeUser.bio || t('noBio')}
                   </p>
                 </section>
 
                 <section>
-                  <h3 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-2">INTERESTS</h3>
+                  <h3 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-2">{t('interests')}</h3>
                   <div className="flex flex-wrap gap-2">
                     {(activeUser.tags || []).map(tag => (
                       <span key={tag} className="px-2 py-1 bg-zinc-950 border-2 border-zinc-800 text-zinc-400 text-[9px] font-bold uppercase tracking-widest">
@@ -432,13 +469,13 @@ export default function SwipeDeck() {
                     onClick={handleBlock}
                     className="py-3 bg-black border-2 border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-white text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
                   >
-                    <Ban className="w-3.5 h-3.5" /> BLOCK
+                    <Ban className="w-3.5 h-3.5" /> {t('userBlock')}
                   </button>
                   <button 
                     onClick={() => setReportModal(true)}
                     className="py-3 bg-black border-2 border-zinc-800 text-zinc-400 hover:border-red-900 hover:text-red-500 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
                   >
-                    <Flag className="w-3.5 h-3.5" /> REPORT
+                    <Flag className="w-3.5 h-3.5" /> {t('userReport')}
                   </button>
                 </div>
               </div>
@@ -450,21 +487,21 @@ export default function SwipeDeck() {
         <div className="absolute bottom-6 md:bottom-10 inset-x-0 flex justify-center items-center gap-4 z-10 px-4">
           <button 
             onClick={() => handleAction('left')}
-            className="w-16 h-16 bg-black border-2 border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-red-500 hover:border-red-500 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.05)]"
+            className="discovery-action w-16 h-16 border-2 flex items-center justify-center text-zinc-500 transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
           
           <button 
             onClick={() => handleAction('super')}
-            className="w-12 h-12 bg-black border-2 border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-yellow-400 hover:border-yellow-400 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.05)]"
+            className="discovery-action w-12 h-12 border-2 flex items-center justify-center text-zinc-500 transition-colors"
           >
             <Star className="w-5 h-5" />
           </button>
 
           <button 
             onClick={() => handleAction('right')}
-            className="w-16 h-16 bg-white border-2 border-white flex items-center justify-center text-black hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.1)]"
+            className="discovery-primary discovery-action w-16 h-16 border-2 flex items-center justify-center transition-colors"
           >
             <Heart className="w-6 h-6 fill-black" />
           </button>
@@ -497,14 +534,17 @@ export default function SwipeDeck() {
 
             <div className="space-y-4 pt-8 w-full">
               <button 
-                onClick={() => setMatchModal({ show: false, user: null })} 
+                onClick={() => {
+                  setMatchModal({ show: false, user: null });
+                  navigate('/messages');
+                }} 
                 className="w-full py-4 bg-white text-black font-bold uppercase tracking-widest text-[10px] border-2 border-white hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 shadow-[8px_8px_0px_rgba(255,255,255,0.2)]"
               >
                 <MessageCircle className="w-4 h-4" /> SEND MESSAGE
               </button>
               <button 
                 onClick={() => setMatchModal({ show: false, user: null })}
-                className="w-full py-4 bg-black text-white font-bold uppercase tracking-widest text-[10px] border-2 border-zinc-700 hover:bg-zinc-900 transition-colors"
+                className="w-full py-4 bg-black text-white font-bold uppercase tracking-widest text-[10px] border-2 border-zinc-700 hover:border-white hover:bg-zinc-900 transition-colors"
               >
                 KEEP SWIPING
               </button>

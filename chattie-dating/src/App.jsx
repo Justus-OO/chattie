@@ -1,19 +1,23 @@
-import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { Toaster } from 'sonner';
-import { SunMedium, Moon } from 'lucide-react';
+import { Globe, SunMedium, Moon, Flame } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
+import { useI18n } from './i18n';
 
 // Layout & Security
 import MainLayout from './components/MainLayout';
 import ProtectedRoute from './components/ProtectedRoute';
+import LanguageModal from './components/modals/LanguageModal';
 
-// Layouts (Model & Admin)
+// Layouts (Model & Admin & AfterDark)
 import ModelLayout from './components/model/ModelLayout';
 import AdminLayout from './components/admin/AdminLayout';
+import AfterDarkLayout from './components/afterdark/AfterDarkLayout'; // Added AfterDarkLayout
 
 // Auth Pages
 import Login from './pages/auth/Login';
+import ForgotPassword from './pages/auth/ForgotPassword';
 import Register from './pages/auth/Register';
 import Onboarding from './pages/auth/Onboarding';
 
@@ -31,6 +35,8 @@ import DirectMessage from './pages/chat/DirectMessage';
 // Profile & Settings (Client)
 import MyProfile from './pages/profile/MyProfile';
 import UserSettings from './pages/profile/UserSettings';
+import PaymentMethods from './pages/profile/PaymentMethods';
+import Notifications from './components/NotificationModal';
 
 // Monetization & Legal
 import PremiumUpgrade from './pages/monetization/PremiumUpgrade';
@@ -51,33 +57,77 @@ import AdminFinance from './pages/admin/AdminFinance';
 import AdminPayouts from './pages/admin/AdminPayouts';
 import AdminModerationQueue from './pages/admin/AdminModerationQueue';
 
+// After Dark Pages (Client/Creator Hybrid)
+import AfterDarkFeed from './pages/afterdark/AfterDarkFeed';
+import AfterDarkChatHub from './pages/afterdark/AfterDarkChatHub';
+import AfterDarkDirectory from './pages/afterdark/AfterDarkDirectory';
+import AfterDarkMyChannel from './pages/afterdark/AfterDarkMyChannel';
+import AfterDarkSettings from './pages/afterdark/AfterDarkSettings';
+import AfterDarkWallet from './pages/afterdark/AfterDarkWallet';
+import AfterDarkCreatorProfile from './pages/afterdark/AfterDarkCreatorProfile';
+
 export default function App() {
+  const [isLanguageModalOpen, setIsLanguageModalOpen] = useState(false);
   const theme = useAppStore((state) => state.userPreferences.theme);
   const updatePreferences = useAppStore((state) => state.updatePreferences);
+  const { locale, language, languages, setLanguage, t } = useI18n();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-  }, [theme]);
+    document.documentElement.lang = locale;
+  }, [theme, locale]);
 
   const toggleTheme = () => {
     updatePreferences({ theme: theme === 'dark' ? 'light' : 'dark' });
   };
 
   return (
-    <>
-      <button type="button" onClick={toggleTheme} className="theme-toggle" aria-label="Toggle theme">
-        {theme === 'dark' ? <SunMedium className="theme-toggle__icon" /> : <Moon className="theme-toggle__icon" />}
+    <Router>
+      <div className="fixed top-3 right-3 z-100 flex items-center gap-2">
+        <button type="button" onClick={toggleTheme} className="theme-toggle" aria-label={t('toggleTheme')}>
+          {theme === 'dark' ? <SunMedium className="theme-toggle__icon" /> : <Moon className="theme-toggle__icon" />}
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={() => setIsLanguageModalOpen(true)}
+        className="language-toggle"
+        aria-label={t('selectLanguage')}
+        title={t('selectLanguage')}
+      >
+        <Globe className="language-toggle__icon" />
       </button>
+      <NavLink
+        to="/afterdark"
+        aria-label="Open After Dark, adults 18 and over"
+        title="After Dark (18+)"
+        className={({ isActive }) => `fixed bottom-[8rem] right-4 z-[70] flex h-12 w-12 items-center justify-center border shadow-lg backdrop-blur transition-colors ${
+          isActive
+            ? 'border-amber-500 bg-amber-500 text-black'
+            : 'border-zinc-300 bg-white/90 text-zinc-700 hover:border-amber-500 hover:text-amber-600'
+        }`}
+      >
+        <Flame className="h-5 w-5" />
+        <span className="absolute -right-1 -top-1 border border-white bg-red-600 px-1 text-[8px] font-black leading-3 text-white">18+</span>
+      </NavLink>
+      <LanguageModal
+        isOpen={isLanguageModalOpen}
+        onClose={() => setIsLanguageModalOpen(false)}
+        languages={languages}
+        language={language}
+        setLanguage={setLanguage}
+        title={t('selectLanguage')}
+      />
 
       {/* Global Notifications - Theme aware */}
       <Toaster position="top-center" richColors theme={theme} toastOptions={{ className: 'theme-toast uppercase tracking-widest' }} />
       
-      <Router>
-        <Routes>
+      <Routes>
           {/* PUBLIC ROUTES */}
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/register" element={<Register />} />
           <Route path="/onboarding" element={<Onboarding />} />
 
@@ -87,63 +137,88 @@ export default function App() {
             {/* ==========================================
                 CLIENT INTERFACE 
                 ========================================== */}
-            <Route path="/" element={<MainLayout />}>
-              <Route index element={<Navigate to="/rooms" replace />} />
+            <Route element={<ProtectedRoute allowedRoles={['client']} />}>
+              <Route path="/" element={<MainLayout />}>
+                <Route index element={<Navigate to="/rooms" replace />} />
 
-              {/* DISCOVERY */}
-              <Route path="discover" element={<SwipeDeck />} />
-              <Route path="browse" element={<GridBrowse />} />
-              <Route path="likes" element={<Likes />} />
-              
-              {/* CHAT FACTORY */}
-              <Route path="rooms" element={<RoomDirectory />} />
-              <Route path="rooms/:roomId" element={<LiveRoom />} />
-              <Route path="messages" element={<PrivateInbox />} />
-              <Route path="messages/:userId" element={<DirectMessage />} />
-              
-              {/* PROFILE & SYSTEM */}
-              <Route path="profile" element={<MyProfile />} />
-              <Route path="settings" element={<UserSettings />} />
-              <Route path="upgrade" element={<PremiumUpgrade />} />
-              <Route path="guidelines" element={<Guidelines />} />
+                {/* DISCOVERY */}
+                <Route path="discover" element={<SwipeDeck />} />
+                <Route path="browse" element={<GridBrowse />} />
+                <Route path="likes" element={<Likes />} />
+                
+                {/* CHAT FACTORY */}
+                <Route path="rooms" element={<RoomDirectory />} />
+                <Route path="rooms/:roomId" element={<LiveRoom />} />
+                <Route path="messages" element={<PrivateInbox />} />
+                <Route path="messages/:userId" element={<DirectMessage />} />
+                
+                {/* PROFILE & SYSTEM */}
+                <Route path="profile" element={<MyProfile />} />
+                <Route path="settings" element={<UserSettings />} />
+                <Route path="payment-methods" element={<PaymentMethods />} />
+                <Route path="notifications" element={<Notifications />} />
+                <Route path="upgrade" element={<PremiumUpgrade />} />
+                <Route path="guidelines" element={<Guidelines />} />
+              </Route>
+            </Route>
+
+            {/* ==========================================
+                AFTER DARK INTERFACE (Explicit Creator Section)
+                ========================================== */}
+            <Route element={<ProtectedRoute allowedRoles={['client', 'model']} />}>
+              <Route path="/afterdark" element={<AfterDarkLayout />}>
+                <Route index element={<Navigate to="/afterdark/feed" replace />} />
+                <Route path="feed" element={<AfterDarkFeed />} />
+                <Route path="chats" element={<AfterDarkChatHub />} />
+                <Route path="directory" element={<AfterDarkDirectory />} />
+                <Route path="channel" element={<AfterDarkMyChannel />} />
+                <Route path="settings" element={<AfterDarkSettings />} />
+                <Route path="cprofile" element={<AfterDarkSettings />} />
+                <Route path="cprofile/:id" element={<AfterDarkCreatorProfile/>} />
+                <Route path="wallet" element={<AfterDarkWallet />} />
+                {/* Note: /afterdark/wallet and /afterdark/analytics would also go here if built out as separate pages */}
+              </Route>
             </Route>
 
             {/* ==========================================
                 CREATOR TERMINAL (MODEL INTERFACE)
                 ========================================== */}
-            <Route path="/model" element={<ModelLayout />}>
-              <Route index element={<Navigate to="/model/dashboard" replace />} />
-              <Route path="dashboard" element={<ModelDashboard />} />
-              <Route path="queue" element={<ModelChatQueue />} />
-              <Route path="earnings" element={<ModelEarnings />} />
+            <Route element={<ProtectedRoute allowedRoles={['model']} />}>
+              <Route path="/model" element={<ModelLayout />}>
+                <Route index element={<Navigate to="/model/dashboard" replace />} />
+                <Route path="dashboard" element={<ModelDashboard />} />
+                <Route path="queue" element={<ModelChatQueue />} />
+                <Route path="earnings" element={<ModelEarnings />} />
+              </Route>
             </Route>
 
             {/* ==========================================
                 COMMAND CONTROL CENTER (ADMIN INTERFACE)
                 ========================================== */}
-            <Route path="/admin" element={<AdminLayout />}>
-              <Route index element={<Navigate to="/admin/dashboard" replace />} />
-              
-              {/* Overview */}
-              <Route path="dashboard" element={<AdminDashboard />} />
-              
-              {/* Operators & Accounts */}
-              <Route path="creators" element={<AdminCreators />} />
-              <Route path="users" element={<AdminUsers />} />
-              
-              {/* Content & Rooms */}
-              <Route path="chatroom" element={<AdminRoomManager />} />
-              <Route path="media" element={<AdminMediaVaults />} />
-              
-              {/* Finance & Trust */}
-              <Route path="finance" element={<AdminFinance />} />
-              <Route path="payouts" element={<AdminPayouts />} />
-              <Route path="moderation" element={<AdminModerationQueue />} />
+            <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="/admin/dashboard" replace />} />
+                
+                {/* Overview */}
+                <Route path="dashboard" element={<AdminDashboard />} />
+                
+                {/* Operators & Accounts */}
+                <Route path="creators" element={<AdminCreators />} />
+                <Route path="users" element={<AdminUsers />} />
+                
+                {/* Content & Rooms */}
+                <Route path="chatroom" element={<AdminRoomManager />} />
+                <Route path="media" element={<AdminMediaVaults />} />
+                
+                {/* Finance & Trust */}
+                <Route path="finance" element={<AdminFinance />} />
+                <Route path="payouts" element={<AdminPayouts />} />
+                <Route path="moderation" element={<AdminModerationQueue />} />
+              </Route>
             </Route>
 
           </Route>
-        </Routes>
-      </Router>
-    </>
+      </Routes>
+    </Router>
   );
 }

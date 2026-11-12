@@ -1,0 +1,68 @@
+import { apiClient } from './client'; 
+
+export const billingService = {
+  /**
+   * Fetch all active subscription plans from the database via the backend.
+   * @returns {Promise<Array>} Array of plan objects (id, duration, price, monthly, save, isPopular)
+   */
+  getPlans: async () => {
+    const response = await apiClient.get('/subscriptions/plans');
+    return response.data;
+  },
+
+  /**
+   * Initialize a checkout session.
+   * The backend initializes Stripe, Paystack, or M-Pesa using the selected gateway.
+   * 
+   * @param {number} planId The duration in months (e.g., 1, 6, 12). Maps to req.PlanID in Go.
+   * @param {string} gateway The selected payment provider ('stripe', 'paystack', or 'mpesa').
+   * @param {string} [phoneNumber] Kenyan phone number required for M-Pesa.
+   * @returns {Promise<Object>} Provider checkout details and a durable billing_reference.
+   */
+  initiateUpgrade: async (planId = 1, gateway = 'stripe', phoneNumber = '') => {
+    const response = await apiClient.post(`/subscriptions/upgrade?gateway=${gateway}`, {
+      plan_id: planId,
+      phone_number: phoneNumber
+    });
+    return response.data;
+  },
+
+  /**
+   * Verify a successful Stripe or Paystack payment.
+   * Triggers the database upgrade and WebSocket unlocks on the backend.
+   * 
+   * @param {Object} params The verification parameters
+   * @param {string} [params.sessionId] Stripe session_id
+   * @param {string} [params.reference] Paystack reference
+   * @param {number|string} params.months Duration purchased
+   * @returns {Promise<Object>} Success message
+   */
+  verifyPayment: async ({ sessionId, reference, months }) => {
+    const queryParams = new URLSearchParams();
+    
+    if (sessionId) queryParams.append('session_id', sessionId);
+    if (reference) queryParams.append('reference', reference);
+    if (months) queryParams.append('months', months.toString());
+
+    // Send as GET because your Go backend VerifyPayment handler reads from r.URL.Query()
+    const response = await apiClient.get(`/subscriptions/verify?${queryParams.toString()}`);
+    return response.data;
+  },
+
+  getMpesaPaymentStatus: async (billingReference) => {
+    const response = await apiClient.get('/subscriptions/mpesa/status', {
+      params: { billing_reference: billingReference }
+    });
+    return response.data;
+  },
+
+  getPaymentMethods: async () => {
+    const response = await apiClient.get('/subscriptions/payment-methods');
+    return response.data;
+  },
+
+  removePaymentMethod: async (id) => {
+    const response = await apiClient.delete(`/subscriptions/payment-methods/${encodeURIComponent(id)}`);
+    return response.data;
+  },
+};

@@ -10,7 +10,7 @@ import {
   FileImage, Star, Upload, Database
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { adminService } from '../../api/creator.service'; // Adjust import path if needed
+import { adminService } from '../../api/admin.service';
 
 // ============================================================================
 // MAIN COMPONENT
@@ -273,7 +273,7 @@ export default function AdminCreators() {
     setUploadFiles([]);
     try {
       setIsLoadingGallery(true);
-      const galleryData = await adminService.getVaultGallery(persona.id);
+      const galleryData = await adminService.getMediaVault(persona.id);
       setVaultMedia(galleryData || []);
     } catch (error) {
       toast.error("Failed to load vault assets");

@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
   MessageSquare, Search, MoreVertical, BellOff, 
   Trash2, Archive, CheckCircle2, Flame, AlertTriangle, Clock,
-  Loader2, RefreshCw, Send, ArrowLeft, Bot, Sparkles, Check, CheckCheck, X,Heart,
-  Image as ImageIcon, Smile, Upload, Video, Mic, MicOff, PhoneOff, Phone
-  , Headphones
+  Loader2, RefreshCw, Send, ArrowLeft, Bot, Sparkles, Check, CheckCheck, X, Heart,
+  Image as ImageIcon, Smile, Upload, Video, Mic, MicOff, PhoneOff, Phone, Headphones
 } from 'lucide-react';
 import { toast } from 'sonner';
 import EmojiPicker from 'emoji-picker-react';
@@ -26,9 +25,23 @@ import { Track, LocalAudioTrack } from 'livekit-client';
 import { chatService } from '../../api/chat.service'; 
 import { discoveryService } from '../../api/discovery.service';
 import { apiClient } from '../../api/client'; 
+import { ChattieService } from '../../api/chattie.service';
 import { MediaVaultModal, DeleteConfirmModal, BlockUserModal } from '../../components/chat/ChatModals';
+import { useI18n } from '../../i18n';
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880"; 
+
+// --- ROBUST WS URL BUILDER ---
+const getWsUrl = (queryParameters) => {
+  if (import.meta.env.VITE_WS_URL) {
+    return `${import.meta.env.VITE_WS_URL}${queryParameters}`;
+  }
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    ? 'localhost:8080' 
+    : window.location.host;
+  return `${wsProtocol}//${host}/ws${queryParameters}`;
+};
 
 const CANNED_REPLIES = [
   "Hey there! Thanks for the tip ❤️ Let's chat.",
@@ -49,6 +62,7 @@ const getUserTier = (spend, flagged) => {
 // ============================================================================
 export default function PrivateInbox() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const theme = useAppStore((state) => state.userPreferences.theme);
 
   // --- STATE ---
@@ -72,13 +86,17 @@ export default function PrivateInbox() {
   const [callMode, setCallMode] = useState('video');
   const [callStartedAt, setCallStartedAt] = useState(null);
   const [callElapsedSec, setCallElapsedSec] = useState(0);
+  
   // Incoming call / ringing state
-  const [incomingCallData, setIncomingCallData] = useState(null); // { fromId, fromName, roomId, mode }
+  const [incomingCallData, setIncomingCallData] = useState(null); 
   const notificationSocketRef = useRef(null);
+  const notificationReconnectAttempts = useRef(0);
+  const notificationIntentionalClose = useRef(false);
+
   const ringtoneCtxRef = useRef(null);
   const ringtonePlayingRef = useRef(false);
   const audioCtxRef = useRef(null);
-  const [ringtoneProfile, setRingtoneProfile] = useState('sweet'); // 'sweet' | 'soft' | 'classic'
+  const [ringtoneProfile, setRingtoneProfile] = useState('sweet'); 
   const [micGain, setMicGain] = useState(1.0);
   const [micEnabled, setMicEnabled] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
@@ -86,7 +104,7 @@ export default function PrivateInbox() {
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
 
-  // Auto-publish microphone helper component (placed inside LiveKitRoom children)
+  // Auto-publish microphone helper component
   function AutoPublishMic() {
     const { localParticipant } = useLocalParticipant();
     const publishedRef = useRef(null);
@@ -146,7 +164,6 @@ export default function PrivateInbox() {
             }
           }
 
-          // Fallback: enable built-in microphone publish
           if (localParticipant.setMicrophoneEnabled) {
             await localParticipant.setMicrophoneEnabled(true);
           }
@@ -159,13 +176,11 @@ export default function PrivateInbox() {
 
       return () => {
         mounted = false;
-        // unpublish if needed
         try {
           if (publishedRef.current && localParticipant.unpublishTrack) {
             localParticipant.unpublishTrack(publishedRef.current.localAudioTrack).catch(() => {});
           }
         } catch (e) {}
-        // stop source tracks
         if (srcStreamRef.current) {
           srcStreamRef.current.getTracks().forEach(t => t.stop());
           srcStreamRef.current = null;
@@ -187,7 +202,6 @@ export default function PrivateInbox() {
       };
     }, [localParticipant]);
 
-    // Update gain when slider moves
     useEffect(() => {
       if (gainNodeRef.current) gainNodeRef.current.gain.value = micGain;
     }, [micGain]);
@@ -205,12 +219,20 @@ export default function PrivateInbox() {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachedMedia, setAttachedMedia] = useState(null);
+  const [attachedFile, setAttachedFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [attachedMediaMeta, setAttachedMediaMeta] = useState(null);
+  const [attachedMediaType, setAttachedMediaType] = useState(null);
+  const [revealedMediaIds, setRevealedMediaIds] = useState(new Set());
   const [vaultImages, setVaultImages] = useState([]);
   const [isLoadingVault, setIsLoadingVault] = useState(false);
   
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
   const persistedCallEventsRef = useRef({});
+  const socketMetaRef = useRef({ reconnectAttempts: 0, manuallyClosed: false, reconnectTimer: null });
+  const activeChatRef = useRef(null);
+  const lastIncomingCallRef = useRef(null);
   const lastTypingTimeRef = useRef(0);
   const typingTimeoutRef = useRef(null);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
@@ -218,7 +240,14 @@ export default function PrivateInbox() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
   const [localStream, setLocalStream] = useState(null);
-  const localVideoRef = useRef(null);
+  const localPreviewRef = useRef(null);
+
+  const assignStream = (el, stream) => {
+    if (!el) return;
+    try {
+      if (el.srcObject !== stream) el.srcObject = stream;
+    } catch (e) {}
+  };
 
   const currentUser = useAppStore((s) => s.user) || { id: 'me', name: 'You' };
   const appToken = useAppStore((state) => state.token);
@@ -234,8 +263,6 @@ export default function PrivateInbox() {
     "Thanks for the tip, VIP! 😘",
     "Want to move this to a video call?"
   ];
-
-  const normalizeId = (value) => value == null ? '' : String(value);
 
   const formatChatTimestamp = (value) => {
     if (!value) return '';
@@ -331,29 +358,166 @@ export default function PrivateInbox() {
   }, [showMediaVault]);
 
   // ============================================================================
-  // WEBSOCKET SETUP WHEN ACTIVE CHAT OPENS
+  // WEBSOCKET SETUP WHEN ACTIVE CHAT OPENS (ROBUST BACKOFF)
   // ============================================================================
   useEffect(() => {
     setPartnerPresence(activeChat?.status === 'online' ? 'online' : 'offline');
     setFirstUnreadId(null);
     setReplyingTo(null);
+    activeChatRef.current = activeChat;
 
     if (!activeChat) {
       if (socketRef.current) {
-        socketRef.current.close();
+        // CLEAN DISCONNECT: Sends code 1000 to backend so it doesn't log 1005 errors
+        socketRef.current.close(1000, "User left chat");
         socketRef.current = null;
       }
       setIsInCall(false);
       setCallToken("");
-      // cleanup local stream when closing chat
       try {
-        if (localStream) {
-          localStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
-        }
+        if (localStream) localStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
       } catch (e) {}
       setLocalStream(null);
       return;
     }
+
+    const connectWsForChat = () => {
+      socketMetaRef.current.manuallyClosed = false;
+
+      const doConnect = () => {
+        let token = appToken || '';
+        try {
+          const stored = localStorage.getItem('chattie-session-storage');
+          if (!token && stored) token = JSON.parse(stored)?.state?.token || '';
+        } catch (e) {}
+
+        const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+        const shouldUseRoom = activeChatRef.current?.type === 'room';
+        const chatTarget = activeChatRef.current?.id;
+        
+        // USE ROBUST URL BUILDER
+        const wsUrl = getWsUrl(`?${shouldUseRoom ? `room_id=${chatTarget}` : `target_id=${chatTarget}`}&token=${encodeURIComponent(cleanToken)}`);
+
+        try {
+          const ws = new WebSocket(wsUrl);
+          socketRef.current = ws;
+
+          ws.onopen = () => {
+            socketMetaRef.current.reconnectAttempts = 0;
+            if (!socketRef.current) return;
+            const presencePayload = activeChatRef.current?.type === 'room'
+              ? { type: 'presence', status: 'online', room_id: activeChatRef.current.id }
+              : { type: 'presence', status: 'online', target_id: activeChatRef.current?.id };
+            try { socketRef.current.send(JSON.stringify(presencePayload)); } catch (e) {}
+            
+            if (activeChatRef.current?.type === 'dm') {
+              try { apiClient.patch(`/chats/${activeChatRef.current.id}/read`).catch(()=>{}); } catch(e){}
+              try { socketRef.current.send(JSON.stringify({ type: 'mark_read', target_id: activeChatRef.current.id })); } catch(e){}
+            }
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const incoming = JSON.parse(event.data);
+
+              if (incoming.type === 'mark_read') {
+                setMessages(prev => prev.map(msg => msg.sender === 'me' ? { ...msg, status: 'read' } : msg));
+                return;
+              }
+
+              if (incoming.type === 'presence') {
+                const isMatching = incoming.target_id === activeChatRef.current?.id || incoming.room_id === activeChatRef.current?.id;
+                if (isMatching) {
+                  setPartnerPresence(incoming.status === 'online' ? 'online' : incoming.status === 'away' ? 'away' : 'offline');
+                }
+                return;
+              }
+
+              if (incoming.type === 'typing') {
+                const senderId = incoming.sender_id || incoming.from;
+                if (senderId === activeChatRef.current?.id) {
+                  setIsPartnerTyping(true);
+                  if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                  typingTimeoutRef.current = window.setTimeout(() => setIsPartnerTyping(false), 3000);
+                }
+                return;
+              }
+
+              if (incoming.type === 'incoming_call') {
+                if (isInCall) { stopRingtone(); return; }
+                if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
+                setIncomingCallData({
+                  fromId: incoming.from || incoming.sender_id,
+                  fromName: incoming.from_name || incoming.sender_name || 'Caller',
+                  roomId: incoming.room_id,
+                  mode: incoming.mode || 'video'
+                });
+                return;
+              }
+
+              if (incoming.type === 'call_answered') {
+                stopRingtone();
+                setIncomingCallData(null);
+                if (!isInCall) {
+                  setIsInCall(true);
+                  setCallStartedAt(Date.now());
+                }
+                return;
+              }
+
+              if (incoming.type === 'call_rejected') {
+                stopRingtone();
+                setIncomingCallData(null);
+                toast.error(t('callRejectedInbox'));
+                setIsInCall(false);
+                setCallToken('');
+                setCallStartedAt(null);
+                return;
+              }
+
+              const newMsg = {
+                id: incoming.id || Date.now().toString(),
+                sender: incoming.sender_id === activeChatRef.current?.id ? 'partner' : 'me',
+                text: incoming.content || incoming.text || '',
+                media: incoming.media || null,
+                nsfw: incoming.nsfw || incoming.is_flagged || incoming.flagged || false,
+                flagged: incoming.flagged || incoming.is_flagged || incoming.isFlagged || false,
+                status: incoming.sender_id === activeChatRef.current?.id ? 'delivered' : 'sent',
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              };
+              setMessages(prev => {
+                if (prev.some(m => m.id === newMsg.id)) return prev;
+                const next = [...prev, newMsg];
+                if (activeChatRef.current?.type === 'dm' && incoming.sender_id === activeChatRef.current?.id) {
+                  setTimeout(() => {
+                    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+                      try { socketRef.current.send(JSON.stringify({ type: 'mark_read', target_id: activeChatRef.current.id })); } catch (e) {}
+                    }
+                  }, 150);
+                }
+                return next;
+              });
+            } catch (e) {}
+          };
+
+          ws.onclose = () => {
+            if (socketMetaRef.current.manuallyClosed) return;
+            socketMetaRef.current.reconnectAttempts = (socketMetaRef.current.reconnectAttempts || 0) + 1;
+            const attempt = socketMetaRef.current.reconnectAttempts;
+            const delay = Math.min(30000, Math.pow(2, attempt) * 500);
+            if (socketMetaRef.current.reconnectTimer) clearTimeout(socketMetaRef.current.reconnectTimer);
+            socketMetaRef.current.reconnectTimer = setTimeout(doConnect, delay);
+          };
+        } catch (e) {
+          socketMetaRef.current.reconnectAttempts = (socketMetaRef.current.reconnectAttempts || 0) + 1;
+          const attempt = socketMetaRef.current.reconnectAttempts;
+          const delay = Math.min(30000, Math.pow(2, attempt) * 500);
+          socketMetaRef.current.reconnectTimer = setTimeout(doConnect, delay);
+        }
+      };
+
+      doConnect();
+    };
 
     const loadChatHistoryAndConnect = async () => {
       try {
@@ -363,7 +527,9 @@ export default function PrivateInbox() {
           sender: (msg.sender_id === activeChat.id || msg.sender === 'partner') ? 'partner' : 'me',
           text: msg.content || msg.text || '',
           media: msg.media || null,
-          status: msg.status || msg.read === false ? 'unread' : 'delivered',
+          nsfw: msg.nsfw || msg.is_flagged || msg.isFlagged || false,
+          flagged: msg.flagged || msg.is_flagged || msg.isFlagged || false,
+          status: (msg.status || (msg.read === false ? 'unread' : undefined)) || 'delivered',
           time: formatChatTimestamp(msg.created_at || msg.timestamp || msg.createdAt || msg.sent_at || Date.now()) || 'Just now'
         }));
         const persistedEvents = persistedCallEventsRef.current[activeChat.id] || [];
@@ -376,160 +542,31 @@ export default function PrivateInbox() {
         setMessages([]);
       }
 
-      let token = useAppStore.getState().token;
-      if (!token) {
-        try {
-          const stored = localStorage.getItem('chattie-session-storage');
-          if (stored) token = JSON.parse(stored)?.state?.token || '';
-        } catch (e) {}
-      }
-
-      const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const shouldUseRoom = activeChat.type === 'room';
-      const chatTarget = activeChat.id;
-      const wsUrl = `${wsProtocol}//localhost:8080/ws?${shouldUseRoom ? `room_id=${chatTarget}` : `target_id=${chatTarget}`}&token=${encodeURIComponent(cleanToken)}`;
-
-      const ws = new WebSocket(wsUrl);
-      socketRef.current = ws;
-
-      ws.onopen = () => {
-        const presencePayload = activeChat.type === 'room'
-          ? { type: 'presence', status: 'online', room_id: activeChat.id }
-          : { type: 'presence', status: 'online', target_id: activeChat.id };
-
-        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify(presencePayload));
-        }
-
-        if (activeChat?.type === 'dm') {
-          apiClient.patch(`/chats/${activeChat.id}/read`).catch(() => {});
-          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send(JSON.stringify({
-              type: 'mark_read',
-              target_id: activeChat.id
-            }));
-          }
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const incoming = JSON.parse(event.data);
-
-          if (incoming.type === 'mark_read') {
-            setMessages(prev => prev.map(msg => msg.sender === 'me' ? { ...msg, status: 'read' } : msg));
-            return;
-          }
-
-          if (incoming.type === 'presence') {
-            const isMatching = incoming.target_id === activeChat.id || incoming.room_id === activeChat.id;
-            if (isMatching) {
-              setPartnerPresence(incoming.status === 'online' ? 'online' : incoming.status === 'away' ? 'away' : 'offline');
-            }
-            return;
-          }
-
-          if (incoming.type === 'typing') {
-            const senderId = incoming.sender_id || incoming.from;
-            if (senderId === activeChat.id) {
-              setIsPartnerTyping(true);
-              if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-              typingTimeoutRef.current = window.setTimeout(() => setIsPartnerTyping(false), 3000);
-            }
-            return;
-          }
-
-          // Handle incoming call signaling
-          if (incoming.type === 'incoming_call') {
-            if (isInCall) {
-              stopRingtone();
-              return;
-            }
-            // ignore self echoes
-            if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
-            // If this socket is the active chat with the caller, or notification arrives here,
-            // show incoming call UI to allow accept/reject.
-            setIncomingCallData({
-              fromId: incoming.from || incoming.sender_id,
-              fromName: incoming.from_name || incoming.sender_name || 'Caller',
-              roomId: incoming.room_id,
-              mode: incoming.mode || 'video'
-            });
-            return;
-          }
-
-          // Handle call answered/rejected signals so caller/receiver stop ringing and update UI
-          if (incoming.type === 'call_answered') {
-            // If we were the caller, stop our ringtone and mark as in-call if we have a token
-            stopRingtone();
-            setIncomingCallData(null);
-            if (!isInCall) {
-              setIsInCall(true);
-              setCallStartedAt(Date.now());
-            }
-            return;
-          }
-
-          if (incoming.type === 'call_rejected') {
-            stopRingtone();
-            setIncomingCallData(null);
-            toast.error('Call was rejected');
-            setIsInCall(false);
-            setCallToken('');
-            setCallStartedAt(null);
-            return;
-          }
-
-          // Other message types fall back to chat message rendering
-          const newMsg = {
-            id: incoming.id || Date.now().toString(),
-            sender: incoming.sender_id === activeChat.id ? 'partner' : 'me',
-            text: incoming.content || incoming.text || '',
-            media: incoming.media || null,
-            status: incoming.sender_id === activeChat.id ? 'delivered' : 'sent',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          };
-          setMessages(prev => {
-            if (prev.some(m => m.id === newMsg.id)) return prev;
-            const next = [...prev, newMsg];
-            if (activeChat?.type === 'dm' && incoming.sender_id === activeChat.id) {
-              setTimeout(() => {
-                if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-                  socketRef.current.send(JSON.stringify({
-                    type: 'mark_read',
-                    target_id: activeChat.id
-                  }));
-                }
-              }, 150);
-            }
-            return next;
-          });
-        } catch (e) {}
-      };
+      connectWsForChat();
     };
 
     loadChatHistoryAndConnect();
 
     return () => {
-      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-        const presencePayload = activeChat && activeChat.type === 'room'
-          ? { type: 'presence', status: 'offline', room_id: activeChat.id }
-          : { type: 'presence', status: 'offline', target_id: activeChat?.id };
-        try {
-          socketRef.current.send(JSON.stringify(presencePayload));
-        } catch (e) {}
-      }
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
+      try {
+        socketMetaRef.current.manuallyClosed = true;
+        if (socketMetaRef.current.reconnectTimer) { clearTimeout(socketMetaRef.current.reconnectTimer); socketMetaRef.current.reconnectTimer = null; }
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          const presencePayload = activeChat && activeChat.type === 'room'
+            ? { type: 'presence', status: 'offline', room_id: activeChat.id }
+            : { type: 'presence', status: 'offline', target_id: activeChat?.id };
+          try { socketRef.current.send(JSON.stringify(presencePayload)); } catch(e){}
+        }
+      } catch (e) {}
+      // CLEAN DISCONNECT
+      try { if (socketRef.current) { socketRef.current.close(1000, "Intentional disconnect"); socketRef.current = null; } } catch (e) {}
     };
-  }, [activeChat]);
+  }, [activeChat, appToken]);
 
-  // --- Global notification socket (Rings app-wide) ---
+  // ============================================================================
+  // GLOBAL NOTIFICATION SOCKET (WITH EXPONENTIAL BACKOFF)
+  // ============================================================================
   useEffect(() => {
-    // Ensure we actually have a token before trying to connect
     let activeToken = appToken;
     if (!activeToken) {
       try {
@@ -538,68 +575,99 @@ export default function PrivateInbox() {
       } catch (e) {}
     }
 
-    if (!activeToken) return; // wait until token hydrates
+    if (!activeToken) return;
 
-    const cleanToken = activeToken.startsWith('Bearer ') ? activeToken.slice(7) : activeToken;
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const notifyUrl = `${wsProtocol}//localhost:8080/ws?token=${encodeURIComponent(cleanToken)}`;
+    const connectGlobalNotifications = () => {
+      notificationIntentionalClose.current = false;
+      const cleanToken = activeToken.startsWith('Bearer ') ? activeToken.slice(7) : activeToken;
+      
+      // USE ROBUST URL BUILDER
+      const notifyUrl = getWsUrl(`?token=${encodeURIComponent(cleanToken)}`);
 
-    try {
-      const nws = new WebSocket(notifyUrl);
-      notificationSocketRef.current = nws;
+      try {
+        const nws = new WebSocket(notifyUrl);
+        notificationSocketRef.current = nws;
 
-      nws.onopen = () => console.log('✅ Global Notification Socket Connected');
-      nws.onclose = () => console.log('❌ Global Notification Socket Disconnected');
+        nws.onopen = () => {
+          notificationReconnectAttempts.current = 0;
+          console.log('✅ Global Notification Socket Connected');
+        };
 
-      nws.onmessage = (ev) => {
-        try {
-          const incoming = JSON.parse(ev.data);
-          if (incoming.type === 'incoming_call') {
-            if (isInCall) {
-              stopRingtone();
+        nws.onmessage = (ev) => {
+          try {
+            const incoming = JSON.parse(ev.data);
+            if (incoming.type === 'incoming_call') {
+              if (isInCall) { stopRingtone(); return; }
+              if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
+              setIncomingCallData({
+                fromId: incoming.from || incoming.sender_id,
+                fromName: incoming.from_name || incoming.sender_name || 'Caller',
+                roomId: incoming.room_id,
+                mode: incoming.mode || 'video'
+              });
               return;
             }
-            // ignore self echoes
-            if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
-            setIncomingCallData({
-              fromId: incoming.from || incoming.sender_id,
-              fromName: incoming.from_name || incoming.sender_name || 'Caller',
-              roomId: incoming.room_id,
-              mode: incoming.mode || 'video'
-            });
-            return;
-          }
-          if (incoming.type === 'call_answered') {
-            stopRingtone();
-            setIncomingCallData(null);
-            if (!isInCall) {
-              setIsInCall(true);
-              setCallStartedAt(Date.now());
+            if (incoming.type === 'call_answered') {
+              stopRingtone();
+              setIncomingCallData(null);
+              if (!isInCall) {
+                setIsInCall(true);
+                setCallStartedAt(Date.now());
+              }
+              return;
             }
-            return;
-          }
-          if (incoming.type === 'call_rejected') {
-            stopRingtone();
-            setIncomingCallData(null);
-            toast.error('Call was rejected');
-            setIsInCall(false);
-            setCallToken('');
-            setCallStartedAt(null);
-            return;
-          }
-        } catch (e) {}
-      };
-    } catch (e) {
-      // ignore
-    }
+            if (incoming.type === 'call_rejected') {
+              stopRingtone();
+              setIncomingCallData(null);
+              toast.error(t('callRejectedInbox'));
+              setIsInCall(false);
+              setCallToken('');
+              setCallStartedAt(null);
+              return;
+            }
+          } catch (e) {}
+        };
+
+        nws.onclose = () => {
+          if (notificationIntentionalClose.current) return;
+          // Exponential backoff for notification socket
+          const attempt = notificationReconnectAttempts.current;
+          const delay = Math.min(30000, Math.pow(2, attempt) * 1000);
+          notificationReconnectAttempts.current += 1;
+          setTimeout(connectGlobalNotifications, delay);
+        };
+      } catch (e) {
+        // Fallback retry
+        setTimeout(connectGlobalNotifications, 2000);
+      }
+    };
+
+    connectGlobalNotifications();
 
     return () => {
+      notificationIntentionalClose.current = true;
       if (notificationSocketRef.current) {
-        try { notificationSocketRef.current.close(); } catch (e) {}
+        // CLEAN DISCONNECT
+        try { notificationSocketRef.current.close(1000, "Intentional disconnect"); } catch (e) {}
         notificationSocketRef.current = null;
       }
     };
-  }, [appToken]);
+  }, [appToken, isInCall, currentUser?.id]);
+
+  // Rehydrate persisted active call on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('chattie.activeCall');
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      if (obj && obj.token) {
+        setCallToken(obj.token);
+        setIsInCall(true);
+        setCallMode(obj.mode || 'video');
+        setCallStartedAt(obj.startedAt || Date.now());
+      }
+    } catch (e) {}
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -610,23 +678,19 @@ export default function PrivateInbox() {
       setCallElapsedSec(0);
       return;
     }
-
     const id = setInterval(() => {
       setCallElapsedSec(Math.floor((Date.now() - callStartedAt) / 1000));
     }, 1000);
-
     return () => clearInterval(id);
   }, [isInCall, callStartedAt]);
 
   useEffect(() => {
-    if (incomingCallData) {
-      playRingtone(ringtoneProfile);
-    } else {
-      stopRingtone();
-    }
+    if (incomingCallData) playRingtone(ringtoneProfile);
+    else stopRingtone();
     return () => stopRingtone();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingCallData]);
+
+  useEffect(() => { assignStream(localPreviewRef.current, localStream); }, [localStream]);
 
   useEffect(() => {
     if (isInCall) {
@@ -636,16 +700,14 @@ export default function PrivateInbox() {
   }, [isInCall]);
 
   useEffect(() => {
-    // if the ringtone profile changes while ringing, restart with new profile
     if (incomingCallData) {
       stopRingtone();
       playRingtone(ringtoneProfile);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ringtoneProfile]);
 
   // ============================================================================
-  // CALL HANDLERS (LiveKit Integration)
+  // CALL HANDLERS
   // ============================================================================
   const startCall = async (mode = 'video') => {
     if (!activeChat?.id) return;
@@ -658,7 +720,6 @@ export default function PrivateInbox() {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
           setLocalStream(stream);
         } catch (err) {
-          // permission denied or device not available - still proceed to request token
           console.warn('Camera permission not granted:', err);
         }
       }
@@ -669,9 +730,11 @@ export default function PrivateInbox() {
       setCallToken(res.data.token);
       setIsInCall(true);
       setCallStartedAt(Date.now());
-      // Try to resume audio playback (user gesture)
+      try {
+        localStorage.setItem('chattie.activeCall', JSON.stringify({ chatId: activeChat?.id, token: res.data.token, mode, startedAt: Date.now() }));
+      } catch (e) {}
       await ensureAudioPlayback();
-      // Notify callee via websocket that an incoming call is ringing
+      
       const notify = {
         type: 'incoming_call',
         from: currentUser?.id,
@@ -686,11 +749,9 @@ export default function PrivateInbox() {
         } else if (notificationSocketRef.current && notificationSocketRef.current.readyState === WebSocket.OPEN) {
           notificationSocketRef.current.send(JSON.stringify(notify));
         }
-      } catch (e) {
-        // Best-effort notify
-      }
+      } catch (e) {}
     } catch (err) {
-      toast.error("Failed to start secure call.");
+      toast.error(t('secureCallFailedInbox'));
     } finally {
       setIsConnectingCall(false);
     }
@@ -702,13 +763,13 @@ export default function PrivateInbox() {
     setCallToken("");
     setCallStartedAt(null);
     setCallElapsedSec(0);
-    // Stop local media streams if any
     try {
       if (localStream) {
         localStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
       }
     } catch (e) {}
     setLocalStream(null);
+    try { localStorage.removeItem('chattie.activeCall'); } catch (e) {}
   };
 
   const acceptCall = async () => {
@@ -722,9 +783,7 @@ export default function PrivateInbox() {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
           setLocalStream(stream);
-        } catch (err) {
-          console.warn('Camera permission not granted for accept:', err);
-        }
+        } catch (err) {}
       }
       const res = await apiClient.post('/rooms/voice-token', {
         room_id: incomingCallData.roomId,
@@ -733,19 +792,20 @@ export default function PrivateInbox() {
       setCallToken(res.data.token);
       setIsInCall(true);
       setCallStartedAt(Date.now());
+      try {
+        localStorage.setItem('chattie.activeCall', JSON.stringify({ chatId: activeChat?.id || incomingCallData.roomId, token: res.data.token, mode: incomingCallData.mode || 'video', startedAt: Date.now() }));
+      } catch (e) {}
       appendSystemMessage('Call connected', 'call_connected');
       stopRingtone();
       setIncomingCallData(null);
-      // Ensure audio plays after user accepted
       await ensureAudioPlayback();
-      // Notify caller that we've answered
       const ack = { type: 'call_answered', room_id: incomingCallData.roomId, from: currentUser?.id, to: incomingCallData.fromId };
       try {
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(ack));
         if (notificationSocketRef.current && notificationSocketRef.current.readyState === WebSocket.OPEN) notificationSocketRef.current.send(JSON.stringify(ack));
       } catch (e) {}
     } catch (err) {
-      toast.error('Failed to join call.');
+      toast.error(t('joinCallFailedInbox'));
     } finally {
       setIsConnectingCall(false);
     }
@@ -768,19 +828,15 @@ export default function PrivateInbox() {
     startCall(mode);
   };
 
-  // Simple generated ringtone using WebAudio (avoids external assets)
   const playRingtone = (profile = 'sweet') => {
     if (ringtonePlayingRef.current) return;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       const ctx = new AC();
-
-      // master gain to control overall volume
       const master = ctx.createGain();
       master.gain.value = 1.0;
       master.connect(ctx.destination);
 
-      // schedule motifs depending on profile
       const scheduleMotif = () => {
         const now = ctx.currentTime;
         const playNote = (freq, offset, dur = 0.16, type = 'triangle', vol = 0.05) => {
@@ -799,33 +855,26 @@ export default function PrivateInbox() {
         };
 
         if (profile === 'soft') {
-          // soft two-note gentle ping
           playNote(660, 0, 0.22, 'sine', 0.04);
           playNote(880, 0.32, 0.18, 'sine', 0.035);
         } else if (profile === 'classic') {
-          // classic phone-like arpeggio
           playNote(880, 0, 0.14, 'square', 0.06);
           playNote(659, 0.18, 0.14, 'square', 0.06);
           playNote(880, 0.36, 0.14, 'square', 0.06);
         } else {
-          // sweet (default) 3-note triangle motif
           playNote(880, 0, 0.18, 'triangle', 0.055);
           playNote(660, 0.22, 0.18, 'triangle', 0.05);
           playNote(990, 0.46, 0.16, 'triangle', 0.045);
         }
       };
 
-      // determine interval length by profile
       const intervalMs = profile === 'soft' ? 1400 : (profile === 'classic' ? 1000 : 1200);
       scheduleMotif();
       const interval = setInterval(scheduleMotif, intervalMs);
 
       ringtoneCtxRef.current = { ctx, master, interval };
       ringtonePlayingRef.current = true;
-    } catch (e) {
-      // WebAudio not available or blocked by browser autoplay policies
-      // swallow quietly
-    }
+    } catch (e) {}
   };
 
   const stopRingtone = () => {
@@ -840,20 +889,13 @@ export default function PrivateInbox() {
     }
   };
 
-  // Ensure browser audio can play (resume AudioContext) — call on user gesture like Accept
   const ensureAudioPlayback = async () => {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AC();
-      }
-      if (audioCtxRef.current.state === 'suspended') {
-        await audioCtxRef.current.resume();
-      }
-    } catch (e) {
-      // ignore
-    }
+      if (!audioCtxRef.current) audioCtxRef.current = new AC();
+      if (audioCtxRef.current.state === 'suspended') await audioCtxRef.current.resume();
+    } catch (e) {}
   };
 
   // ============================================================================
@@ -904,12 +946,12 @@ export default function PrivateInbox() {
     }
   };
 
-  const handleSendMessage = (overrideText = null) => {
+  const handleSendMessage = async (overrideText = null) => {
     const textToSend = overrideText !== null ? overrideText : inputText;
     if (!textToSend.trim() && !attachedMedia && !isSending) return;
 
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-      toast.error("Chat connection offline.");
+      toast.error(t('chatOffline'));
       return;
     }
 
@@ -926,7 +968,12 @@ export default function PrivateInbox() {
     };
     setMessages(prev => [...prev, newMsg]);
     setIsSending(true);
-    try {
+    const sendPayload = async () => {
+      if (attachedFile && !attachedMedia) {
+        try { await uploadChatFile(attachedFile); } 
+        catch (e) { toast.error(t('uploadFailed')); setIsSending(false); return; }
+      }
+
       const payload = {
         room_id: isRoomChat ? activeChat.id : "",
         recipient_id: isDmChat ? activeChat.id : "",
@@ -937,17 +984,89 @@ export default function PrivateInbox() {
         media: attachedMedia
       };
 
-      socketRef.current.send(JSON.stringify(payload));
+      try {
+        socketRef.current.send(JSON.stringify(payload));
+      } catch (err) {
+        throw err;
+      }
+    };
+
+    try {
+      await sendPayload();
       setMessages(prev => prev.map(msg => msg.id === localMessageId ? { ...msg, status: 'delivered' } : msg));
       if (overrideText === null) setInputText('');
       setAttachedMedia(null);
+      setAttachedFile(null);
       setShowEmojiPicker(false);
       setReplyingTo(null);
     } catch (err) {
-      toast.error("Failed to send message.");
+      toast.error(t('sendMessageFailed'));
     } finally {
       setIsSending(false);
     }
+  };
+
+  const fileInputRef = useRef(null);
+  const handlePickFileClick = () => fileInputRef.current?.click();
+  const uploadChatFile = async (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      setUploadProgress(0);
+      const res = await apiClient.post('/chats/media', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (ev) => {
+          if (ev.total) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+        }
+      });
+      const data = res.data || {};
+      const url = data.url || data.path || (data.data && data.data.url) || null;
+      setAttachedMedia(url);
+      setAttachedMediaMeta(data || null);
+      try {
+        const inferred = file && file.type ? file.type : (data.type || null) || (url && url.endsWith('.mp4') ? 'video/mp4' : null);
+        setAttachedMediaType(inferred);
+      } catch (e) {}
+
+      if (data.nsfw || data.is_flagged) {
+        toast.warning(t('mediaFlagged'));
+      }
+
+      try {
+        setMessages(prev => {
+          const out = [...prev];
+          for (let i = out.length - 1; i >= 0; i--) {
+            const m = out[i];
+            if (m && String(m.id).startsWith('local-') && m.sender === 'me' && !m.media) {
+              out[i] = { ...m, media: url, nsfw: !!(data.nsfw || data.is_flagged), flagged: !!(data.flagged || data.is_flagged) };
+              break;
+            }
+          }
+          return out;
+        });
+      } catch (e) {}
+      return data;
+    } catch (err) {
+      console.error('uploadChatFile error', err);
+      throw err;
+    } finally {
+      setUploadProgress(0);
+    }
+  };
+
+  const handleFilePicked = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setAttachedFile(f);
+    try { setAttachedMediaType(f.type || null); } catch (e) {}
+    try {
+      await uploadChatFile(f);
+      toast.success('File attached');
+    } catch (e) {
+      setAttachedFile(null);
+      toast.error('Failed to upload file');
+    }
+    try { e.target.value = ''; } catch (e) {}
   };
 
   const handleTyping = (event) => {
@@ -965,11 +1084,7 @@ export default function PrivateInbox() {
       ? { type: 'typing', room_id: activeChat.id }
       : { type: 'typing', target_id: activeChat.id };
 
-    try {
-      socketRef.current.send(JSON.stringify(typingPayload));
-    } catch (e) {
-      // best-effort only
-    }
+    try { socketRef.current.send(JSON.stringify(typingPayload)); } catch (e) {}
   };
 
   const handleToggleMute = (chatId) => {
@@ -979,7 +1094,6 @@ export default function PrivateInbox() {
 
   const handleDeleteChat = async () => {
     if (!showDeleteModal) return;
-
     try {
       await chatService.deleteChat(showDeleteModal.id, showDeleteModal.type || 'dm');
       setConversations(prev => prev.filter(chat => chat.id !== showDeleteModal.id));
@@ -987,7 +1101,6 @@ export default function PrivateInbox() {
       setShowDeleteModal(null);
       toast.success('Conversation deleted.');
     } catch (err) {
-      console.error('Delete chat failed:', err);
       toast.error('Unable to delete conversation.');
     }
   };
@@ -995,8 +1108,8 @@ export default function PrivateInbox() {
   const fetchVaultImages = async () => {
     setIsLoadingVault(true);
     try {
-      const res = await apiClient.get('/settings/media');
-      setVaultImages(res.data || []);
+        const media = await ChattieService.getMediaVault();
+        setVaultImages(media || []);
     } catch (err) {
       console.error("Failed to fetch media vault", err);
     } finally {
@@ -1008,15 +1121,10 @@ export default function PrivateInbox() {
     if (!file) return;
     setIsLoadingVault(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      await apiClient.post('/settings/media', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      await ChattieService.uploadVaultMedia(file);
       await fetchVaultImages();
       toast.success('Photo uploaded to vault.');
     } catch (err) {
-      console.error('Upload failed', err);
       toast.error('Upload failed.');
     } finally {
       setIsLoadingVault(false);
@@ -1032,7 +1140,6 @@ export default function PrivateInbox() {
       setShowBlockModal(false);
       toast.success(`${activeChat.name} has been blocked.`);
     } catch (err) {
-      console.error('Block user failed:', err);
       toast.error(err.message || 'Failed to block user.');
     }
   };
@@ -1048,7 +1155,7 @@ export default function PrivateInbox() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-6 text-center w-full h-full" style={{ backgroundColor: 'var(--surface)', color: 'var(--text-primary)', fontFamily: 'Roboto, sans-serif' }}>
         <Loader2 className="w-10 h-10 animate-spin mb-4" style={{ color: 'var(--accent)' }} />
-        <h2 className="text-sm font-medium tracking-wide">Loading your conversations...</h2>
+        <h2 className="text-sm font-medium tracking-wide">{t('loadingConversations')}</h2>
       </div>
     );
   }
@@ -1064,7 +1171,7 @@ export default function PrivateInbox() {
               <MessageSquare className="w-5 h-5" style={{ color: 'var(--accent-strong)' }} />
             </div>
             <div>
-              <h1 className="font-bold text-2xl tracking-tight" style={{ color: 'var(--text-primary)' }}>Inbox</h1>
+              <h1 className="font-bold text-2xl tracking-tight" style={{ color: 'var(--text-primary)' }}>{t('inbox')}</h1>
               <p className="text-sm mt-0.5 font-medium" style={{ color: 'var(--text-secondary)' }}>
                 {totalUnread > 0 ? `You have ${totalUnread} unread messages` : "You're all caught up!"}
               </p>
@@ -1079,7 +1186,7 @@ export default function PrivateInbox() {
           <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
           <input 
             type="text" 
-            placeholder="Search messages..."
+            placeholder={t('searchMessages')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-2xl pl-11 pr-4 py-3 text-sm focus:outline-none transition-all placeholder:text-zinc-500"
@@ -1101,12 +1208,12 @@ export default function PrivateInbox() {
                 <div className="w-16 h-16 rounded-full flex items-center justify-center group-hover:border-orange-500 transition-colors shadow-sm" style={{ backgroundColor: 'var(--surface-strong)', border: '2px solid rgba(210, 79, 116, 0.32)' }}>
                   <Heart className="w-6 h-6" style={{ color: 'var(--accent)', fill: 'rgba(210, 79, 116, 0.14)' }} />
                 </div>
-                <span className="text-xs font-medium group-hover:text-white transition-colors" style={{ color: 'var(--text-primary)' }}>Likes</span>
+                <span className="text-xs font-medium group-hover:text-white transition-colors" style={{ color: 'var(--text-primary)' }}>{t('likes')}</span>
               </div>
 
               {newMatches.length === 0 ? (
                 <div className="flex items-center justify-center w-full min-h-[64px]">
-                  <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>No new matches yet</span>
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>{t('noNewMatches')}</span>
                 </div>
               ) : (
                 newMatches.map(match => {
@@ -1158,8 +1265,8 @@ export default function PrivateInbox() {
               <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ backgroundColor: 'var(--surface-alt)' }}>
                 <MessageSquare className="w-8 h-8" style={{ color: 'var(--text-muted)' }} />
               </div>
-              <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>No conversations yet</h3>
-              <p className="text-sm max-w-xs" style={{ color: 'var(--text-muted)' }}>When you match with someone or receive a message, it will appear here.</p>
+              <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>{t('noConversations')}</h3>
+              <p className="text-sm max-w-xs" style={{ color: 'var(--text-muted)' }}>{t('conversationEmpty')}</p>
             </div>
           ) : (
             <div ref={listRef} className="flex flex-col py-2 px-3 gap-1">
@@ -1293,17 +1400,16 @@ export default function PrivateInbox() {
             {/* CALL ROOM OVERLAY (LiveKit WebRTC) */}
             {/* INCOMING CALL RINGING UI */}
             {incomingCallData && !isInCall && (
-              <div className="absolute inset-0 z-60 flex items-center justify-center p-6">
+              <div className="absolute inset-0 z-60 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
                 <div className="w-full max-w-md p-6 rounded-2xl shadow-2xl" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-full bg-zinc-900 flex items-center justify-center text-xl font-bold">
-                      {(incomingCallData.fromName || 'C').charAt(0).toUpperCase()
-}
+                      {(incomingCallData.fromName || 'C').charAt(0).toUpperCase()}
                     </div>
                     {/* Local preview when available */}
                     {localStream && (
                       <div className="w-14 h-14 rounded-md overflow-hidden bg-black">
-                        <video autoPlay muted playsInline ref={(el) => { if (el) try { el.srcObject = localStream; } catch(e){} }} className="w-full h-full object-cover" />
+                        <video autoPlay muted playsInline ref={localPreviewRef} className="w-full h-full object-cover" />
                       </div>
                     )}
                     <div className="flex-1">
@@ -1312,22 +1418,15 @@ export default function PrivateInbox() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2">
-                        <label className="text-[11px] text-zinc-400">Ringtone</label>
-                        <select value={ringtoneProfile} onChange={(e) => setRingtoneProfile(e.target.value)} className="text-xs bg-black border border-zinc-800 px-2 py-1">
-                          <option value="sweet">Sweet</option>
-                          <option value="soft">Soft</option>
-                          <option value="classic">Classic</option>
-                        </select>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => rejectCall()} className="px-3 py-2 rounded-md text-sm" style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}>Decline</button>
-                        <button onClick={() => acceptCall()} className="px-3 py-2 rounded-md text-sm font-bold" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>Answer</button>
+                        <button onClick={() => rejectCall()} className="px-3 py-2 rounded-md text-sm" style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}>{t('decline')}</button>
+                        <button onClick={() => acceptCall()} className="px-3 py-2 rounded-md text-sm font-bold" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>{t('answer')}</button>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             )}
+            
             {isInCall && callToken && (
               <div className="absolute inset-0 z-50 flex flex-col animate-in fade-in duration-300" style={{ backgroundColor: 'var(--surface)' }}>
                 <LiveKitRoom
@@ -1346,7 +1445,7 @@ export default function PrivateInbox() {
                     {callMode === 'video' && <TrackToggle source={Track.Source.Camera} className="w-14 h-14 rounded-full flex items-center justify-center transition-colors shadow-lg" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)', border: '1px solid var(--border)' }} />}
 
                     <div className="flex items-center gap-2">
-                      <label className="text-[10px] text-zinc-400">Mic</label>
+                      <label className="text-[10px] text-zinc-400">{t('microphoneGain')}</label>
                       <input
                         type="range"
                         min="0.1"
@@ -1355,27 +1454,27 @@ export default function PrivateInbox() {
                         value={micGain}
                         onChange={(e) => setMicGain(parseFloat(e.target.value))}
                         className="w-32"
-                        aria-label="Microphone gain"
+                        aria-label={t('microphoneGain')}
                       />
                     </div>
 
-                    <button onClick={() => { setIsScreenSharing(!isScreenSharing); toast(isScreenSharing ? 'Screen share stopped' : 'Screen share started (placeholder)'); }} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${isScreenSharing ? 'bg-green-500 text-black border-green-500' : 'border-zinc-700 text-zinc-200'}`} title="Toggle Screen Share">
+                    <button onClick={() => { setIsScreenSharing(!isScreenSharing); toast(isScreenSharing ? t('screenShareStopped') : t('screenShareStarted')); }} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${isScreenSharing ? 'bg-green-500 text-black border-green-500' : 'border-zinc-700 text-zinc-200'}`} title={t('toggleScreenShare')}>
                       <ImageIcon className="w-5 h-5" />
                     </button>
 
-                    <button onClick={() => { setSwappedCamera(!swappedCamera); toast('Camera swapped'); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title="Swap Camera">
+                    <button onClick={() => { setSwappedCamera(!swappedCamera); toast(t('cameraSwapped')); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title={t('swapCamera')}>
                       <ArrowLeft className="w-4 h-4" />
                     </button>
 
-                    <button onClick={() => { setSpeakerOn(!speakerOn); toast(speakerOn ? 'Speaker off' : 'Speaker on'); }} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${speakerOn ? 'border-white text-white' : 'border-zinc-700 text-zinc-200'}`} title="Toggle Speaker">
+                    <button onClick={() => { setSpeakerOn(!speakerOn); toast(speakerOn ? t('speakerOff') : t('speakerOn')); }} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${speakerOn ? 'border-white text-white' : 'border-zinc-700 text-zinc-200'}`} title={t('toggleSpeaker')}>
                       <Headphones className="w-5 h-5" />
                     </button>
 
-                    <button onClick={() => { setShowReactions(!showReactions); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title="Reactions">
+                    <button onClick={() => { setShowReactions(!showReactions); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title={t('reactions')}>
                       <Smile className="w-5 h-5" />
                     </button>
 
-                    <button onClick={() => { try { socketRef.current && socketRef.current.send(JSON.stringify({ type: 'mute_all', room_id: activeChat?.id })); } catch (e) {} ; toast('Requested mute-all'); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title="Mute All">
+                    <button onClick={() => { try { socketRef.current && socketRef.current.send(JSON.stringify({ type: 'mute_all', room_id: activeChat?.id })); } catch (e) {} ; toast(t('muteAllRequested')); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title={t('muteAll')}>
                       <MicOff className="w-5 h-5" />
                     </button>
 
@@ -1386,7 +1485,7 @@ export default function PrivateInbox() {
                     {showReactions && (
                       <div className="absolute bottom-28 right-1/2 transform translate-x-1/2 bg-[var(--surface-strong)] border border-[var(--border)] p-2 rounded-xl flex gap-2 z-50">
                         {['👍','❤️','🔥','😂','🎉'].map(r => (
-                          <button key={r} onClick={() => { try { if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: 'reaction', emoji: r, to: activeChat?.id })); } catch (e) {} toast.success('Reacted ' + r); setShowReactions(false); }} className="p-2 text-xl">{r}</button>
+                          <button key={r} onClick={() => { try { if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: 'reaction', emoji: r, to: activeChat?.id })); } catch (e) {} toast.success(t('reacted', { emoji: r })); setShowReactions(false); }} className="p-2 text-xl">{r}</button>
                         ))}
                       </div>
                     )}
@@ -1406,7 +1505,7 @@ export default function PrivateInbox() {
                         <MessageSquare className="w-8 h-8" style={{ color: 'var(--text-muted)' }} />
                       </div>
                       <h3 className="font-semibold text-lg mb-1" style={{ color: 'var(--text-primary)' }}>Say hello to {activeChat.name}!</h3>
-                      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>This is the start of your private, end-to-end encrypted conversation.</p>
+                      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('conversationEmpty')}</p>
                     </div>
                   ) : (
                     messages.map((msg, index) => {
@@ -1445,8 +1544,23 @@ export default function PrivateInbox() {
                                 borderColor: isMissedCall ? 'var(--accent)' : isSystem ? 'var(--border)' : 'transparent'
                               }}>
                               {msg.media && (
-                                <div className="overflow-hidden rounded-xl" style={{ backgroundColor: 'var(--surface-muted)' }}>
-                                  <img src={msg.media} alt="attachment" className="w-full max-w-[260px] h-auto object-cover rounded-xl" />
+                                <div className="relative overflow-hidden rounded-xl" style={{ backgroundColor: 'var(--surface-muted)' }}>
+                                  <img
+                                    src={msg.media}
+                                    alt="attachment"
+                                    className="w-full max-w-[260px] h-auto object-cover rounded-xl"
+                                    style={{ filter: (msg.nsfw || msg.flagged) && !revealedMediaIds.has(msg.id) ? 'blur(8px) grayscale(40%)' : 'none' }}
+                                  />
+                                  {(msg.nsfw || msg.flagged) && (
+                                    <div className="absolute top-2 left-2 px-2 py-1 rounded-full text-xs font-bold" style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: '#ffb86b' }}>
+                                      NSFW
+                                    </div>
+                                  )}
+                                  {(msg.nsfw || msg.flagged) && !revealedMediaIds.has(msg.id) && (
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <button onClick={() => { setRevealedMediaIds(prev => new Set([...Array.from(prev), msg.id])); }} className="px-3 py-2 rounded-full font-semibold" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>{t('reveal')}</button>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                               {(quoted || parsedText) && (
@@ -1501,7 +1615,7 @@ export default function PrivateInbox() {
                             </span>
                           </div>
                         </div>
-                      </React.Fragment>
+                        </React.Fragment>
                       );
                     })
                   )}
@@ -1551,13 +1665,19 @@ export default function PrivateInbox() {
                     {/* Media Preview before send */}
                     {attachedMedia && (
                       <div className="flex items-center gap-4 p-2.5 w-max rounded-2xl shadow-sm" style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)' }}>
-                        <img src={attachedMedia} alt="preview" className="w-14 h-14 object-cover rounded-xl" />
+                        <div className="relative">
+                          {attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? (
+                            <video src={attachedMedia} className="w-32 h-20 object-cover rounded-xl" controls muted />
+                          ) : (
+                            <img src={attachedMedia} alt="preview" className={`w-14 h-14 object-cover rounded-xl`} />
+                          )}
+                        </div>
                         <div className="flex flex-col pr-4">
-                          <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Photo attached</span>
-                          <span className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Ready to send</span>
+                          <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? 'Video attached' : 'Photo attached'}</span>
+                          <span className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{t('readyToSend')}</span>
                         </div>
                         <button 
-                          onClick={() => setAttachedMedia(null)} 
+                          onClick={() => { setAttachedMedia(null); setAttachedFile(null); }} 
                           className="p-1.5 rounded-full transition-colors ml-2"
                           style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-secondary)' }}
                         >
@@ -1568,8 +1688,12 @@ export default function PrivateInbox() {
 
                     <div className="flex items-end gap-2 rounded-3xl p-1.5 transition-colors shadow-sm" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
                       <div className="flex items-center gap-1 shrink-0 mb-1 pl-1">
-                        <button onClick={() => setShowMediaVault(true)} className="p-2.5 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }}>
+                        <input ref={fileInputRef} onChange={handleFilePicked} type="file" accept="image/*,video/*" className="hidden" />
+                        <button onClick={() => fileInputRef.current?.click()} className="p-2.5 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }} title={t('attachMedia')}>
                           <ImageIcon className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => setShowMediaVault(true)} className="p-2.5 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }} title={t('vault')}>
+                          <Upload className="w-5 h-5" />
                         </button>
                         <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="hidden md:block p-2.5 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }}>
                           <Smile className="w-5 h-5" />
@@ -1580,7 +1704,7 @@ export default function PrivateInbox() {
                         value={inputText} 
                         onChange={(e) => handleTyping(e)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                        placeholder={autoPilot ? "Smart Assistant is drafting..." : "Type a message..."}
+                        placeholder={autoPilot ? t('smartAssistantDrafting') : t('typeMessage')}
                         disabled={autoPilot}
                         className="flex-1 bg-transparent py-3.5 px-2 font-normal text-sm resize-none outline-none custom-scrollbar disabled:opacity-50 placeholder:text-zinc-500"
                         rows="1"
@@ -1593,7 +1717,7 @@ export default function PrivateInbox() {
                         className="h-[44px] w-[44px] md:w-auto md:px-6 mb-1 mr-1 font-semibold text-sm rounded-full disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-sm"
                         style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}
                       >
-                        <span className="hidden md:inline">Send</span>
+                        <span className="hidden md:inline">{t('send')}</span>
                         <Send className="w-4 h-4" />
                       </button>
                     </div>
@@ -1621,21 +1745,21 @@ export default function PrivateInbox() {
                 
                 <div className="p-6 space-y-6">
                   <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>About</h3>
+                    <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>{t('about')}</h3>
                     <p className="text-sm leading-relaxed p-4 rounded-2xl" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
                       {activeChat.bio ? `"${activeChat.bio}"` : "No bio provided yet."}
                     </p>
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Support History</h3>
+                    <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>{t('supportHistory')}</h3>
                     <div className="p-4 rounded-2xl flex items-center gap-3" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
                       <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(210, 79, 116, 0.1)', color: 'var(--accent)' }}>
                         <Flame className="w-5 h-5" />
                       </div>
                       <div>
                         <div className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>${activeChat.lifetimeSpend}</div>
-                        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>Lifetime Contribution</div>
+                        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('lifetimeContribution')}</div>
                       </div>
                     </div>
                   </div>
@@ -1699,24 +1823,6 @@ export default function PrivateInbox() {
         </div>
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div className="absolute inset-0" onClick={() => setShowDeleteModal(null)} style={{ backgroundColor: 'rgba(24, 19, 16, 0.45)', backdropFilter: 'blur(10px)' }} />
-          <div className="relative w-full max-w-sm p-6 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200 text-center" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-5 mx-auto" style={{ backgroundColor: 'rgba(210, 79, 116, 0.1)', border: '1px solid rgba(210, 79, 116, 0.2)' }}>
-              <AlertTriangle className="w-8 h-8" style={{ color: 'var(--accent)' }} />
-            </div>
-            <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Delete Conversation</h3>
-            <p className="text-sm mb-8 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>Are you sure you want to delete this chat with <strong style={{ color: 'var(--text-primary)' }}>{showDeleteModal.name}</strong>? This action cannot be undone.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowDeleteModal(null)} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors" style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-primary)' }}>Cancel</button>
-              <button onClick={handleDeleteChat} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors shadow-lg" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>Delete</button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }
@@ -1725,6 +1831,14 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const cameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
+  const localElRef = useRef(null);
+  
+  useEffect(() => {
+    if (localElRef.current && localStream) {
+      try { if (localElRef.current.srcObject !== localStream) localElRef.current.srcObject = localStream; } catch(e) {}
+    }
+  }, [localStream]);
+  
   const remoteParticipants = participants.filter((p) => p.identity !== localParticipant?.identity);
   const remotePrimary = remoteParticipants[0];
   const localCameraTrack = cameraTracks.find((t) => t.participant.identity === localParticipant?.identity);
@@ -1742,7 +1856,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
             {localCameraTrack ? (
               <VideoTrack trackRef={localCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
             ) : (
-              <video ref={(el) => { if (el && localStream) { try { el.srcObject = localStream; } catch(e){} } }} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" />
+              <video ref={localElRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" />
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
           </>
@@ -1751,7 +1865,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
             {(localParticipant?.name || 'You').charAt(0).toUpperCase()}
           </div>
         )}
-        <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg" style={{ color: 'var(--text-primary)', backgroundColor: 'rgba(0,0,0,0.45)' }}>You</div>
+        <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg" style={{ color: 'var(--text-primary)', backgroundColor: 'rgba(0,0,0,0.45)' }}>{t('you')}</div>
         <div className="text-xs z-10 flex flex-col gap-2" style={{ color: 'var(--text-muted)' }}>
           {micEnabled ? (
             <>
@@ -1768,7 +1882,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
           ) : (
             <div className="inline-flex items-center gap-2">
               <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-              <span>Mic off</span>
+              <span>{t('micOff')}</span>
             </div>
           )}
         </div>
@@ -1806,7 +1920,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
               </div>
             )}
             <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg" style={{ color: 'var(--text-primary)', backgroundColor: 'rgba(0,0,0,0.45)' }}>{activeChat?.name}</div>
-            <div className="text-xs z-10" style={{ color: 'var(--text-muted)' }}>Ringing...</div>
+            <div className="text-xs z-10" style={{ color: 'var(--text-muted)' }}>{t('ringing')}</div>
           </>
         )}
       </div>

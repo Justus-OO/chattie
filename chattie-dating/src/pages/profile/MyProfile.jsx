@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Camera, Save, Settings, X, Plus, Image as ImageIcon, 
   MapPin, Briefcase, Heart, Shield, Bell, 
@@ -7,14 +8,15 @@ import {
 import { toast } from 'sonner';
 
 // Services
-import { settingsService } from '../../api/settings.service';
+import { ChattieService } from '../../api/chattie.service';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
 // DEFAULT PROFILE SHAPE - used to normalize backend or mocked responses
 // ============================================================================
 const DEFAULT_PROFILE = {
   name: '',
-  age: 26,
+  age: 18,
   job: '',
   location: '',
   bio: '',
@@ -31,6 +33,8 @@ const AVAILABLE_TAGS = ['React', 'Spring Boot', 'Gaming', 'E-commerce', 'Hosting
 // MAIN COMPONENT
 // ============================================================================
 export default function MyProfile() {
+  const navigate = useNavigate();
+  const { t } = useI18n();
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [fullSettings, setFullSettings] = useState(DEFAULT_PROFILE); 
   const [isLoading, setIsLoading] = useState(true);
@@ -44,13 +48,13 @@ export default function MyProfile() {
     const loadProfileData = async () => {
       setIsLoading(true);
       try {
-          const data = await settingsService.getSettings();
+          const data = await ChattieService.getSettings();
           // Normalize response against defaults so mocks or partial objects don't break the UI
           let normalized = { ...DEFAULT_PROFILE, ...data };
 
           // If backend returned an effectively-empty profile, try localStorage fallback
           try {
-            const ls = localStorage.getItem('chattie_profile');
+            const ls = localStorage.getItem('chattie-session');
             if (ls) {
               const parsed = JSON.parse(ls);
               const appearsEmpty = !normalized.name && !normalized.avatar && (!Array.isArray(normalized.photos) || normalized.photos.every(p => !p));
@@ -76,7 +80,7 @@ export default function MyProfile() {
           });
       } catch (error) {
         console.error("Failed to load profile:", error);
-        toast.error('Failed to load profile data.');
+        toast.error(t('profileLoadFailed'));
       } finally {
         setIsLoading(false);
       }
@@ -96,23 +100,25 @@ export default function MyProfile() {
       const updatedPayload = {
         ...fullSettings,
         name: profile.name,
+        age: profile.age,
         job: profile.job,
         location: profile.location,
         bio: profile.bio,
         intent: profile.intent,
         tags: profile.tags,
         avatar: profile.avatar,
-        cover: profile.cover
+        cover: profile.cover,
+        photos: profile.photos
       };
 
-      await settingsService.updateSettings(updatedPayload);
+      await ChattieService.updateSettings(updatedPayload);
 
       // Save to local fallback so UI survives refresh if backend didn't persist
       try { localStorage.setItem('chattie_profile', JSON.stringify(updatedPayload)); } catch (e) { /* ignore */ }
 
       // Re-fetch server state to verify persistence and update UI
       try {
-        const fresh = await settingsService.getSettings();
+        const fresh = await ChattieService.getSettings();
         const normalized = { ...DEFAULT_PROFILE, ...fresh };
         setFullSettings(normalized);
         setProfile(prev => ({
@@ -132,10 +138,10 @@ export default function MyProfile() {
         setFullSettings(updatedPayload);
       }
 
-      toast.success('Profile updated successfully.');
+      toast.success(t('profileUpdated'));
     } catch (error) {
       console.error("Save error:", error);
-      toast.error('Failed to save profile changes.');
+      toast.error(t('profileSaveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -152,7 +158,7 @@ export default function MyProfile() {
 
   const handlePhotoUpload = (index) => {
     // Future enhancement: Trigger file input upload here
-    toast('Opening photo picker...');
+    toast(t('photoPicker'));
   };
 
   // ============================================================================
@@ -162,7 +168,7 @@ export default function MyProfile() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center text-zinc-300 w-full h-full" style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}>
         <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
-        <h2 className="text-sm text-white">Loading profile data...</h2>
+        <h2 className="text-sm text-white">{t('loadingProfile')}</h2>
       </div>
     );
   }
@@ -177,7 +183,7 @@ export default function MyProfile() {
           HEADER
           ===================================================================== */}
       <header className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0 z-10 sticky top-0">
-        <h1 className="text-xl md:text-2xl text-white">My Profile</h1>
+        <h1 className="text-xl md:text-2xl text-white">{t('myProfile')}</h1>
         <button 
           onClick={() => setShowSettings(true)}
           className="p-2 border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 text-zinc-500 hover:text-white transition-colors"
@@ -229,7 +235,7 @@ export default function MyProfile() {
             
             {/* MEDIA GALLERY GRID */}
             <section>
-              <h2 className="text-sm text-zinc-500 mb-4">Media Gallery</h2>
+              <h2 className="text-sm text-zinc-500 mb-4">{t('mediaGallery')}</h2>
               <div className="grid grid-cols-3 gap-3 md:gap-4">
                 {profile.photos.map((photo, idx) => (
                   <div 
@@ -251,7 +257,7 @@ export default function MyProfile() {
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600 hover:text-white hover:bg-zinc-900 transition-colors">
                         <Plus className="w-6 h-6 md:w-8 md:h-8 mb-2" />
-                        <span className="text-sm hidden md:block">Add Photo</span>
+                        <span className="text-sm hidden md:block">{t('addPhoto')}</span>
                       </div>
                     )}
                   </div>
@@ -378,9 +384,9 @@ export default function MyProfile() {
                   className="w-full py-4 bg-white hover:bg-zinc-200 text-black border-2 border-white text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:border-zinc-800 rounded-none"
                 >
                   {isSaving ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Saving changes...</>
+                    <><Loader2 className="w-4 h-4 animate-spin" /> {t('savingChanges')}</>
                   ) : (
-                    <><Save className="w-4 h-4" /> Save Profile</>
+                    <><Save className="w-4 h-4" /> {t('saveProfile')}</>
                   )}
                 </button>
               </div>
@@ -418,7 +424,7 @@ export default function MyProfile() {
                   <h3 className="text-sm text-yellow-400 flex items-center gap-2">
                     Chattie Gold <Shield className="w-3.5 h-3.5" />
                   </h3>
-                  <span className="px-2 py-1 bg-yellow-400 text-black text-xs border-2 border-yellow-400">Active</span>
+                  <span className="px-2 py-1 bg-yellow-400 text-black text-xs border-2 border-yellow-400">{t('active')}</span>
                 </div>
                 <p className="text-xs text-zinc-400 mb-6 leading-relaxed">
                   Your premium subscription renews on Aug 14, 2026.
@@ -430,9 +436,9 @@ export default function MyProfile() {
 
               {/* Account Settings */}
               <section>
-                <h3 className="text-sm text-zinc-500 mb-3">Account</h3>
+                <h3 className="text-sm text-zinc-500 mb-3">{t('account')}</h3>
                 <div className="space-y-2">
-                  <button className="w-full flex items-center justify-between p-4 bg-black border-2 border-zinc-800 hover:border-zinc-500 hover:bg-zinc-950 transition-colors group">
+                  <button onClick={() => { setShowSettings(false); navigate('/payment-methods'); }} className="w-full flex items-center justify-between p-4 bg-black border-2 border-zinc-800 hover:border-zinc-500 hover:bg-zinc-950 transition-colors group">
                     <div className="flex items-center gap-3 text-sm text-zinc-400 group-hover:text-white transition-colors">
                       <CreditCard className="w-4 h-4 text-zinc-600 group-hover:text-white" /> Payment Methods
                     </div>

@@ -18,6 +18,7 @@ export const handlers = [
           id: 'usr_999', 
           username: 'Alex Pro', 
           email: email,
+          role: 'client',
           avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=400&q=80'
         },
         token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.fake_jwt_token_chattie_gold'

@@ -1,6 +1,16 @@
 import { apiClient } from './client';
 
 export const adminService = {
+  getPendingAfterDarkEarnings: async () => {
+    const res = await apiClient.get('/admin/afterdark/earnings-clearance');
+    return res.data;
+  },
+
+  clearAfterDarkEarnings: async (userId, payload) => {
+    const res = await apiClient.post(`/admin/afterdark/earnings-clearance/${userId}`, payload);
+    return res.data;
+  },
+
   // ==========================================
   // 1. OPERATORS & CREATOR ENGINE
   // ==========================================
@@ -190,4 +200,74 @@ export const adminService = {
     const res = await apiClient.post('/admin/creators/provision', payload);
     return res.data;
   },
+
+
+
+  
+  // =====================================================================
+  // MEDIA VAULT MANAGEMENT
+  // =====================================================================
+
+  /**
+   * Fetches the user's uploaded media vault images
+   * GET /api/settings/media
+   */
+  getMediaVault: async () => {
+    try {
+      const response = await apiClient.get('/settings/media');
+      return response.data; // Returns array of media objects
+    } catch (error) {
+      console.error("Failed to fetch media vault:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Uploads a new image to the user's media vault
+   * POST /api/settings/media
+   */
+  uploadMedia: async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await apiClient.post('/settings/media', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to upload media:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Deletes a specific media item from the vault
+   * DELETE /api/settings/media/{media_id}
+   */
+  deleteMedia: async (mediaId) => {
+    try {
+      const response = await apiClient.delete(`/settings/media/${mediaId}`);
+      return response.data;
+    } catch (error) {
+      console.error("Failed to delete media:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Sets a specific media item as the primary profile picture
+   * PUT /api/settings/media/{media_id}/primary
+   */
+  setPrimaryMedia: async (mediaId) => {
+    try {
+      const response = await apiClient.put(`/settings/media/${mediaId}/primary`);
+      return response.data;
+    } catch (error) {
+      console.error("Failed to set primary media:", error);
+      throw error;
+    }
+  }
 };

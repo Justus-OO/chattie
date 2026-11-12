@@ -1,8 +1,10 @@
 import React, { useRef } from 'react';
 import { toast } from 'sonner';
 import { X, Upload, BellOff, PhoneOff } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, onUpload }) {
+  const { t } = useI18n();
   const fileInputRef = useRef(null);
   if (!isOpen) return null;
   return (
@@ -12,9 +14,9 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
         <div className="p-6 flex justify-between items-center shrink-0" style={{ backgroundColor: 'var(--surface-alt)', borderBottom: '1px solid var(--border)' }}>
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-              <Upload className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} /> Media Vault
+              <Upload className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} /> {t('mediaVault')}
             </h2>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Select a photo to send securely</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('selectPhoto')}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }}>
             <X className="w-6 h-6" />
@@ -32,7 +34,7 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
               <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--surface-strong)' }}>
                 <Upload className="w-5 h-5" />
               </div>
-              <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Upload Photo</span>
+              <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{t('uploadPhoto')}</span>
             </button>
             <input
               ref={fileInputRef}
@@ -43,7 +45,7 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
                 const file = event.target.files?.[0];
                 if (file) {
                   if (onUpload) onUpload(file);
-                  else toast('Upload callback not configured.');
+                  else toast(t('uploadCallbackMissing'));
                   event.target.value = '';
                 }
               }}
@@ -56,7 +58,7 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
             ) : images.length === 0 ? (
               <div className="col-span-full flex flex-col items-center justify-center py-20 text-center" style={{ color: 'var(--text-secondary)' }}>
                 <Upload className="w-12 h-12 mb-4" />
-                <p className="text-sm font-medium">No photos in your vault yet.</p>
+                <p className="text-sm font-medium">{t('noVaultPhotos')}</p>
               </div>
             ) : (
               images.map((mediaObj) => (
@@ -66,9 +68,9 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
                   className="aspect-square rounded-2xl overflow-hidden group relative shadow-sm"
                   style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)' }}
                 >
-                  <img src={mediaObj.url || mediaObj.media_url} alt="vault item" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={mediaObj.url || mediaObj.media_url} alt={t('vaultItem')} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm" style={{ backgroundColor: 'rgba(24, 19, 16, 0.28)' }}>
-                    <span className="text-sm font-bold px-5 py-2.5 rounded-full shadow-xl transform translate-y-4 group-hover:translate-y-0 transition-transform" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)' }}>Send</span>
+                    <span className="text-sm font-bold px-5 py-2.5 rounded-full shadow-xl transform translate-y-4 group-hover:translate-y-0 transition-transform" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)' }}>{t('send')}</span>
                   </div>
                 </button>
               ))
@@ -81,6 +83,7 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
 }
 
 export function DeleteConfirmModal({ isOpen, targetName, onClose, onConfirm }) {
+  const { t } = useI18n();
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -89,13 +92,13 @@ export function DeleteConfirmModal({ isOpen, targetName, onClose, onConfirm }) {
         <div className="w-16 h-16 rounded-full flex items-center justify-center mb-5 mx-auto" style={{ backgroundColor: 'rgba(210, 79, 116, 0.1)', border: '1px solid rgba(210, 79, 116, 0.2)' }}>
           <PhoneOff className="w-8 h-8" style={{ color: 'var(--accent)' }} />
         </div>
-        <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Delete Conversation</h3>
+        <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>{t('deleteConversation')}</h3>
         <p className="text-sm mb-8 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          Are you sure you want to delete this chat with <strong style={{ color: 'var(--text-primary)' }}>{targetName}</strong>? This action cannot be undone.
+          {t('deleteConversation')} with <strong style={{ color: 'var(--text-primary)' }}>{targetName}</strong>?
         </p>
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors" style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-primary)' }}>Cancel</button>
-          <button onClick={onConfirm} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors shadow-lg" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>Delete</button>
+          <button onClick={onClose} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors" style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-primary)' }}>{t('cancel')}</button>
+          <button onClick={onConfirm} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors shadow-lg" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>{t('delete')}</button>
         </div>
       </div>
     </div>
@@ -103,6 +106,7 @@ export function DeleteConfirmModal({ isOpen, targetName, onClose, onConfirm }) {
 }
 
 export function BlockUserModal({ isOpen, targetName, onClose, onBlock }) {
+  const { t } = useI18n();
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -111,13 +115,13 @@ export function BlockUserModal({ isOpen, targetName, onClose, onBlock }) {
         <div className="w-16 h-16 rounded-full flex items-center justify-center mb-5 mx-auto" style={{ backgroundColor: 'rgba(210, 79, 116, 0.1)', border: '1px solid rgba(210, 79, 116, 0.2)' }}>
           <BellOff className="w-8 h-8" style={{ color: 'var(--accent)' }} />
         </div>
-        <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Block User</h3>
+        <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>{t('blockUser')}</h3>
         <p className="text-sm mb-8 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          Blocking <strong style={{ color: 'var(--text-primary)' }}>{targetName}</strong> will prevent future messages and calls.
+          {t('blockDescription', { name: targetName })}
         </p>
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors" style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-primary)' }}>Cancel</button>
-          <button onClick={onBlock} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors shadow-lg" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>Block</button>
+          <button onClick={onClose} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors" style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-primary)' }}>{t('cancel')}</button>
+          <button onClick={onBlock} className="flex-1 py-3.5 text-sm font-semibold rounded-xl transition-colors shadow-lg" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>{t('blockUser')}</button>
         </div>
       </div>
     </div>

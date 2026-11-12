@@ -1,2 +1,4 @@
 /Chattie-Server/.env
 /Chattie-Server/__debug_bin.exe
+/chattie-dating/src/.env
+/chattie-dating/connection-D-*.json

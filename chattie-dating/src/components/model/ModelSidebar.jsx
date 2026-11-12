@@ -8,8 +8,14 @@ import { toast } from 'sonner';
 
 // Services
 import { creatorService } from '../../api/creator.service';
+import { useAppStore } from '../../store/useAppStore';
+import { getUserRole } from '../../utils/roles';
+import { useI18n } from '../../i18n';
 
 export default function ModelSidebar({ activeProfileId: propActiveProfileId, setActiveProfileId: propSetActiveProfileId }) {
+  const sessionUser = useAppStore((state) => state.user);
+  const role = getUserRole(sessionUser);
+  const { t } = useI18n();
   const [isGlobalOnline, setIsGlobalOnline] = useState(true);
   const [showSwitcher, setShowSwitcher] = useState(false);
   
@@ -38,7 +44,7 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
         }
       } catch (error) {
         console.error("Failed to load managed profiles:", error);
-        toast.error("Failed to load creator profiles");
+        toast.error(t('error'));
       } finally {
         setIsLoading(false);
       }
@@ -67,10 +73,10 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
           p.id === id ? { ...p, status: newStatus } : p
         )
       );
-      toast.success(`${target.name} is now ${newStatus.toUpperCase()}`);
+      toast.success(`${target.name} is now ${t(newStatus)}`);
     } catch (error) {
       console.error("Status update error:", error);
-      toast.error("Failed to update profile status");
+      toast.error(t('error'));
     }
   };
 
@@ -83,166 +89,238 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
   }
 
   return (
-    <aside 
-      className="w-80 flex flex-col justify-between h-full text-zinc-300 rounded-none z-50 relative shrink-0"
-      style={{ backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)' }}
+    <aside
+      className="w-80 flex flex-col justify-between h-full text-zinc-300 relative shrink-0 overflow-hidden"
+      style={{
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))',
+        borderRight: '1px solid var(--border)',
+        boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.02)'
+      }}
     >
       <div className="flex flex-col h-full overflow-hidden">
-        
-        {/* Branding Header */}
-        <div className="p-4 flex items-center justify-between shrink-0" style={{ backgroundColor: 'var(--surface-strong)', borderBottom: '1px solid var(--border)' }}>
-          <Link to="/model/dashboard" className="flex items-center gap-3">
-            <div className="p-1.5" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-              <Video className="w-5 h-5 text-black" />
+        <div className="p-4 shrink-0" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))', borderBottom: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between">
+            <Link to="/model/dashboard" className="flex items-center gap-3 group">
+              <div className="p-2 rounded-xl shadow-sm" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))', color: '#fff' }}>
+                <Video className="w-4 h-4" />
+              </div>
+              <div>
+                <h1 className="font-black text-xl leading-none uppercase tracking-[0.22em]" style={{ color: 'var(--text-primary)' }}>
+                  {t('creator')}
+                </h1>
+                <span className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>{role} workspace</span>
+              </div>
+            </Link>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => toast.info(`${activeProfile.pending || 0} alerts for ${activeProfile.name}`)}
+                className="relative p-2 border transition-colors"
+                style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+                title={t('viewNotifications')}
+              >
+                <Bell className="w-4 h-4" />
+                {activeProfile.pending > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-3.5 h-4 px-1 flex items-center justify-center text-[8px] font-black rounded-full" style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
+                    {activeProfile.pending > 9 ? '9+' : activeProfile.pending}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setIsGlobalOnline(!isGlobalOnline)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] border transition-all"
+                style={{
+                  background: isGlobalOnline ? 'rgba(42, 156, 107, 0.08)' : 'rgba(210, 79, 116, 0.08)',
+                  color: isGlobalOnline ? 'var(--success)' : 'var(--accent)',
+                  borderColor: isGlobalOnline ? 'rgba(42, 156, 107, 0.35)' : 'rgba(210, 79, 116, 0.35)'
+                }}
+              >
+                <Power className="w-3 h-3" />
+                {isGlobalOnline ? t('online') : t('offline')}
+              </button>
             </div>
-            <div>
-              <h1 className="font-bold text-xl leading-none text-white tracking-widest uppercase">
-                Creator
-              </h1>
-              <span className="text-[10px] tracking-widest text-zinc-500 uppercase">Dashboard</span>
-            </div>
-          </Link>
-          <button 
-            onClick={() => setIsGlobalOnline(!isGlobalOnline)}
-            className={`px-2 py-1 text-xs flex items-center gap-1 font-bold transition-colors uppercase rounded-none ${
-              isGlobalOnline 
-                ? '' 
-                : ''
-            }`}
-            style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)', color: isGlobalOnline ? 'var(--success)' : 'var(--accent)' }}
-          >
-            <Power className="w-3 h-3" /> {isGlobalOnline ? 'ONLINE' : 'OFFLINE'}
-          </button>
+          </div>
         </div>
 
-        {/* Profile Switcher */}
-        <div className="shrink-0 relative" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-          <button 
+        <div className="relative shrink-0" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))', borderBottom: '1px solid var(--border)' }}>
+          <button
             onClick={() => setShowSwitcher(!showSwitcher)}
-            className="w-full p-4 flex items-center justify-between transition-colors border-none outline-none cursor-pointer"
+            className="w-full p-4 flex items-center justify-between text-left transition-colors hover:brightness-105"
             style={{ color: 'var(--text-primary)' }}
           >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 flex items-center justify-center font-bold text-[10px] uppercase rounded-none" style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
-                {activeProfile.name ? activeProfile.name.substring(0, 2) : 'PR'}
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="relative w-12 h-12 flex items-center justify-center text-[10px] font-black uppercase tracking-[0.18em] rounded-2xl"
+                style={{
+                  background: 'linear-gradient(135deg, var(--surface-alt), rgba(255,255,255,0.06))',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                {activeProfile.name ? activeProfile.name.slice(0, 2).toUpperCase() : 'PR'}
+                <span className={`absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2`} style={{ backgroundColor: activeProfile.status === 'online' ? 'var(--success)' : 'var(--text-muted)', borderColor: 'var(--surface)' }} />
               </div>
-              <div className="text-left">
-                <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: 'var(--text-muted)' }}>Managing Profile</p>
-                <p className="text-xs font-black uppercase flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
-                  {activeProfile.name} 
-                  {activeProfile.status === 'online' && <span className="w-1.5 h-1.5 ml-1 animate-pulse" style={{ backgroundColor: 'var(--success)' }}></span>}
-                </p>
+
+              <div className="min-w-0">
+                <p className="text-[9px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>{t('managingProfile')}</p>
+                <p className="mt-1 text-sm font-black uppercase truncate" style={{ color: 'var(--text-primary)' }}>{activeProfile.name}</p>
               </div>
             </div>
+
             {showSwitcher ? <ChevronUp className="w-4 h-4" style={{ color: 'var(--text-muted)' }} /> : <ChevronDown className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />}
           </button>
 
-          {/* Dropdown Menu */}
           {showSwitcher && (
-            <div className="absolute top-full left-0 w-full shadow-2xl z-50 max-h-64 overflow-y-auto custom-scrollbar" style={{ backgroundColor: 'var(--surface-strong)', borderBottom: '1px solid var(--border)', borderTop: '1px solid var(--border)' }}>
-              <div className="p-2 flex justify-between items-center" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Select Profile</span>
-                <span className="text-[9px] px-1 font-black" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>{totalNetworkPending} PENDING</span>
+            <div className="absolute top-full left-0 right-0 z-50 shadow-2xl max-h-72 overflow-y-auto custom-scrollbar" style={{ background: 'linear-gradient(180deg, var(--surface-strong), var(--surface))', borderBottom: '1px solid var(--border)', borderTop: '1px solid var(--border)' }}>
+              <div className="px-3 py-2.5 flex items-center justify-between" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                <span className="text-[9px] font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>{t('selectProfile')}</span>
+                <span className="px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.12em]" style={{ background: 'rgba(210,79,116,0.14)', color: 'var(--accent)' }}>{totalNetworkPending} {t('pending')}</span>
               </div>
-              
-              {profiles.length === 0 ? (
-                <div className="p-4 text-center text-[10px] uppercase" style={{ color: 'var(--text-muted)' }}>No profiles assigned</div>
-              ) : (
-                profiles.map((profile) => (
-                  <div
-                    key={profile.id}
-                    className={`w-full p-2 flex items-center justify-between transition-colors ${activeProfileId === profile.id ? '' : ''}`}
-                    style={{ backgroundColor: activeProfileId === profile.id ? 'var(--surface-alt)' : 'var(--surface-strong)', borderBottom: '1px solid var(--border)', borderLeft: activeProfileId === profile.id ? '4px solid var(--accent)' : '4px solid transparent' }}
-                  >
-                    <button
-                      onClick={() => {
-                        setActiveProfileId(profile.id);
-                        setShowSwitcher(false);
-                      }}
-                      className="flex-1 flex items-center gap-2 text-left bg-transparent border-none outline-none cursor-pointer"
-                    >
-                      <span className="w-2 h-2" style={{ backgroundColor: profile.status === 'online' ? 'var(--success)' : 'var(--text-muted)' }}></span>
-                      <span className="text-xs font-bold uppercase" style={{ color: 'var(--text-primary)' }}>{profile.name}</span>
-                    </button>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {profile.pending > 0 && (
-                        <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-none flex items-center gap-1" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)', border: '1px solid rgba(210, 79, 116, 0.35)' }}>
-                          <Bell className="w-2.5 h-2.5" /> {profile.pending}
-                        </span>
-                      )}
-                      
-                      <button
-                        onClick={(e) => toggleProfileStatus(e, profile.id)}
-                        className="px-2 py-1 text-[8px] font-black uppercase tracking-widest transition-colors w-10 flex justify-center cursor-pointer"
-                        style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)', color: profile.status === 'online' ? 'var(--success)' : 'var(--text-muted)' }}
-                      >
-                        {profile.status === 'online' ? 'ON' : 'OFF'}
-                      </button>
+              {profiles.length === 0 ? (
+                <div className="p-4 text-center text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>{t('noProfiles')}</div>
+              ) : (
+                profiles.map((profile) => {
+                  const isSelected = activeProfileId === profile.id;
+
+                  return (
+                    <div
+                      key={profile.id}
+                      className="w-full px-3 py-2.5 border-b last:border-b-0 transition-all"
+                      style={{
+                        background: isSelected ? 'linear-gradient(90deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02))' : 'transparent',
+                        borderColor: 'var(--border)',
+                        boxShadow: isSelected ? 'inset 3px 0 0 var(--accent)' : 'none'
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => {
+                            setActiveProfileId(profile.id);
+                            setShowSwitcher(false);
+                          }}
+                          className="flex-1 flex items-center gap-2.5 text-left bg-transparent border-none outline-none cursor-pointer min-w-0"
+                        >
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: profile.status === 'online' ? 'var(--success)' : 'var(--text-muted)' }} />
+                          <span className="text-xs font-black uppercase tracking-[0.12em] truncate" style={{ color: 'var(--text-primary)' }}>{profile.name}</span>
+                        </button>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {profile.pending > 0 && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.12em]" style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
+                              <Bell className="w-2.5 h-2.5" />
+                              {profile.pending}
+                            </span>
+                          )}
+
+                          <button
+                            onClick={(e) => toggleProfileStatus(e, profile.id)}
+                            className="px-2 py-1 text-[8px] font-black uppercase tracking-[0.18em] transition-colors border"
+                            style={{
+                              background: profile.status === 'online' ? 'rgba(42,156,107,0.08)' : 'rgba(255,255,255,0.04)',
+                              borderColor: 'var(--border)',
+                              color: profile.status === 'online' ? 'var(--success)' : 'var(--text-muted)'
+                            }}
+                          >
+                            {profile.status === 'online' ? 'On' : 'Off'}
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}
         </div>
 
-        {/* Global Navigation Links */}
-        <div className="p-4 flex flex-col gap-2 shrink-0" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-          <p className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Menu: {activeProfile.name}</p>
-          
-          <NavLink to="/model/dashboard" className={({isActive}) => `flex items-center justify-between p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : ''}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+        <div className="p-4 flex flex-col gap-2.5 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border)' }}>
+          <p className="text-[9px] font-black uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>{t('menu')}: {activeProfile.name}</p>
+
+          <NavLink
+            to="/model/dashboard"
+            className={({ isActive }) => `flex items-center justify-between p-3 border transition-all ${isActive ? 'shadow-sm' : ''}`}
+            style={{
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))',
+              borderColor: 'var(--border)',
+              color: 'var(--text-primary)',
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.02)'
+            }}
+          >
             <div className="flex items-center gap-3">
-              <Activity className="w-5 h-5" />
-              <span className="text-xs font-bold uppercase tracking-widest">Overview</span>
+              <Activity className="w-4 h-4" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em]">{t('overview')}</span>
             </div>
           </NavLink>
 
-          <NavLink to="/model/queue" className={({isActive}) => `flex items-center justify-between p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : ''}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+          <NavLink
+            to="/model/queue"
+            className={({ isActive }) => `flex items-center justify-between p-3 border transition-all ${isActive ? 'shadow-sm' : ''}`}
+            style={{
+              background: location.pathname === '/model/queue' ? 'linear-gradient(135deg, rgba(210,79,116,0.14), rgba(255,255,255,0.04))' : 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))',
+              borderColor: location.pathname === '/model/queue' ? 'rgba(210,79,116,0.35)' : 'var(--border)',
+              color: 'var(--text-primary)',
+              boxShadow: location.pathname === '/model/queue' ? '0 8px 24px rgba(210,79,116,0.12)' : 'inset 0 0 0 1px rgba(255,255,255,0.02)'
+            }}
+          >
             <div className="flex items-center gap-3">
-              <ListOrdered className="w-5 h-5" />
-              <span className="text-xs font-bold uppercase tracking-widest">Chat Requests</span>
+              <ListOrdered className="w-4 h-4" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em]">{t('chatRequests')}</span>
             </div>
+
             {activeProfile.pending > 0 && (
-              <span className="px-2 py-0.5 text-[10px] font-bold rounded-none" style={{ border: '1px solid var(--border)', color: location.pathname === '/model/queue' ? 'var(--text-primary)' : 'var(--success)', backgroundColor: location.pathname === '/model/queue' ? 'var(--surface-strong)' : 'rgba(42, 156, 107, 0.08)' }}>
+              <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.15em]" style={{ backgroundColor: 'rgba(42,156,107,0.12)', color: 'var(--success)', border: '1px solid rgba(42,156,107,0.3)' }}>
                 {activeProfile.pending}
               </span>
             )}
           </NavLink>
 
-          <NavLink to="/model/earnings" className={({isActive}) => `flex items-center justify-between p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : ''}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+          <NavLink
+            to="/model/earnings"
+            className={({ isActive }) => `flex items-center justify-between p-3 border transition-all ${isActive ? 'shadow-sm' : ''}`}
+            style={{
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))',
+              borderColor: 'var(--border)',
+              color: 'var(--text-primary)',
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.02)'
+            }}
+          >
             <div className="flex items-center gap-3">
-              <Wallet className="w-5 h-5" />
-              <span className="text-xs font-bold uppercase tracking-widest">Earnings</span>
+              <Wallet className="w-4 h-4" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em]">{t('earnings')}</span>
             </div>
           </NavLink>
         </div>
 
-        {/* Live Activity Feed */}
-        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar" style={{ backgroundColor: 'var(--surface-strong)' }}>
-          <p className="text-[9px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>Live Feed</p>
-          <div className="space-y-2">
-            <div className="p-2 text-[10px] uppercase tracking-wider" style={{ backgroundColor: 'var(--surface)', color: 'var(--text-secondary)', borderLeft: '2px solid var(--success)' }}>
-              <span className="font-bold" style={{ color: 'var(--success)' }}>[14:02]</span> {activeProfile.name}: SYSTEM SYNCED
+        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))' }}>
+            <p className="text-[9px] font-black uppercase tracking-[0.22em] mb-3" style={{ color: 'var(--text-muted)' }}>{t('liveFeed')}</p>
+          <div className="space-y-2.5">
+            <div className="p-3 text-[9px] uppercase tracking-[0.14em] rounded-xl" style={{ background: 'rgba(42,156,107,0.08)', color: 'var(--text-secondary)', borderLeft: '2px solid var(--success)' }}>
+              <span className="font-black" style={{ color: 'var(--success)' }}>[14:02]</span> {activeProfile.name}: system synced
+            </div>
+            <div className="p-3 text-[9px] uppercase tracking-[0.14em] rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', color: 'var(--text-secondary)', borderLeft: '2px solid var(--accent)' }}>
+              <span className="font-black" style={{ color: 'var(--accent)' }}>[14:04]</span> network pulse stable
             </div>
           </div>
         </div>
       </div>
 
-      {/* Account Manager Footer */}
-      <div className="p-3 flex items-center justify-between shrink-0" style={{ backgroundColor: 'var(--surface-strong)', borderTop: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-3 group cursor-pointer">
-          <div className="w-8 h-8 flex items-center justify-center font-bold text-[10px] uppercase rounded-none" style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+      <div className="p-3 flex items-center justify-between shrink-0" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))', borderTop: '1px solid var(--border)' }}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 flex items-center justify-center rounded-xl border" style={{ background: 'var(--surface-alt)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
             <Users className="w-4 h-4" />
           </div>
-          <div>
-            <p className="text-xs font-bold flex items-center gap-1 uppercase" style={{ color: 'var(--text-primary)' }}>
-              Manager_Account <ShieldCheck className="w-3.5 h-3.5" style={{ color: 'var(--accent-strong)' }} />
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.12em] truncate" style={{ color: 'var(--text-primary)' }}>
+              Manager_Account
+              <ShieldCheck className="inline w-3.5 h-3.5 ml-1" style={{ color: 'var(--accent-strong)' }} />
             </p>
-            <p className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--text-muted)' }}>AGENCY ACCESS</p>
+            <p className="text-[8px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>{t('agencyAccess')}</p>
           </div>
         </div>
-        <Link to="/model/settings" className="p-2 transition-colors rounded-none" style={{ color: 'var(--text-secondary)' }}>
+
+        <Link to="/model/settings" className="p-2 border rounded-xl transition-colors" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)', background: 'rgba(255,255,255,0.03)' }}>
           <Settings className="w-4 h-4" />
         </Link>
       </div>

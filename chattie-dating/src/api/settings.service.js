@@ -1,112 +1,128 @@
 import { apiClient } from './client';
 
 export const settingsService = {
-  /**
-   * Fetches the user's current profile and settings data
-   * GET /api/settings
-   */
   getSettings: async () => {
-    try {
-      const response = await apiClient.get('/settings');
-      return response.data;
-    } catch (error) {
-      console.error("Failed to fetch settings:", error);
-      throw error;
-    }
+    const response = await apiClient.get('/settings');
+    return response.data;
   },
 
-  /**
-   * Pushes the entire profile and settings object to the backend
-   * PUT /api/settings
-   */
   updateSettings: async (settingsData) => {
-    try {
-      const response = await apiClient.put('/settings', settingsData);
-      return response.data;
-    } catch (error) {
-      console.error("Failed to save settings:", error);
-      throw error;
-    }
+    const response = await apiClient.put('/settings', settingsData);
+    return response.data;
   },
 
-  /**
-   * Permanently deletes the user account
-   * DELETE /api/settings/account
-   */
   deleteAccount: async () => {
-    try {
-      const response = await apiClient.delete('/settings/account');
-      return response.data;
-    } catch (error) {
-      console.error("Failed to delete account:", error);
-      throw error;
-    }
+    const response = await apiClient.delete('/settings/account');
+    return response.data;
+  },
+
+  // =====================================================================
+  // SECURITY & PRIVACY ACTIONS
+  // =====================================================================
+
+  // KYC endpoint must validate document_type/country, front/back, selfie, and
+  // liveness_frames server-side. Client captures and pose prompts are not proof
+  // of liveness; only an explicit verified response should grant the badge.
+  verifyIdentityKYC: async (formData) => {
+    const response = await apiClient.post('/subscriptions/kyc', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  requestDataDownload: async () => {
+    const response = await apiClient.post('/settings/request-data');
+    return response.data;
+  },
+
+  terminateOtherSessions: async () => {
+    const response = await apiClient.post('/settings/terminate-sessions');
+    return response.data;
+  },
+
+  getActiveSessions: async () => {
+    const response = await apiClient.get('/settings/sessions');
+    return response.data;
+  },
+
+  revokeSession: async (sessionId) => {
+    const response = await apiClient.delete(`/settings/sessions/${encodeURIComponent(sessionId)}`);
+    return response.data;
+  },
+
+  getPushVapidPublicKey: async () => {
+    const response = await apiClient.get('/notifications/push/vapid');
+    return response.data.public_key;
+  },
+
+  savePushSubscription: async (subscription) => {
+    const response = await apiClient.post('/notifications/push/subscriptions', subscription);
+    return response.data;
+  },
+
+  deletePushSubscription: async (endpoint) => {
+    const response = await apiClient.delete('/notifications/push/subscriptions', { data: { endpoint } });
+    return response.data;
+  },
+
+  getTwoFactorSettings: async () => {
+    const response = await apiClient.get('/auth/two-factor');
+    return response.data;
+  },
+
+  requestTwoFactorChange: async (enabled, channel) => {
+    const response = await apiClient.post('/auth/two-factor/setup', { enabled, channel });
+    return response.data;
+  },
+
+  verifyTwoFactorChange: async (challengeId, code, enabled) => {
+    const response = await apiClient.post('/auth/two-factor/verify', {
+      challenge_id: challengeId,
+      code,
+      enabled,
+    });
+    return response.data;
+  },
+
+  getBlockedUsers: async () => {
+    const response = await apiClient.get('/settings/blocked');
+    return response.data;
+  },
+
+  unblockUser: async (blockedId) => {
+    const response = await apiClient.delete(`/settings/blocked/${blockedId}`);
+    return response.data;
   },
 
   // =====================================================================
   // MEDIA VAULT MANAGEMENT
   // =====================================================================
-
-  /**
-   * Fetches the user's uploaded media vault images
-   * GET /api/settings/media
-   */
   getMediaVault: async () => {
-    try {
-      const response = await apiClient.get('/settings/media');
-      return response.data; // Returns array of media objects
-    } catch (error) {
-      console.error("Failed to fetch media vault:", error);
-      throw error;
-    }
+    const response = await apiClient.get('/settings/media');
+    return response.data; 
   },
 
-  /**
-   * Uploads a new image to the user's media vault
-   * POST /api/settings/media
-   */
   uploadMedia: async (file) => {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await apiClient.post('/settings/media', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Failed to upload media:", error);
-      throw error;
-    }
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await apiClient.post('/settings/media', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
   },
 
-  /**
-   * Deletes a specific media item from the vault
-   * DELETE /api/settings/media/{media_id}
-   */
   deleteMedia: async (mediaId) => {
-    try {
-      const response = await apiClient.delete(`/settings/media/${mediaId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Failed to delete media:", error);
-      throw error;
-    }
+    const response = await apiClient.delete(`/settings/media/${mediaId}`);
+    return response.data;
   },
 
-  /**
-   * Sets a specific media item as the primary profile picture
-   * PUT /api/settings/media/{media_id}/primary
-   */
   setPrimaryMedia: async (mediaId) => {
-    try {
-      const response = await apiClient.put(`/settings/media/${mediaId}/primary`);
-      return response.data;
-    } catch (error) {
-      console.error("Failed to set primary media:", error);
-      throw error;
-    }
-  }
+    const response = await apiClient.put(`/settings/media/${mediaId}/primary`);
+    return response.data;
+  },
+  getVerificationConfig: async () => {
+    const response = await apiClient.get('/settings/verification-config');
+    return response.data;
+  },
 };

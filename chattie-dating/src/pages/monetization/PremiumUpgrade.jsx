@@ -1,24 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  Zap, CheckCircle2, Star, Crown, Eye, Heart, 
-  MessageSquare, Undo2, ChevronDown, ShieldCheck, 
-  CreditCard, Loader2, X, Lock
+  Zap, Crown, Eye, Heart, MessageSquare, Undo2, 
+  ChevronDown, ShieldCheck, Loader2, X, Lock, ExternalLink, CreditCard, Smartphone
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
+// Stripe Elements
+import { loadStripe } from '@stripe/stripe-js';
+import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
+
 // Services
-import { extrasService } from '../../api/extras.service';
+import { billingService } from '../../api/billing.service';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
-// MOCK DATA (Pricing and feature display data remains static for UI)
+// STATIC UI DATA
 // ============================================================================
-const SUBSCRIPTION_PLANS = [
-  { id: 1, duration: '1 Month', price: 14.99, monthly: 14.99, save: 0, isPopular: false },
-  { id: 6, duration: '6 Months', price: 53.94, monthly: 8.99, save: 40, isPopular: true },
-  { id: 12, duration: '12 Months', price: 71.88, monthly: 5.99, save: 60, isPopular: false },
-];
-
 const PREMIUM_FEATURES = [
   { icon: Eye, title: 'See Who Likes You', desc: 'Stop guessing. See your admirers before you swipe.' },
   { icon: Heart, title: 'Unlimited Likes', desc: 'Swipe right as much as you want, no limits.' },
@@ -35,65 +33,253 @@ const FAQS = [
 ];
 
 // ============================================================================
+// UTILITIES
+// ============================================================================
+const PAYSTACK_SCRIPT_URL = 'https://js.paystack.co/v2/inline.js';
+const loadPaystackScript = () => new Promise((resolve, reject) => {
+  const existing = document.querySelector(`script[src="${PAYSTACK_SCRIPT_URL}"]`);
+  if (window.PaystackPop && existing) {
+    resolve();
+    return;
+  }
+  const script = existing || document.createElement('script');
+  script.src = PAYSTACK_SCRIPT_URL;
+  script.async = true;
+  script.onload = () => resolve();
+  script.onerror = () => reject(new Error('Could not load Paystack checkout.'));
+  if (!existing) document.body.appendChild(script);
+});
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 export default function PremiumUpgrade() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   
   // --- STATE ---
-  const [selectedPlan, setSelectedPlan] = useState(SUBSCRIPTION_PLANS[1]);
+  const [plans, setPlans] = useState([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [selectedGateway, setSelectedGateway] = useState('stripe');
   const [expandedFaq, setExpandedFaq] = useState(null);
-  const [showCheckout, setShowCheckout] = useState(false);
+  
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  const [paymentSession, setPaymentSession] = useState(null);
+  const [stripePromise, setStripePromise] = useState(null);
+  const callbackStarted = useRef(false);
+  const paystackPollRef = useRef(null);
+  const paystackTimeoutRef = useRef(null);
+  const paystackPollInFlight = useRef(false);
+
+  // --- INITIALIZATION ---
+  useEffect(() => {
+    let isMounted = true;
+
+    billingService.getPlans()
+      .then(data => {
+        if (!isMounted) return;
+        setPlans(data);
+        const popularPlan = data.find(p => p.isPopular) || data[0];
+        setSelectedPlan(popularPlan);
+      })
+      .catch(err => {
+        if (!isMounted) return;
+        console.error('Failed to load plans:', err);
+        toast.error('Could not load secure pricing. Please check your connection and refresh.');
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingPlans(false);
+      });
+
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get('reference') || params.get('trxref');
+    if (!reference || callbackStarted.current) return;
+    callbackStarted.current = true;
+    setIsProcessing(true);
+
+    billingService.verifyPayment({ reference })
+      .then((verification) => {
+        if (verification?.payment_method_saved === false) {
+          toast.info('Your payment succeeded, but this card could not be saved. You can try again after checking your payment settings.');
+        }
+        toast.success('VIP Upgrade Successful! Welcome to Gold.');
+        navigate('/discover', { replace: true });
+      })
+      .catch((error) => {
+        toast.error(error.response?.data?.error || 'Payment could not be verified. If you were charged, contact support.');
+      })
+      .finally(() => setIsProcessing(false));
+  }, [navigate]);
+
+  useEffect(() => () => {
+    window.clearInterval(paystackPollRef.current);
+    window.clearTimeout(paystackTimeoutRef.current);
+  }, []);
 
   // --- HANDLERS ---
-  const handlePurchase = async (e) => {
+  const toggleFaq = useCallback((idx) => {
+    setExpandedFaq(prev => prev === idx ? null : idx);
+  }, []);
+
+  const handleProceedToPayment = async (e) => {
     e.preventDefault();
+    if (!selectedPlan || isProcessing) return;
     setIsProcessing(true);
     
     try {
-      // Call the real backend API to upgrade the user
-      await extrasService.upgradeSubscription(selectedPlan.id, selectedPlan.price, 'tok_mock123');
+      const sessionData = await billingService.initiateUpgrade(selectedPlan.id, selectedGateway);
       
-      setShowCheckout(false);
-      toast.success('PAYMENT SUCCESSFUL. VIP STATUS ACTIVATED.');
-      
-      // Redirect to discover after a brief success delay
-      setTimeout(() => navigate('/discover'), 1500);
+      if (!sessionData || !sessionData.provider) {
+        throw new Error('Invalid gateway response received.');
+      }
+
+      setShowSummaryModal(false); 
+
+      if (sessionData.provider === 'paystack') {
+        await launchPaystackModal(sessionData);
+      } else if (sessionData.provider === 'stripe') {
+        await launchStripeModal(sessionData);
+      } else {
+        throw new Error('No valid payment method returned.');
+      }
     } catch (error) {
-      console.error('Checkout error:', error);
-      toast.error(error.message || 'Payment failed. Please try again.');
-    } finally {
+      console.error('[BILLING ERROR]', error);
+      toast.error(error.response?.data?.error || error.message || t('paymentFailed'));
       setIsProcessing(false);
     }
   };
 
-  const toggleFaq = (idx) => {
-    setExpandedFaq(prev => prev === idx ? null : idx);
+  const launchPaystackModal = async (data) => {
+    if (!data.session_id) {
+      throw new Error('Paystack did not return a transaction reference. Please try again or contact support.');
+    }
+    try {
+      await loadPaystackScript();
+      if (typeof window.PaystackPop !== 'function' || !data.client_secret) {
+        throw new Error('Paystack checkout could not initialize.');
+      }
+      const popup = new window.PaystackPop();
+      popup.resumeTransaction(data.client_secret);
+    } catch (error) {
+      if (data.payment_url) {
+        window.location.assign(data.payment_url);
+        return;
+      }
+      throw error;
+    }
+
+    window.clearInterval(paystackPollRef.current);
+    window.clearTimeout(paystackTimeoutRef.current);
+    const verify = async () => {
+      if (paystackPollInFlight.current) return;
+      paystackPollInFlight.current = true;
+      try {
+        const verification = await billingService.verifyPayment({ reference: data.session_id });
+        window.clearInterval(paystackPollRef.current);
+        window.clearTimeout(paystackTimeoutRef.current);
+        if (verification?.payment_method_saved === false) {
+          toast.info('Your payment succeeded, but this card could not be saved. You can try again after checking your payment settings.');
+        }
+        toast.success('VIP Upgrade Successful! Welcome to Gold.');
+        setIsProcessing(false);
+        navigate('/discover');
+      } catch (error) {
+        if (error.response?.status !== 402) {
+          console.error('[VERIFICATION ERROR]', error);
+        }
+      } finally {
+        paystackPollInFlight.current = false;
+      }
+    };
+    paystackPollRef.current = window.setInterval(verify, 5000);
+    paystackTimeoutRef.current = window.setTimeout(() => {
+      window.clearInterval(paystackPollRef.current);
+      setIsProcessing(false);
+      toast.info('Payment is still pending. If you completed checkout, reopen Premium to verify it again.');
+    }, 180000);
   };
 
+  const launchStripeModal = async (data) => {
+    try {
+      const stripe = await loadStripe(data.public_key);
+      if (!stripe) {
+        throw new Error('Stripe SDK failed to initialize. Please check your network.');
+      }
+      setStripePromise(Promise.resolve(stripe));
+      setPaymentSession(data);
+      // isProcessing is intentionally left true here to prevent double clicks while modal renders.
+      // It is cleared when the user closes the modal.
+    } catch (error) {
+      toast.error(error.message);
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCloseStripeModal = useCallback(() => {
+    setPaymentSession(null);
+    setStripePromise(null);
+    setIsProcessing(false);
+  }, []);
+
+  const handleStripeComplete = useCallback(async () => {
+    if (!paymentSession?.session_id) return;
+    try {
+      const verification = await billingService.verifyPayment({ sessionId: paymentSession.session_id });
+      setPaymentSession(null);
+      setStripePromise(null);
+      setIsProcessing(false);
+      toast.success('VIP Upgrade Successful! Welcome to Gold.');
+      if (verification?.payment_method_saved === false) {
+        toast.info('Your payment succeeded, but this card could not be saved. You can try again after checking your payment settings.');
+      }
+      navigate('/discover');
+    } catch (error) {
+      console.error('[STRIPE VERIFICATION ERROR]', error);
+      toast.error(error.response?.data?.error || 'Payment verification failed. Please contact support.');
+      setIsProcessing(false);
+    }
+  }, [navigate, paymentSession]);
+
+  // UX Lock scroll when modals are open
   useEffect(() => {
-    if (showCheckout) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = 'unset';
+    if (showSummaryModal || paymentSession) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
     return () => { document.body.style.overflow = 'unset'; };
-  }, [showCheckout]);
+  }, [showSummaryModal, paymentSession]);
 
   // ============================================================================
-  // RENDER
+  // RENDER - LOADING STATE
+  // ============================================================================
+  if (isLoadingPlans) {
+    return (
+      <div className="flex-1 flex flex-col bg-black w-full h-full relative items-center justify-center">
+        <Loader2 className="w-10 h-10 text-yellow-400 animate-spin mb-4" />
+        <p className="text-zinc-500 text-xs font-mono tracking-widest font-bold uppercase">SECURELY LOADING PRICING...</p>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // RENDER - MAIN UI
   // ============================================================================
   return (
-    <div 
-      className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none"
-      style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}
-    >
+    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
       
       {/* Main Scrollable Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar pb-32 md:pb-12 bg-black">
         <div className="max-w-4xl mx-auto w-full px-4 py-8 md:py-12 flex flex-col items-center">
           
-          {/* =====================================================================
-              HERO SECTION
-              ===================================================================== */}
+          {/* Hero Section */}
           <div className="text-center mb-10 w-full flex flex-col items-center border-b-2 border-zinc-800 pb-10">
             <div className="relative mb-6">
               <div className="w-16 h-16 bg-black border-2 border-yellow-400 flex items-center justify-center relative shadow-[4px_4px_0px_rgba(250,204,21,0.2)]">
@@ -105,26 +291,24 @@ export default function PremiumUpgrade() {
             </div>
             
             <h1 className="text-3xl md:text-5xl font-black text-white mb-4 uppercase tracking-widest">
-              Upgrade to <span className="text-yellow-400">Gold</span>
+              CHATTIE <span className="text-yellow-400">GOLD</span>
             </h1>
             <p className="text-zinc-500 text-[10px] md:text-xs font-bold uppercase tracking-widest max-w-md mx-auto leading-relaxed">
-              Stand out in the factory, see who likes you instantly, and triple your matches with premium tools.
+              {t('premiumExperience') || 'Unlock advanced features and maximize your matches.'}
             </p>
           </div>
 
-          {/* =====================================================================
-              PRICING TIERS
-              ===================================================================== */}
+          {/* Pricing Tiers Grid */}
           <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-12">
-            {SUBSCRIPTION_PLANS.map((plan) => {
-              const isSelected = selectedPlan.id === plan.id;
-              
+            {plans.map((plan, index) => {
+              const isSelected = selectedPlan?.id === plan.id;
               return (
                 <div 
-                  key={plan.id}
-                  onClick={() => setSelectedPlan(plan)}
+                 key={`${plan.id}-${index}`}
+                  onClick={() => !isProcessing && setSelectedPlan(plan)}
                   className={`
-                    relative p-6 cursor-pointer transition-colors flex flex-col text-center border-2
+                    relative p-6 transition-colors flex flex-col text-center border-2
+                    ${isProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
                     ${isSelected 
                       ? 'bg-zinc-900 border-yellow-400 z-10 shadow-[8px_8px_0px_rgba(250,204,21,0.1)]' 
                       : 'bg-black border-zinc-800 hover:border-zinc-600 hover:bg-zinc-950'
@@ -167,30 +351,29 @@ export default function PremiumUpgrade() {
             })}
           </div>
 
-          {/* Desktop Checkout Button (Hidden on Mobile) */}
+          {/* Desktop Continue Button */}
           <div className="hidden md:flex justify-center w-full mb-16">
             <button 
-              onClick={() => setShowCheckout(true)}
-              className="w-full max-w-md py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-xs font-bold uppercase tracking-widest hover:bg-yellow-500 transition-colors shadow-[8px_8px_0px_rgba(255,255,255,0.1)]"
+              onClick={() => setShowSummaryModal(true)}
+              disabled={!selectedPlan || isProcessing}
+              className="w-full max-w-md py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-xs font-bold uppercase tracking-widest hover:bg-yellow-500 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors shadow-[8px_8px_0px_rgba(255,255,255,0.1)] focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 focus:ring-offset-black"
             >
-              CONTINUE WITH {selectedPlan.duration}
+              CONTINUE WITH {selectedPlan?.duration}
             </button>
           </div>
 
-          {/* =====================================================================
-              FEATURE SHOWCASE GRID
-              ===================================================================== */}
+          {/* Feature Showcase Grid */}
           <div className="w-full mb-16">
             <div className="text-center mb-8 border-b-2 border-zinc-800 pb-4">
-              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">EVERYTHING INCLUDED IN GOLD</h2>
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">UNLOCK THE ULTIMATE TEXTING FACTORY EXPERIENCE.</p>
+              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">{t('everythingGold') || 'EVERYTHING IN GOLD'}</h2>
+              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">UNLOCK THE ULTIMATE EXPERIENCE.</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {PREMIUM_FEATURES.map((feat, i) => (
                 <div key={i} className="bg-black border-2 border-zinc-800 p-5 flex items-start gap-4 hover:border-zinc-600 transition-colors">
                   <div className="w-10 h-10 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center shrink-0">
-                    <feat.icon className="w-4 h-4 text-yellow-400" />
+                    <feat.icon className="w-4 h-4 text-yellow-400" aria-hidden="true" />
                   </div>
                   <div>
                     <h3 className="text-[10px] font-bold text-white uppercase tracking-widest mb-2">{feat.title}</h3>
@@ -201,12 +384,10 @@ export default function PremiumUpgrade() {
             </div>
           </div>
 
-          {/* =====================================================================
-              FAQ SECTION
-              ===================================================================== */}
+          {/* FAQ Section */}
           <div className="w-full max-w-2xl mx-auto mb-10">
             <div className="text-center mb-8 border-b-2 border-zinc-800 pb-4">
-              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">FREQUENTLY ASKED QUESTIONS</h2>
+              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">FAQ</h2>
             </div>
 
             <div className="space-y-4">
@@ -221,16 +402,17 @@ export default function PremiumUpgrade() {
                   >
                     <button 
                       onClick={() => toggleFaq(idx)}
-                      className="w-full p-4 flex items-center justify-between text-left"
+                      aria-expanded={isExpanded}
+                      className="w-full p-4 flex items-center justify-between text-left focus:outline-none focus:bg-zinc-900"
                     >
                       <span className="text-[10px] font-bold text-white uppercase tracking-widest pr-4">{faq.q}</span>
-                      <ChevronDown className={`w-4 h-4 transition-transform duration-200 shrink-0 ${isExpanded ? 'rotate-180 text-white' : 'text-zinc-600'}`} />
+                      <ChevronDown className={`w-4 h-4 transition-transform duration-200 shrink-0 ${isExpanded ? 'rotate-180 text-white' : 'text-zinc-600'}`} aria-hidden="true" />
                     </button>
                     
-                    <div className={`
-                      grid transition-all duration-300 ease-in-out
-                      ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}
-                    `}>
+                    <div 
+                      className={`grid transition-all duration-300 ease-in-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+                      aria-hidden={!isExpanded}
+                    >
                       <div className="overflow-hidden">
                         <div className="p-4 pt-0 text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-relaxed border-t-2 border-zinc-800 mt-2 bg-zinc-950">
                           <div className="pt-4">{faq.a}</div>
@@ -242,44 +424,44 @@ export default function PremiumUpgrade() {
               })}
             </div>
           </div>
-
         </div>
       </div>
 
-      {/* =====================================================================
-          STICKY MOBILE ACTION BAR
-          ===================================================================== */}
+      {/* Sticky Mobile Action Bar */}
       <div className="md:hidden absolute bottom-0 inset-x-0 p-4 bg-black border-t-2 border-zinc-800 z-20">
         <button 
-          onClick={() => setShowCheckout(true)}
-          className="w-full py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center transition-colors"
+          onClick={() => setShowSummaryModal(true)}
+          disabled={!selectedPlan || isProcessing}
+          className="w-full py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center transition-colors disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 shadow-[4px_4px_0px_rgba(255,255,255,0.1)] focus:outline-none"
         >
-          GET {selectedPlan.duration} FOR ${selectedPlan.price}
+          GET {selectedPlan?.duration} FOR ${selectedPlan?.price}
         </button>
       </div>
 
       {/* =====================================================================
-          CHECKOUT MODAL
+          STEP 1: PRE-CHECKOUT SUMMARY MODAL (WITH GATEWAY TOGGLE)
           ===================================================================== */}
-      {showCheckout && (
+      {showSummaryModal && selectedPlan && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => !isProcessing && setShowCheckout(false)} />
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => !isProcessing && setShowSummaryModal(false)} />
           
           <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col overflow-hidden animate-in slide-in-from-bottom-full md:zoom-in-95 duration-300 rounded-none">
             
-            {/* Modal Header */}
             <div className="bg-zinc-950 p-4 flex justify-between items-center border-b-2 border-zinc-800 shrink-0">
               <h2 className="font-bold text-[10px] uppercase tracking-widest text-white flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-green-500" /> SECURE CHECKOUT
+                <ShieldCheck className="w-4 h-4 text-green-500" aria-hidden="true" /> ORDER SUMMARY
               </h2>
               {!isProcessing && (
-                <button onClick={() => setShowCheckout(false)} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors">
+                <button 
+                  onClick={() => setShowSummaryModal(false)} 
+                  aria-label="Close summary"
+                  className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors focus:outline-none focus:border-white"
+                >
                   <X className="w-4 h-4" />
                 </button>
               )}
             </div>
 
-            {/* Order Summary */}
             <div className="p-6 bg-black">
               <div className="flex justify-between items-end mb-6 pb-6 border-b-2 border-zinc-800">
                 <div>
@@ -288,64 +470,88 @@ export default function PremiumUpgrade() {
                 </div>
                 <div className="text-right">
                   <span className="text-2xl font-black text-white">${selectedPlan.price}</span>
-                  <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">+ APPLICABLE TAXES</p>
+                  <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">NO HIDDEN FEES</p>
                 </div>
               </div>
 
-              {/* Mock Payment Form */}
-              <form onSubmit={handlePurchase} className="space-y-4">
-                <div>
-                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">CARD DETAILS</label>
-                  <div className="relative">
-                    <CreditCard className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                    <input 
-                      type="text" 
-                      placeholder="•••• •••• •••• ••••"
-                      required
-                      disabled={isProcessing}
-                      className="w-full bg-black border-2 border-zinc-800 rounded-none pl-10 pr-16 py-3 text-[10px] font-bold text-white uppercase tracking-widest focus:outline-none focus:border-white disabled:opacity-50 transition-colors placeholder:text-zinc-700"
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                      <div className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-800 flex items-center justify-center text-[8px] font-bold text-zinc-400">VISA</div>
-                      <div className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-800 flex items-center justify-center text-[8px] font-bold text-zinc-400">MC</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <input 
-                    type="text" 
-                    placeholder="MM / YY"
-                    required
+              {/* PAYMENT GATEWAY TOGGLE */}
+              <div className="mb-6">
+                <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-3" id="gateway-label">SELECT PAYMENT METHOD</p>
+                <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-labelledby="gateway-label">
+                  <button
+                    role="radio"
+                    aria-checked={selectedGateway === 'stripe'}
+                    onClick={() => !isProcessing && setSelectedGateway('stripe')}
                     disabled={isProcessing}
-                    className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-[10px] font-bold text-white uppercase tracking-widest focus:outline-none focus:border-white disabled:opacity-50 transition-colors placeholder:text-zinc-700"
-                  />
-                  <input 
-                    type="text" 
-                    placeholder="CVC"
-                    required
+                    className={`py-3 flex flex-col items-center justify-center gap-2 border-2 transition-colors disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-white ${
+                      selectedGateway === 'stripe' 
+                      ? 'bg-zinc-900 border-yellow-400 text-yellow-400' 
+                      : 'bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600'
+                    }`}
+                  >
+                    <CreditCard className="w-5 h-5" aria-hidden="true" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Stripe</span>
+                  </button>
+                  <button
+                    role="radio"
+                    aria-checked={selectedGateway === 'paystack'}
+                    onClick={() => !isProcessing && setSelectedGateway('paystack')}
                     disabled={isProcessing}
-                    className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-[10px] font-bold text-white uppercase tracking-widest focus:outline-none focus:border-white disabled:opacity-50 transition-colors placeholder:text-zinc-700"
-                  />
+                    className={`py-3 flex flex-col items-center justify-center gap-2 border-2 transition-colors disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-white ${
+                      selectedGateway === 'paystack' 
+                      ? 'bg-zinc-900 border-yellow-400 text-yellow-400' 
+                      : 'bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600'
+                    }`}
+                  >
+                    <Smartphone className="w-5 h-5" aria-hidden="true" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Paystack</span>
+                  </button>
                 </div>
+              </div>
 
-                <div className="flex items-center gap-2 mt-4 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-950 p-4 border-2 border-zinc-800 leading-relaxed">
-                  <Lock className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                  <p>PAYMENTS ARE ENCRYPTED AND PROCESSED SECURELY. YOUR SUBSCRIPTION WILL AUTO-RENEW. CANCEL ANYTIME.</p>
-                </div>
+              <div className="flex items-center gap-2 mb-6 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-950 p-4 border-2 border-zinc-800 leading-relaxed">
+                <Lock className="w-3.5 h-3.5 text-green-500 shrink-0" aria-hidden="true" />
+                <p>A secure checkout window will open on this page. Payment processing is fully encrypted and PCI compliant.</p>
+              </div>
 
-                <button 
-                  type="submit"
-                  disabled={isProcessing}
-                  className="w-full py-4 mt-6 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-500 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors flex items-center justify-center gap-2 rounded-none"
-                >
-                  {isProcessing ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> PROCESSING PAYMENT...</>
-                  ) : (
-                    `PAY $${selectedPlan.price}`
-                  )}
-                </button>
-              </form>
+              <button 
+                onClick={handleProceedToPayment}
+                disabled={isProcessing}
+                className="w-full py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-500 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors flex items-center justify-center gap-2 rounded-none focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 focus:ring-offset-black"
+              >
+                {isProcessing ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> SECURING CONNECTION...</>
+                ) : (
+                  <>PROCEED TO SECURE PAYMENT <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" /></>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          STEP 2: STRIPE EMBEDDED CHECKOUT MODAL 
+          ===================================================================== */}
+      {paymentSession?.provider === 'stripe' && stripePromise && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-8 bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-4xl bg-white relative rounded-none border-2 border-zinc-600 overflow-hidden h-[95vh] md:h-auto max-h-[900px] shadow-[8px_8px_0px_rgba(250,204,21,0.3)] animate-in zoom-in-95 duration-300">
+            
+            <button 
+              onClick={handleCloseStripeModal}
+              aria-label="Cancel payment"
+              className="absolute top-4 right-4 z-[70] p-2 bg-black border-2 border-transparent text-white hover:border-white hover:bg-zinc-900 transition-colors rounded-none focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="w-full h-full overflow-y-auto bg-white pt-16 pb-4 px-2 custom-scrollbar">
+              <EmbeddedCheckoutProvider 
+                stripe={stripePromise} 
+                options={{ clientSecret: paymentSession.client_secret, onComplete: handleStripeComplete }}
+              >
+                <EmbeddedCheckout />
+              </EmbeddedCheckoutProvider>
             </div>
           </div>
         </div>

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 // Services
 import { creatorService } from '../../api/creator.service';
+import { useI18n } from '../../i18n';
 
 // --- MOCK DATA & GENERATORS (Logs and Telemetry remain for dashboard UI atmosphere) ---
 const generateLog = (type = 'RANDOM', customMsg = null) => {
@@ -39,6 +40,7 @@ const INITIAL_VIPS = [
 ];
 
 export default function ModelDashboard() {
+  const { t } = useI18n();
   const [isOnline, setIsOnline] = useState(true);
   const [sessionTime, setSessionTime] = useState(0);
   const [logs, setLogs] = useState([{ type: 'SYS', msg: 'DASHBOARD LOADED...', color: 'text-zinc-500', border: 'border-zinc-700', id: 'init', time: new Date().toLocaleTimeString('en-US', { hour12: false }) }]);
@@ -60,7 +62,7 @@ export default function ModelDashboard() {
         setMetrics(data);
       } catch (err) {
         console.error("Failed to load dashboard metrics:", err);
-        toast.error("Failed to sync live dashboard data");
+        toast.error(t('syncDashboardFailed'));
       } finally {
         setIsLoadingMetrics(false);
       }
@@ -142,7 +144,7 @@ export default function ModelDashboard() {
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest flex items-center gap-3">
               <Video className={`w-8 h-8 ${isOnline ? 'text-red-500 animate-pulse' : 'text-zinc-600'}`} />
-              Creator Dashboard
+              {t('creatorDashboard')}
             </h1>
             <div className="flex items-center gap-4 mt-2">
               <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
@@ -161,7 +163,7 @@ export default function ModelDashboard() {
           >
             <div className="flex items-center gap-2 relative z-10">
               <Power className="w-4 h-4" />
-              {isOnline ? 'GO OFFLINE' : 'GO ONLINE'}
+              {isOnline ? t('goOffline') : t('goOnline')}
             </div>
             <div className="absolute inset-0 bg-white scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-100 z-0 opacity-10" />
           </button>
@@ -170,27 +172,27 @@ export default function ModelDashboard() {
         {/* Top Metrics Matrix (6 Cards - Connected to Database) */}
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
           <MetricCard 
-            title="Earnings (24H)" 
+            title={t('earnings24h')} 
             value={isLoadingMetrics ? '...' : `$${(metrics.earnings_24h || 0).toFixed(2)}`} 
             icon={<TrendingUp />} 
             color="text-green-400" 
           />
           <MetricCard 
-            title="Current Balance" 
+            title={t('currentBalance')} 
             value={isLoadingMetrics ? '...' : `$${(metrics.balance || 0).toFixed(2)}`} 
             icon={<Users />} 
             color="text-blue-400" 
           />
           <MetricCard 
-            title="Pending Chats" 
+            title={t('pendingChats')} 
             value={isLoadingMetrics ? '...' : metrics.pending_reqs} 
             icon={<MessageSquare />} 
             color="text-yellow-400" 
             alert={metrics.pending_reqs > 10} 
           />
-          <MetricCard title="Subscribers" value="412" icon={<Flame />} color="text-white" />
-          <MetricCard title="Spam Filtered" value="12" icon={<Shield />} color="text-zinc-400" />
-          <MetricCard title="Managed Profiles" value="1/1" icon={<Server />} color="text-zinc-400" />
+          <MetricCard title={t('subscribers')} value="412" icon={<Flame />} color="text-white" />
+          <MetricCard title={t('spamFiltered')} value="12" icon={<Shield />} color="text-zinc-400" />
+          <MetricCard title={t('managedProfiles')} value="1/1" icon={<Server />} color="text-zinc-400" />
         </div>
 
         {/* Charts & Tables */}
@@ -203,7 +205,7 @@ export default function ModelDashboard() {
             </div>
             <div className="flex justify-between items-center mb-6 relative z-10">
               <h2 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                <BarChart2 className="w-4 h-4" /> Weekly Earnings
+                <BarChart2 className="w-4 h-4" /> {t('weeklyEarnings')}
               </h2>
               <span className="text-[9px] bg-white text-black px-2 py-1 font-bold uppercase">USD</span>
             </div>
@@ -228,7 +230,7 @@ export default function ModelDashboard() {
           <div className="border-2 border-zinc-800 bg-zinc-950 rounded-none flex flex-col">
             <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center">
               <h2 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                <Lock className="w-4 h-4" /> Active Private Chats
+                <Lock className="w-4 h-4" /> {t('activePrivateChats')}
               </h2>
               <span className="text-[9px] font-bold uppercase text-green-400 bg-green-400/10 px-2 py-1 border border-green-500">LIVE</span>
             </div>
@@ -260,7 +262,7 @@ export default function ModelDashboard() {
               </table>
             </div>
             <div className="mt-auto p-2 bg-black border-t-2 border-zinc-800">
-               <button className="w-full text-[9px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors">VIEW ALL CHATS -{'>'}</button>
+               <button className="w-full text-[9px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors">{t('viewAllChats')} -{'>'}</button>
             </div>
           </div>
         </div>

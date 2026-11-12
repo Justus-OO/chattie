@@ -1,26 +1,100 @@
 import { apiClient } from './client';
 
+const normalizeRoom = (room) => {
+  let tags = room?.tags;
+  if (typeof tags === 'string') {
+    try {
+      tags = JSON.parse(tags);
+    } catch {
+      tags = [];
+    }
+  }
+  return {
+    ...room,
+    desc: room?.desc ?? room?.description ?? '',
+    active: Number(room?.active ?? room?.active_count ?? room?.activeCount ?? 0),
+    isPrivate: Boolean(room?.isPrivate ?? room?.is_private),
+    tags: Array.isArray(tags) ? tags.filter((tag) => typeof tag === 'string') : [],
+  };
+};
+
 export const chatService = {
   // ============================================================================
-  // ROOMS (Public & Private Lounges)
+  // ROOMS (Public, Private & Voice Lounges)
   // ============================================================================
 
   getAllRooms: async () => {
     try {
       const response = await apiClient.get('/rooms');
-      return response.data || [];
+      const payload = response.data;
+      const rooms = Array.isArray(payload) ? payload : payload?.data;
+      if (!Array.isArray(rooms)) {
+        throw new Error('The room service returned an invalid response.');
+      }
+      return rooms.map(normalizeRoom);
     } catch (error) {
       console.error("Failed to fetch rooms:", error);
       throw error;
     }
   },
 
+
+
+  
+
   createRoom: async (roomData) => {
     try {
       const response = await apiClient.post('/rooms', roomData);
-      return response.data;
+      return normalizeRoom(response.data);
     } catch (error) {
       console.error("Failed to create room:", error);
+      throw error;
+    }
+  },
+
+  // NEW: Join a room using a shareable room code or link
+  joinRoomByCode: async (roomCode) => {
+    try {
+      const response = await apiClient.post('/rooms/join', { room_code: roomCode });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to join room by code:", error);
+      throw error;
+    }
+  },
+
+  // NEW: "Knock" to request entry into a private room
+  requestRoomAccess: async (roomCode) => {
+    try {
+      const response = await apiClient.post('/rooms/request-access', { room_code: roomCode });
+      return response.data;
+    } catch (error) {
+      console.error("Failed to request room access:", error);
+      throw error;
+    }
+  },
+
+  // NEW: Fetch room admin details, invite links, and pending requests
+  getRoomAdminDetails: async (roomId) => {
+    try {
+      const response = await apiClient.get(`/rooms/${roomId}/admin-details`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch admin details for room ${roomId}:`, error);
+      throw error;
+    }
+  },
+
+  // NEW: Admin action to approve or reject pending room join requests
+  manageJoinRequest: async (roomId, targetId, approve) => {
+    try {
+      const response = await apiClient.post(`/rooms/${roomId}/manage-request`, {
+        target_id: targetId,
+        approve: approve
+      });
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to manage request for room ${roomId}:`, error);
       throw error;
     }
   },
@@ -57,7 +131,6 @@ export const chatService = {
   // Supports both 'room' (Group Rooms) and 'dm' (1-on-1 Direct Messages)
   getChatHistory: async (id, type = 'room') => {
     try {
-      // Sends ?type=dm or ?type=room to the Go backend
       const response = await apiClient.get(`/chats/${id}?type=${type}`);
       return response.data || [];
     } catch (error) {
@@ -76,7 +149,6 @@ export const chatService = {
     }
   },
 
-  // Added type parameter here as well, just in case you use HTTP fallback
   sendMessage: async (id, messageData, type = 'room') => {
     try {
       const response = await apiClient.post(`/chats/${id}?type=${type}`, messageData);
@@ -87,7 +159,6 @@ export const chatService = {
     }
   },
 
-  // NEW: Triggers the Go backend to mark all messages from this user as read
   markAsRead: async (targetId) => {
     try {
       const response = await apiClient.patch(`/chats/${targetId}/read`);

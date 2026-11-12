@@ -48,9 +48,21 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     if (error.response && error.response.status === 401) {
-      console.error('Session expired. Logging out.');
-      useAppStore.getState().logout();
-      window.location.href = '/login'; 
+      const requestPath = error.config?.url || '';
+      const isPublicAuthRequest = [
+        '/auth/login',
+        '/auth/login/verify',
+        '/auth/password-reset/request',
+        '/auth/password-reset/complete',
+        '/auth/register',
+        '/auth/google',
+        '/auth/apple',
+      ].some(path => requestPath === path || requestPath.startsWith(`${path}?`));
+      if (!isPublicAuthRequest) {
+        console.error('Session expired. Logging out.');
+        useAppStore.getState().logout();
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

@@ -149,6 +149,28 @@ select {
 	background-clip: content-box;
 }
 
+.afterdark-shell :is(button, input, textarea, select, [role='dialog']) {
+	border-radius: 0.9rem;
+}
+
+.afterdark-shell :is(div, section, article, aside)[class*='border-2'][class*='bg-'] {
+	border-radius: 1rem;
+}
+
+.afterdark-shell a[class*='border-l-4'] {
+	border-radius: 0 0.85rem 0.85rem 0;
+}
+
+.afterdark-shell button,
+.afterdark-shell a {
+	transition:
+		background-color 180ms ease,
+		border-color 180ms ease,
+		color 180ms ease,
+		box-shadow 180ms ease,
+		transform 180ms ease;
+}
+
 .theme-toggle {
 	position: fixed;
 	bottom: 1rem;
@@ -168,6 +190,38 @@ select {
 	backdrop-filter: blur(18px);
 	-webkit-backdrop-filter: blur(18px);
 	transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.language-toggle {
+	position: fixed;
+	bottom: 4.5rem;
+	right: 1rem;
+	z-index: 70;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 3rem;
+	height: 3rem;
+	padding: 0;
+	background: var(--glass);
+	color: var(--text-primary);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	box-shadow: var(--shadow-soft);
+	backdrop-filter: blur(18px);
+	-webkit-backdrop-filter: blur(18px);
+	transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.language-toggle:hover {
+	transform: translateY(-1px);
+	border-color: var(--border-strong);
+	box-shadow: var(--shadow-floating);
+}
+
+.language-toggle__icon {
+	width: 1rem;
+	height: 1rem;
 }
 
 .theme-toggle:hover {
@@ -280,4 +334,46 @@ body[data-theme] .outline-none:focus-visible {
 body[data-theme] ::selection {
 	background: var(--accent-soft);
 	color: var(--text-primary);
+}
+
+.afterdark-shell [class~='text-yellow-500'],
+.afterdark-shell [class~='text-yellow-400'],
+.afterdark-shell [class~='text-yellow-600'],
+.afterdark-shell [class*='text-yellow-500/'],
+.afterdark-shell [class*='text-yellow-400/'] {
+	color: var(--accent) !important;
+}
+
+.afterdark-shell [class~='bg-yellow-500'],
+.afterdark-shell [class~='bg-yellow-400'],
+.afterdark-shell [class*='bg-yellow-500/'],
+.afterdark-shell [class*='bg-yellow-400/'] {
+	background-color: var(--accent) !important;
+}
+
+.afterdark-shell [class*='bg-yellow-500/'],
+.afterdark-shell [class*='bg-yellow-400/'] {
+	background-color: var(--accent-soft) !important;
+}
+
+.afterdark-shell [class~='border-yellow-500'],
+.afterdark-shell [class~='border-yellow-400'],
+.afterdark-shell [class~='border-yellow-600'],
+.afterdark-shell [class*='border-yellow-500/'],
+.afterdark-shell [class*='border-yellow-400/'],
+.afterdark-shell [class*='border-yellow-600/'] {
+	border-color: var(--accent) !important;
+}
+
+.afterdark-shell [class*='hover:text-yellow-']:hover {
+	color: var(--accent-strong) !important;
+}
+
+.afterdark-shell [class*='hover:bg-yellow-']:hover {
+	background-color: var(--accent-strong) !important;
+}
+
+.afterdark-shell [class*='hover:border-yellow-']:hover,
+.afterdark-shell [class*='focus:border-yellow-']:focus {
+	border-color: var(--accent-strong) !important;
 }

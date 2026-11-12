@@ -5,6 +5,7 @@ import {
   UserCheck, ShieldBan, MessageSquareOff
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
 // STRUCTURED GUIDELINES DATA
@@ -64,6 +65,7 @@ const GUIDELINES_DATA = [
 // MAIN COMPONENT
 // ============================================================================
 export default function Guidelines() {
+  const { t } = useI18n();
   // --- STATE ---
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState('rule-1');
@@ -87,7 +89,7 @@ export default function Guidelines() {
   const handleReportSubmit = (e) => {
     e.preventDefault();
     setShowReportModal(false);
-    toast.success('REPORT SUBMITTED SECURELY.');
+    toast.success(t('reportSubmitted'));
   };
 
   // ============================================================================
@@ -107,10 +109,10 @@ export default function Guidelines() {
             </div>
             <div>
               <h1 className="text-xl md:text-2xl font-bold text-white tracking-widest uppercase mb-1">
-                Community Guidelines
+                {t('guidelines')}
               </h1>
               <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-                The rules that keep the factory safe, fun, and respectful.
+                {t('guidelinesSubtitle')}
               </p>
             </div>
           </div>
@@ -139,7 +141,7 @@ export default function Guidelines() {
             <div className="sticky top-0 space-y-6">
               
               <div className="bg-zinc-950 border-2 border-zinc-800 p-4">
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">Quick Links</h3>
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">{t('quickLinks')}</h3>
                 <nav className="space-y-2">
                   {GUIDELINES_DATA.map(rule => (
                     <button
@@ -161,7 +163,7 @@ export default function Guidelines() {
 
               <div className="bg-black border-2 border-red-500 p-4 text-center shadow-[4px_4px_0px_rgba(239,68,68,0.2)]">
                 <AlertOctagon className="w-8 h-8 text-red-500 mx-auto mb-3" />
-                <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-2">See a violation?</h3>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-2">{t('seeViolation')}</h3>
                 <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4 leading-relaxed font-bold">
                   Help us keep the community safe. Report bad behavior immediately.
                 </p>
@@ -182,7 +184,7 @@ export default function Guidelines() {
             <div className="p-4 bg-black border-2 border-red-500 mb-6 flex items-start gap-4">
               <AlertTriangle className="w-6 h-6 text-red-500 shrink-0" />
               <div>
-                <h3 className="text-red-500 font-bold mb-1 text-xs uppercase tracking-widest">Zero Tolerance Policy</h3>
+                <h3 className="text-red-500 font-bold mb-1 text-xs uppercase tracking-widest">{t('zeroTolerance')}</h3>
                 <p className="text-[10px] text-zinc-400 uppercase tracking-widest leading-relaxed font-bold">
                   Users caught violating these terms in public rooms or direct messages will have their accounts immediately terminated without a refund. We cooperate fully with law enforcement when required.
                 </p>
@@ -193,8 +195,8 @@ export default function Guidelines() {
             {filteredGuidelines.length === 0 ? (
               <div className="py-12 text-center border-2 border-dashed border-zinc-800 bg-zinc-950">
                 <Search className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-                <h3 className="text-sm font-bold text-white uppercase tracking-widest mb-1">NO POLICIES FOUND</h3>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">TRY ADJUSTING YOUR SEARCH TERMS.</p>
+                <h3 className="text-sm font-bold text-white uppercase tracking-widest mb-1">{t('noPolicies')}</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('adjustSearch')}</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -276,8 +278,8 @@ export default function Guidelines() {
               <CheckCircle2 className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-widest leading-tight">Community Pledge</h4>
-              <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">BY CONTINUING, YOU AGREE TO UPHOLD THESE STANDARDS.</p>
+              <h4 className="text-xs font-bold text-white uppercase tracking-widest leading-tight">{t('communityPledge')}</h4>
+              <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">{t('pledgeAgree')}</p>
             </div>
           </div>
           <button 

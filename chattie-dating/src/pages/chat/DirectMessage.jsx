@@ -23,6 +23,7 @@ import { chatService } from '../../api/chat.service';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useAppStore } from '../../store/useAppStore';
 import { apiClient } from '../../api/client';
+import { useI18n } from '../../i18n';
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
 
@@ -50,6 +51,7 @@ const FALLBACK_PARTNER = {
 // ============================================================================
 export default function DirectMessage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { userId } = useParams(); // DM Room ID or Target User ID
   
   // --- STORE & WEBSOCKET ---
@@ -325,10 +327,10 @@ export default function DirectMessage() {
                   {chatPartner.name}
                 </h2>
                 {isTyping ? (
-                  <p className="text-[9px] text-zinc-300 font-bold uppercase tracking-widest">TYPING...</p>
+                  <p className="text-[9px] text-zinc-300 font-bold uppercase tracking-widest">{t('typing')}</p>
                 ) : (
                   <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">
-                    {isConnected ? 'LIVE CONNECTION' : (chatPartner.status === 'online' ? 'Online' : 'Offline')}
+                    {isConnected ? t('liveConnection') : (chatPartner.status === 'online' ? t('online') : t('offline'))}
                   </p>
                 )}
               </div>
@@ -361,17 +363,17 @@ export default function DirectMessage() {
               {showOptions && (
                 <div className="absolute top-full right-0 mt-2 w-48 bg-zinc-950 border-2 border-zinc-700 rounded-none shadow-xl overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
                   <button onClick={() => { setShowDrawer(true); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
-                    <Info className="w-4 h-4" /> View Profile
+                    <Info className="w-4 h-4" /> {t('viewProfile')}
                   </button>
                   <button onClick={() => { toast('Notifications muted'); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
-                    <BellOff className="w-4 h-4" /> Mute Chat
+                    <BellOff className="w-4 h-4" /> {t('muteChat')}
                   </button>
                   <div className="h-0.5 bg-zinc-800 my-1" />
                   <button onClick={() => { toast.error('User Reported'); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4" /> Report User
+                    <ShieldAlert className="w-4 h-4" /> {t('reportUser')}
                   </button>
                   <button onClick={() => { toast.error('User Blocked'); navigate(-1); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2 border-none">
-                    <Ban className="w-4 h-4" /> Block
+                    <Ban className="w-4 h-4" /> {t('block')}
                   </button>
                 </div>
               )}
@@ -387,9 +389,9 @@ export default function DirectMessage() {
               <img src={chatPartner.avatar} alt={chatPartner.name} className="w-full h-full rounded-none object-cover grayscale" />
             </div>
             <h3 className="text-sm font-bold text-white mb-1 uppercase tracking-widest">{chatPartner.name}</h3>
-            <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-4">END TO END ENCRYPTED</p>
+            <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-4">{t('encrypted')}</p>
             <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-300 bg-zinc-950 border-2 border-zinc-800 px-4 py-1.5 rounded-none">
-              BEGIN SECURE TRANSMISSION
+              {t('secureTransmission')}
             </span>
           </div>
           
@@ -476,7 +478,7 @@ export default function DirectMessage() {
                   handleSend(e);
                 }
               }}
-              placeholder="Message..."
+              placeholder={t('typeMessage')}
               rows={1}
               className="flex-1 bg-black border-2 border-zinc-800 focus:border-white outline-none text-white text-[10px] md:text-xs uppercase tracking-widest py-3 px-4 placeholders:text-zinc-700 resize-none max-h-32 custom-scrollbar rounded-none leading-relaxed"
               style={{ minHeight: '44px' }}

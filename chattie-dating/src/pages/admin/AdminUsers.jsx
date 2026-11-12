@@ -7,7 +7,7 @@ import {
   RefreshCcw, ArrowUpRight, ArrowDownRight, UserCheck, KeyRound, Terminal, Loader2, Flag
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { authService } from '../../api/auth.service';
+import { adminService } from '../../api/admin.service';
 
 // ============================================================================
 // MAIN COMPONENT
@@ -39,8 +39,8 @@ export default function AdminUsers() {
     try {
       setIsLoading(true);
       const [directoryData, telemetryData] = await Promise.all([
-        authService.getClientDirectory(),
-        authService.getClientTelemetry()
+        adminService.getClientDirectory(),
+        adminService.getClientTelemetry()
       ]);
       
       setUsers(directoryData || []);
@@ -68,7 +68,7 @@ export default function AdminUsers() {
     const nextStatus = isBanned ? 'ACTIVE' : 'BANNED';
 
     try {
-      await authService.toggleClientBan(id);
+      await adminService.toggleClientBan(id);
       
       setUsers(prev => prev.map(u => {
         if (u.id === id) {
@@ -97,7 +97,7 @@ export default function AdminUsers() {
 
   const handleRevokeTier = async (id) => {
     try {
-      await authService.revokeClientTier(id);
+      await adminService.revokeClientTier(id);
       
       setUsers(prev => prev.map(u => u.id === id ? { ...u, tier: 'STANDARD' } : u));
       toast('Premium/VIP status revoked. Downgraded to Standard.');

@@ -14,7 +14,7 @@ export const discoveryService = {
   },
 
   // 2. Fetch grid browse profiles with advanced filters and sorting
-  getGridProfiles: async (filters = {}) => {
+  getGridProfiles: async (filters = {}, { signal } = {}) => {
     try {
       const response = await apiClient.get('/grid', {
         params: {
@@ -27,10 +27,15 @@ export const discoveryService = {
           q: filters.searchQuery,
           sort: filters.sortBy,
         },
+        signal,
       });
       return response.data; // Returns array of DiscoverProfile
     } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to load grid profiles');
+      if (error.code === 'ERR_CANCELED') throw error;
+      const requestError = new Error(error.response?.data?.message || error.response?.data?.error || 'Failed to load grid profiles');
+      requestError.status = error.response?.status;
+      requestError.code = error.response?.data?.error;
+      throw requestError;
     }
   },
 
