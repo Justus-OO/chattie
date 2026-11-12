@@ -38,6 +38,7 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	requestID := uuid.NewString()
 	if h.UploadService == nil {
 		http.Error(w, "Media storage is unavailable", http.StatusServiceUnavailable)
 		return
@@ -47,6 +48,54 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 512<<20)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "File upload too large or invalid", http.StatusBadRequest)
+		return
+	}
+
+	priceCents := int64(0)
+	if priceStr := r.FormValue("price_cents"); priceStr != "" {
+		parsed, err := strconv.ParseInt(priceStr, 10, 64)
+		if err != nil || parsed < 0 {
+			http.Error(w, "Invalid price", http.StatusBadRequest)
+			return
+		}
+		priceCents = parsed
+	}
+
+	accessType := r.FormValue("access_type")
+	if accessType == "" {
+		accessType = "free"
+	}
+	isExplicit := true
+	if explicitValue := r.FormValue("is_explicit"); explicitValue != "" {
+		parsed, err := strconv.ParseBool(explicitValue)
+		if err != nil {
+			http.Error(w, "Invalid explicit-content setting", http.StatusBadRequest)
+			return
+		}
+		isExplicit = parsed
+	}
+	switch accessType {
+	case "free", "subscriber", "ppv":
+	default:
+		http.Error(w, "Invalid access type", http.StatusBadRequest)
+		return
+	}
+	if accessType == "ppv" && priceCents < 5000 {
+		http.Error(w, "A valid price is required for PPV posts", http.StatusBadRequest)
+		return
+	}
+	if accessType != "ppv" {
+		priceCents = 0
+	}
+
+	activeCreator, err := h.Repo.IsActiveCreator(r.Context(), userID)
+	if err != nil {
+		log.Printf("[AFTERDARK MEDIA] Creator status lookup failed request=%s user=%s: %v", requestID, userID, err)
+		writeADMediaError(w, http.StatusInternalServerError, "Could not verify creator access. Check server logs if the problem persists.", requestID)
+		return
+	}
+	if !activeCreator {
+		writeADMediaError(w, http.StatusForbidden, "Your creator profile must be approved and active before publishing posts.", requestID)
 		return
 	}
 
@@ -69,7 +118,8 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	// 1. Upload to Private Storage
 	uploadURL, _, err := h.UploadService.SaveFile(file, header, "afterdark")
 	if err != nil {
-		http.Error(w, "Failed to upload media", http.StatusInternalServerError)
+		log.Printf("[AFTERDARK MEDIA] Upload failed request=%s user=%s: %v", requestID, userID, err)
+		writeADMediaError(w, http.StatusInternalServerError, "Media upload failed. Check server logs if the problem persists.", requestID)
 		return
 	}
 
@@ -85,61 +135,25 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:        time.Now(),
 	}
 
-	// 3. Dynamically parse the price from the frontend FormData
-	priceCents := int64(0)
-	if priceStr := r.FormValue("price_cents"); priceStr != "" {
-		parsed, err := strconv.ParseInt(priceStr, 10, 64)
-		if err != nil || parsed < 0 {
-			if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
-				log.Printf("[AFTERDARK MEDIA] Failed to clean up invalid post upload: %v", deleteErr)
-			}
-			http.Error(w, "Invalid price", http.StatusBadRequest)
-			return
-		}
-		priceCents = parsed
-	}
-
 	post := &models.ADPost{
 		ID:         uuid.New().String(),
 		CreatorID:  userID,
 		AssetID:    asset.ID,
 		Caption:    r.FormValue("caption"),
-		AccessType: r.FormValue("access_type"),
+		AccessType: accessType,
 		PriceCents: priceCents,
-		IsExplicit: true,
+		IsExplicit: isExplicit,
 		Status:     "published",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
 
-	if post.AccessType == "" {
-		post.AccessType = "free"
-	}
-	switch post.AccessType {
-	case "free", "subscriber", "ppv":
-	default:
-		if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
-			log.Printf("[AFTERDARK MEDIA] Failed to clean up invalid post upload: %v", deleteErr)
-		}
-		http.Error(w, "Invalid access type", http.StatusBadRequest)
-		return
-	}
-	if post.AccessType == "ppv" && post.PriceCents < 5000 {
-		if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
-			log.Printf("[AFTERDARK MEDIA] Failed to clean up invalid post upload: %v", deleteErr)
-		}
-		http.Error(w, "A valid price is required for PPV posts", http.StatusBadRequest)
-		return
-	}
-	if post.AccessType != "ppv" {
-		post.PriceCents = 0
-	}
-
 	if err := h.Repo.CreatePostWithAsset(r.Context(), asset, post); err != nil {
+		log.Printf("[AFTERDARK MEDIA] Database save failed request=%s user=%s asset=%s post=%s: %v", requestID, userID, asset.ID, post.ID, err)
 		if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
-			log.Printf("[AFTERDARK MEDIA] Failed to clean up uploaded post media: %v", deleteErr)
+			log.Printf("[AFTERDARK MEDIA] Upload cleanup failed request=%s asset=%s: %v", requestID, asset.ID, deleteErr)
 		}
-		http.Error(w, "Failed to create post", http.StatusInternalServerError)
+		writeADMediaError(w, http.StatusInternalServerError, "Could not save your post. Check server logs if the problem persists.", requestID)
 		return
 	}
 	post.MediaURL = asset.StorageKey
@@ -148,6 +162,15 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(post)
+}
+
+func writeADMediaError(w http.ResponseWriter, status int, message, requestID string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":      message,
+		"request_id": requestID,
+	})
 }
 
 // POST /api/afterdark/me/creator-profile/{kind}-upload
@@ -257,7 +280,7 @@ func (h *ADMediaHandler) GetPostMediaURL(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	const urlLifetime = time.Minute
+	const urlLifetime = 10 * time.Minute
 	mediaURL, err := h.UploadService.PresignGetFile(r.Context(), asset.StorageKey, urlLifetime)
 	if err != nil {
 		http.Error(w, "Could not provide post media", http.StatusBadGateway)

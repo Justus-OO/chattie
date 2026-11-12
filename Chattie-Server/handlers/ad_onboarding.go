@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
@@ -20,6 +23,24 @@ func NewADPerformerHandler(repo *repository.ADPerformerRepository) *ADPerformerH
 	return &ADPerformerHandler{Repo: repo}
 }
 
+func (h *ADPerformerHandler) GetMyApplication(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	application, err := h.Repo.GetApplicationByUserID(r.Context(), userID)
+	if err != nil {
+		log.Printf("[AFTER DARK ONBOARDING] Failed to fetch creator application for user %s: %v", userID, err)
+		http.Error(w, "Failed to fetch creator application", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"application": application})
+}
+
 func (h *ADPerformerHandler) SubmitApplication(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
@@ -28,33 +49,53 @@ func (h *ADPerformerHandler) SubmitApplication(w http.ResponseWriter, r *http.Re
 	}
 
 	var req struct {
-		VerificationRef string `json:"verification_ref"`
-		PayoutMethodID  string `json:"payout_method_id"`
-		PolicyVersion   string `json:"policy_version"`
+		CreatorAlias  string `json:"alias"`
+		PolicyVersion string `json:"policy_version"`
+		Consents      struct {
+			Age              bool `json:"age"`
+			ContentOwnership bool `json:"content_ownership"`
+			RevenueSplit     bool `json:"revenue_split"`
+			ZeroTolerance    bool `json:"zero_tolerance"`
+		} `json:"consents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	app := &models.PerformerApplication{
-		ID:              uuid.New().String(),
-		UserID:          userID,
-		Status:          "pending",
-		VerificationRef: req.VerificationRef,
-		PayoutMethodID:  req.PayoutMethodID,
-		PolicyVersion:   req.PolicyVersion,
-		SubmittedAt:     time.Now(),
+	req.CreatorAlias = strings.TrimSpace(req.CreatorAlias)
+	req.PolicyVersion = strings.TrimSpace(req.PolicyVersion)
+	if req.CreatorAlias == "" || utf8.RuneCountInString(req.CreatorAlias) > 100 {
+		http.Error(w, "Creator name is required and must be 100 characters or fewer", http.StatusBadRequest)
+		return
+	}
+	if req.PolicyVersion == "" || utf8.RuneCountInString(req.PolicyVersion) > 50 {
+		http.Error(w, "A valid creator policy version is required", http.StatusBadRequest)
+		return
+	}
+	if !req.Consents.Age || !req.Consents.ContentOwnership || !req.Consents.RevenueSplit || !req.Consents.ZeroTolerance {
+		http.Error(w, "All creator eligibility and policy agreements must be accepted", http.StatusBadRequest)
+		return
 	}
 
-	consents := []models.PerformerConsent{
-		{
+	submittedAt := time.Now()
+	app := &models.PerformerApplication{
+		ID:            uuid.New().String(),
+		UserID:        userID,
+		CreatorAlias:  req.CreatorAlias,
+		Status:        "pending",
+		PolicyVersion: req.PolicyVersion,
+		SubmittedAt:   submittedAt,
+	}
+
+	consents := make([]models.PerformerConsent, 0, 4)
+	for _, consentType := range []string{"age_attestation", "content_ownership", "revenue_split", "zero_tolerance"} {
+		consents = append(consents, models.PerformerConsent{
 			ID:            uuid.New().String(),
 			UserID:        userID,
-			ConsentType:   "explicit_content_creation",
+			ConsentType:   consentType,
 			PolicyVersion: req.PolicyVersion,
-			AcceptedAt:    time.Now(),
-		},
+			AcceptedAt:    submittedAt,
+		})
 	}
 
 	if err := h.Repo.SubmitApplication(r.Context(), app, consents); err != nil {

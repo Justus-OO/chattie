@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io" // FIX: Added missing io package
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -87,6 +88,18 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidPayload", "Invalid payload")})
 		return
+	}
+	if payload.Privacy["incognito"] {
+		allowed, err := h.Repo.CanUseIncognito(r.Context(), userID)
+		if err != nil {
+			log.Printf("[SETTINGS] Failed to verify Incognito entitlement for %s: %v", userID, err)
+			http.Error(w, `{"error":"Could not verify Chattie Gold access"}`, http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
+			http.Error(w, `{"error":"Chattie Gold is required for Incognito Mode"}`, http.StatusPaymentRequired)
+			return
+		}
 	}
 
 	if err := h.Repo.UpdateSettings(userID, payload); err != nil {
@@ -291,6 +304,7 @@ func (h *SettingsHandler) RequestDataDownload(w http.ResponseWriter, r *http.Req
 
 	go func(uid, jID string) {
 		log.Printf("[DATA EXPORT] Processing background worker for Job %s (User: %s)", jID, uid)
+		detachedCtx := context.WithoutCancel(r.Context())
 
 		user, err := h.Repo.GetUserByID(uid)
 		if err != nil || user.Email == "" {
@@ -330,10 +344,12 @@ func (h *SettingsHandler) RequestDataDownload(w http.ResponseWriter, r *http.Req
 		}
 
 		filename := fmt.Sprintf("chattie_data_dossier_%s.pdf", uid[:8])
-		h.Email.SendDataDossier(r.Context(), user.Email, pdfBytes, filename)
+		if err := h.Email.SendDataDossier(detachedCtx, user.Email, pdfBytes, filename, user.Username); err != nil {
+			log.Printf("[DATA EXPORT ERROR] Failed to queue dossier email for %s: %v", uid, err)
+			return
+		}
 		log.Printf("[DATA EXPORT] Successfully processed Job %s and emailed %s", jID, filename)
 
-		detachedCtx := context.WithoutCancel(r.Context())
 		h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 			RecipientID: uid,
 			WSEventType: "SYSTEM_ALERT",
@@ -354,10 +370,29 @@ func (h *SettingsHandler) TerminateOtherSessions(w http.ResponseWriter, r *http.
 		return
 	}
 
-	err := h.Repo.IncrementTokenVersion(userID)
+	currentID, _ := r.Context().Value(middlewares.SessionIDKey).(string)
+	ipAddress := services.ExtractClientIP(r)
+	if net.ParseIP(ipAddress) == nil {
+		ipAddress = ""
+	}
+	version, sessionID, err := h.Repo.TerminateOtherAuthSessions(
+		r.Context(), userID, currentID, r.UserAgent(), ipAddress,
+	)
 	if err != nil {
+		log.Printf("[SETTINGS] Failed to terminate other sessions for %s: %v", userID, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedTerminateSessions", "Failed to terminate sessions")})
+		return
+	}
+	role, _ := r.Context().Value(middlewares.RoleKey).(string)
+	if role == "" {
+		role = "client"
+	}
+	token, err := middlewares.GenerateAuthTokenWithSession(userID, role, version, sessionID)
+	if err != nil {
+		log.Printf("[SETTINGS] Failed to refresh current session for %s: %v", userID, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to refresh current session"})
 		return
 	}
 
@@ -373,7 +408,56 @@ func (h *SettingsHandler) TerminateOtherSessions(w http.ResponseWriter, r *http.
 	})
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgOtherDevicesLoggedOut", "All other devices have been logged out.")})
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": localized(r.Context(), "MsgOtherDevicesLoggedOut", "All other devices have been logged out."),
+		"token":   token,
+	})
+}
+
+func (h *SettingsHandler) GetActiveSessions(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	currentID, _ := r.Context().Value(middlewares.SessionIDKey).(string)
+	sessions, err := h.Repo.ListAuthSessions(r.Context(), userID, currentID)
+	if err != nil {
+		log.Printf("[SETTINGS] Failed to list sessions for %s: %v", userID, err)
+		http.Error(w, "Could not load active sessions", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sessions)
+}
+
+func (h *SettingsHandler) RevokeActiveSession(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	sessionID := chi.URLParam(r, "sessionId")
+	if sessionID == "" {
+		http.Error(w, "Session ID is required", http.StatusBadRequest)
+		return
+	}
+	currentID, _ := r.Context().Value(middlewares.SessionIDKey).(string)
+	if sessionID == currentID {
+		http.Error(w, "Use sign out to end the current session", http.StatusBadRequest)
+		return
+	}
+	revoked, err := h.Repo.RevokeAuthSession(r.Context(), userID, sessionID)
+	if err != nil {
+		log.Printf("[SETTINGS] Failed to revoke session for %s: %v", userID, err)
+		http.Error(w, "Could not revoke session", http.StatusInternalServerError)
+		return
+	}
+	if !revoked {
+		http.Error(w, "Session was not found or is already revoked", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ============================================================================
@@ -504,7 +588,11 @@ func (h *SettingsHandler) VerifyIdentityKYC(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer idCardFile.Close()
-	idCardBytes, _ := io.ReadAll(idCardFile)
+	idCardBytes, err := io.ReadAll(idCardFile)
+	if err != nil {
+		http.Error(w, "Could not read government ID image", http.StatusBadRequest)
+		return
+	}
 
 	selfieFile, selfieHeader, err := r.FormFile("selfie")
 	if err != nil {
@@ -513,7 +601,11 @@ func (h *SettingsHandler) VerifyIdentityKYC(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer selfieFile.Close()
-	liveSelfieBytes, _ := io.ReadAll(selfieFile)
+	liveSelfieBytes, err := io.ReadAll(selfieFile)
+	if err != nil {
+		http.Error(w, "Could not read selfie image", http.StatusBadRequest)
+		return
+	}
 
 	user, err := h.Repo.GetUserByID(userID)
 	if err != nil || user.Username == "" {
@@ -550,16 +642,36 @@ func (h *SettingsHandler) VerifyIdentityKYC(w http.ResponseWriter, r *http.Reque
 	if failureReason != "" {
 		log.Printf("[KYC ROUTED TO MANUAL] User %s automated fail: %s", userID, failureReason)
 
-		// Reset file pointers to the beginning so we can upload them to B2 Storage
-		idCardFile.Seek(0, io.SeekStart)
-		selfieFile.Seek(0, io.SeekStart)
+		if _, err := idCardFile.Seek(0, io.SeekStart); err != nil {
+			log.Printf("[KYC MANUAL REVIEW ERROR] Could not rewind ID image for user %s: %v", userID, err)
+			http.Error(w, "Could not prepare documents for manual review", http.StatusInternalServerError)
+			return
+		}
+		if _, err := selfieFile.Seek(0, io.SeekStart); err != nil {
+			log.Printf("[KYC MANUAL REVIEW ERROR] Could not rewind selfie for user %s: %v", userID, err)
+			http.Error(w, "Could not prepare documents for manual review", http.StatusInternalServerError)
+			return
+		}
 
-		// Upload to your secure vault (ignoring upload errors here to ensure the user gets a response)
-		idCardURL, _, _ := h.Storage.SaveFile(idCardFile, idCardHeader, "kyc_reviews")
-		selfieURL, _, _ := h.Storage.SaveFile(selfieFile, selfieHeader, "kyc_reviews")
+		idCardURL, _, err := h.Storage.SaveFile(idCardFile, idCardHeader, "kyc_reviews")
+		if err != nil {
+			log.Printf("[KYC MANUAL REVIEW ERROR] Could not store ID image for user %s: %v", userID, err)
+			http.Error(w, "Secure document storage is unavailable; manual review could not be submitted", http.StatusServiceUnavailable)
+			return
+		}
+		selfieURL, _, err := h.Storage.SaveFile(selfieFile, selfieHeader, "kyc_reviews")
+		if err != nil {
+			log.Printf("[KYC MANUAL REVIEW ERROR] Could not store selfie for user %s: %v", userID, err)
+			http.Error(w, "Secure document storage is unavailable; manual review could not be submitted", http.StatusServiceUnavailable)
+			return
+		}
 
 		// Log to database for Admin Queue
-		h.Repo.SubmitForManualReview(userID, idCardURL, selfieURL, failureReason)
+		if err := h.Repo.SubmitForManualReview(userID, idCardURL, selfieURL, failureReason); err != nil {
+			log.Printf("[KYC MANUAL REVIEW ERROR] Could not queue manual review for user %s: %v", userID, err)
+			http.Error(w, "Could not queue manual review; please try again later", http.StatusInternalServerError)
+			return
+		}
 
 		w.WriteHeader(http.StatusOK) // Return 200 OK so frontend doesn't throw a red error
 		json.NewEncoder(w).Encode(map[string]string{

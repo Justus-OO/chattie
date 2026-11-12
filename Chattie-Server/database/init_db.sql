@@ -1,142 +1,73 @@
--- =====================================================================
--- MOCK DATA POPULATION SCRIPT FOR AFTER DARK MODULE
--- =====================================================================
+-- Chattie database bootstrap for a new PostgreSQL database.
+-- Do not use this fresh-install script to upgrade a populated production database.
+BEGIN;
 
--- THE USERS (Already exist in your DB, mapped below):
--- Creator: 744447e0-c401-4348-b02a-785cb5b501a0 (melisa)
--- Viewer 1: 202c1da3-3e77-4047-9914-164c1e31ff4a (jyu)
--- Viewer 2: 6a65db62-abb2-4506-af3b-20291db99272 (havar831)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- =====================================================================
--- 1. PROFILES & ONBOARDING
--- =====================================================================
+-- Base table must exist before After Dark and core foreign keys are declared.
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'client' CHECK (role IN ('client', 'model', 'admin', 'persona')),
+    status VARCHAR(20) NOT NULL DEFAULT 'onboarding' CHECK (status IN ('onboarding', 'active', 'suspended', 'banned', 'flagged', 'ONLINE', 'OFFLINE')),
+    reset_token VARCHAR(255),
+    reset_token_expires_at TIMESTAMP WITH TIME ZONE,
+    provider VARCHAR(30) NOT NULL DEFAULT 'local',
+    token_version INTEGER NOT NULL DEFAULT 1,
+    last_active TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
--- Auto-provisioned viewer profiles for all users
-INSERT INTO ad_viewer_profiles (user_id, alias, explicit_consent_at, age_verified_at) VALUES
-                                                                                          ('744447e0-c401-4348-b02a-785cb5b501a0', 'User-MelisaAD', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-                                                                                          ('202c1da3-3e77-4047-9914-164c1e31ff4a', 'User-Jyu', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-                                                                                          ('6a65db62-abb2-4506-af3b-20291db99272', 'User-Havar', NULL, NULL)
-ON CONFLICT (user_id) DO NOTHING;
+-- These foundational After Dark tables are declared before dependent tables.
+CREATE TABLE IF NOT EXISTS ad_conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
--- Creator Onboarding (Application & Consent for Melisa)
-INSERT INTO performer_applications (id, user_id, status, verification_ref, payout_method_id, policy_version) VALUES
-    ('aaaa1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0', 'approved', 'KYC-REF-9921', 'MPESA-001', 'v1.0')
-ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS ad_assets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    storage_key TEXT NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    status VARCHAR(20) DEFAULT 'processing' CHECK (status IN ('processing', 'ready', 'rejected', 'deleted')),
+    moderation_status VARCHAR(20) DEFAULT 'pending' CHECK (moderation_status IN ('pending', 'approved', 'flagged')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-INSERT INTO performer_consents (user_id, consent_type, policy_version) VALUES
-    ('744447e0-c401-4348-b02a-785cb5b501a0', 'explicit_content_creation', 'v1.0');
+CREATE TABLE IF NOT EXISTS ad_posts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    asset_id UUID NOT NULL REFERENCES ad_assets(id) ON DELETE CASCADE,
+    caption TEXT,
+    access_type VARCHAR(20) DEFAULT 'free' CHECK (access_type IN ('free', 'subscriber', 'ppv')),
+    price_cents BIGINT DEFAULT 0,
+    is_explicit BOOLEAN DEFAULT TRUE,
+    status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'processing', 'published', 'scheduled', 'rejected', 'deleted')),
+    publish_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
--- Creator Profile (Melisa becomes an active Creator)
-INSERT INTO performer_profiles (user_id, display_name, username, bio, website, location, status, dm_control) VALUES
-    ('744447e0-c401-4348-b02a-785cb5b501a0', 'Melisa Nights', 'melisanights', 'Exclusive content and behind the scenes.', 'https://linktr.ee/melisa', 'Nairobi, KE', 'active', 'subscribers')
-ON CONFLICT (user_id) DO NOTHING;
+CREATE INDEX IF NOT EXISTS idx_ad_assets_owner ON ad_assets(owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_posts_creator ON ad_posts(creator_id, status, created_at DESC);
 
-
--- =====================================================================
--- 2. ASSETS & POSTS
--- =====================================================================
-
--- Uploaded Media Assets (1 Free Image, 1 PPV Video)
-INSERT INTO ad_assets (id, owner_id, storage_key, mime_type, size_bytes, status, moderation_status) VALUES
-                                                                                                        ('bbbb1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0', 'afterdark/melisa/free_image.jpg', 'image/jpeg', 2048000, 'ready', 'approved'),
-                                                                                                        ('bbbb2222-2222-2222-2222-222222222222', '744447e0-c401-4348-b02a-785cb5b501a0', 'afterdark/melisa/ppv_video.mp4', 'video/mp4', 45000000, 'ready', 'approved')
-ON CONFLICT (id) DO NOTHING;
-
--- Published Posts
-INSERT INTO ad_posts (id, creator_id, asset_id, caption, access_type, price_cents, status) VALUES
--- Free Teaser Post
-('cccc1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0', 'bbbb1111-1111-1111-1111-111111111111', 'Welcome to my vault! 🖤', 'free', 0, 'published'),
--- PPV Locked Video (Costs KES 500 = 50000 cents)
-('cccc2222-2222-2222-2222-222222222222', '744447e0-c401-4348-b02a-785cb5b501a0', 'bbbb2222-2222-2222-2222-222222222222', 'Exclusive Friday night set 🥂', 'ppv', 50000, 'published')
-ON CONFLICT (id) DO NOTHING;
-
-
--- =====================================================================
--- 3. WALLETS, LEDGERS & ENTITLEMENTS
--- =====================================================================
-
--- Give Viewer 1 and Viewer 2 some starting balance (KES 1000 each)
-INSERT INTO ad_wallets (user_id, available_balance_cents, pending_balance_cents) VALUES
-                                                                                     ('744447e0-c401-4348-b02a-785cb5b501a0', 40000, 0), -- Creator earned 400 (80% of 500 PPV)
-                                                                                     ('202c1da3-3e77-4047-9914-164c1e31ff4a', 50000, 0), -- Viewer 1 spent 500 on PPV, has 500 left
-                                                                                     ('6a65db62-abb2-4506-af3b-20291db99272', 100000, 0)  -- Viewer 2 has full 1000 balance
-ON CONFLICT (user_id) DO UPDATE SET
-                                    available_balance_cents = EXCLUDED.available_balance_cents,
-                                    pending_balance_cents = EXCLUDED.pending_balance_cents;
-
--- Ledger History: Deposits and the PPV Purchase
-INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description) VALUES
--- Viewer 1 Top Up
-('202c1da3-3e77-4047-9914-164c1e31ff4a', 100000, 'deposit', 'MPESA-TXN-001', 'M-Pesa Deposit'),
--- Viewer 2 Top Up
-('6a65db62-abb2-4506-af3b-20291db99272', 100000, 'deposit', 'MPESA-TXN-002', 'M-Pesa Deposit'),
--- Viewer 1 Buys PPV
-('202c1da3-3e77-4047-9914-164c1e31ff4a', -50000, 'ppv_purchase', 'cccc2222-2222-2222-2222-222222222222', 'Unlocked PPV Post'),
--- Creator Earns from PPV (Assuming 80% payout = 40000 cents)
-('744447e0-c401-4348-b02a-785cb5b501a0', 40000, 'ppv_earning', 'cccc2222-2222-2222-2222-222222222222', 'Earning from PPV Post');
-
--- Unlock Entitlement for Viewer 1 (They can now see the PPV video)
-INSERT INTO ad_post_entitlements (user_id, post_id, payment_ref) VALUES
-    ('202c1da3-3e77-4047-9914-164c1e31ff4a', 'cccc2222-2222-2222-2222-222222222222', 'LEDGER-REF-AUTO')
-ON CONFLICT DO NOTHING;
-
--- Subscription: Viewer 2 subscribes to Creator 1 for 30 days
-INSERT INTO ad_subscriptions (subscriber_id, creator_id, status, current_period_end) VALUES
-    ('6a65db62-abb2-4506-af3b-20291db99272', '744447e0-c401-4348-b02a-785cb5b501a0', 'active', CURRENT_TIMESTAMP + INTERVAL '30 days')
-ON CONFLICT DO NOTHING;
-
-
--- =====================================================================
--- 4. INTERACTIONS (LIKES & COMMENTS)
--- =====================================================================
-
--- Viewer 1 and Viewer 2 like the Free Teaser Post
-INSERT INTO ad_post_likes (user_id, post_id) VALUES
-                                                 ('202c1da3-3e77-4047-9914-164c1e31ff4a', 'cccc1111-1111-1111-1111-111111111111'),
-                                                 ('6a65db62-abb2-4506-af3b-20291db99272', 'cccc1111-1111-1111-1111-111111111111')
-ON CONFLICT DO NOTHING;
-
--- Viewer 1 comments on the PPV Post they unlocked
-INSERT INTO ad_post_comments (user_id, post_id, content) VALUES
-    ('202c1da3-3e77-4047-9914-164c1e31ff4a', 'cccc2222-2222-2222-2222-222222222222', 'Worth every penny! 🔥');
-
-
--- =====================================================================
--- 5. PRIVATE MESSAGES (DMs)
--- =====================================================================
-
--- Create a thread between Creator 1 and Viewer 2 (Subscriber)
-INSERT INTO ad_conversations (id) VALUES ('dddd1111-1111-1111-1111-111111111111')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO ad_conversation_participants (conversation_id, user_id) VALUES
-                                                                        ('dddd1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0'),
-                                                                        ('dddd1111-1111-1111-1111-111111111111', '6a65db62-abb2-4506-af3b-20291db99272')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO ad_messages (conversation_id, sender_id, content, is_read) VALUES
-                                                                           ('dddd1111-1111-1111-1111-111111111111', '6a65db62-abb2-4506-af3b-20291db99272', 'Hey! Just subscribed, love your content.', TRUE),
-                                                                           ('dddd1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0', 'Thank you! Let me know if you want custom requests.', FALSE);
-
-
--- =====================================================================
--- 6. PENDING DEPOSITS & WITHDRAWALS
--- =====================================================================
-
--- A pending STK Push that Viewer 2 hasn't entered their PIN for yet
-INSERT INTO ad_deposit_intents (user_id, amount_cents, provider, status) VALUES
-    ('6a65db62-abb2-4506-af3b-20291db99272', 200000, 'mpesa', 'pending');
-
--- Creator requests a withdrawal of KES 300 (30000 cents)
-INSERT INTO ad_withdrawals (user_id, amount_cents, payout_method_id, status) VALUES
-    ('744447e0-c401-4348-b02a-785cb5b501a0', 30000, 'MPESA-001', 'processing');
-
--- Adjust Creator Wallet to move 30000 to "pending"
-UPDATE ad_wallets
-SET available_balance_cents = 10000, pending_balance_cents = 30000
-WHERE user_id = '744447e0-c401-4348-b02a-785cb5b501a0';
-
-
+CREATE TABLE IF NOT EXISTS ad_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reporter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_type VARCHAR(50) NOT NULL CHECK (target_type IN ('creator', 'post', 'message', 'live_session', 'comment')),
+    target_id UUID NOT NULL,
+    reason VARCHAR(100) NOT NULL,
+    details TEXT,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'resolved', 'dismissed')),
+    reviewer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
 -- =====================================================================
 -- 20. AFTER DARK (AD) AUXILIARY: FOLLOWS, PAYOUTS & LINKS
@@ -154,9 +85,10 @@ CREATE TABLE IF NOT EXISTS ad_follows (
 CREATE TABLE IF NOT EXISTS ad_payout_methods (
                                                  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                                 provider VARCHAR(50) NOT NULL, -- e.g., 'mpesa', 'bank_transfer'
+                                                 provider VARCHAR(50) NOT NULL,
                                                  account_number VARCHAR(255) NOT NULL, -- Must be encrypted in a real production env
                                                  account_name VARCHAR(255),
+                                                 bank_code TEXT NOT NULL DEFAULT '',
                                                  is_default BOOLEAN DEFAULT FALSE,
                                                  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -173,24 +105,6 @@ CREATE TABLE IF NOT EXISTS ad_share_links (
 
 
 
-
--- Allow 'comment' as a valid report target
-ALTER TABLE ad_reports DROP CONSTRAINT IF EXISTS ad_reports_target_type_check;
-ALTER TABLE ad_reports ADD CONSTRAINT ad_reports_target_type_check
-    CHECK (target_type IN ('creator', 'post', 'message', 'live_session', 'comment'));
-
--- Tracks read receipts for conversations
-CREATE TABLE IF NOT EXISTS ad_conversation_reads (
-                                                     conversation_id UUID REFERENCES ad_conversations(id) ON DELETE CASCADE,
-                                                     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                                                     last_read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                                     PRIMARY KEY (conversation_id, user_id)
-);
-
--- Allow 'comment' as a valid report target
-ALTER TABLE ad_reports DROP CONSTRAINT IF EXISTS ad_reports_target_type_check;
-ALTER TABLE ad_reports ADD CONSTRAINT ad_reports_target_type_check
-    CHECK (target_type IN ('creator', 'post', 'message', 'live_session', 'comment'));
 
 -- Tracks read receipts for conversations
 CREATE TABLE IF NOT EXISTS ad_conversation_reads (
@@ -212,20 +126,13 @@ CREATE TABLE IF NOT EXISTS ad_creator_settings (
                                                    blocked_regions JSONB DEFAULT '[]'::jsonb, -- Store list of blocked country codes/cities
                                                    show_explicit_content BOOLEAN NOT NULL DEFAULT FALSE,
                                                    discoverable BOOLEAN NOT NULL DEFAULT TRUE,
-                                                   notification_email JSONB NOT NULL DEFAULT '{"subs":true,"tips":true,"messages":false,"marketing":false}'::jsonb,
+                                                   notification_email JSONB NOT NULL DEFAULT '{"subs":true,"tips":true,"sales":true,"likes":false,"messages":false,"marketing":false}'::jsonb,
                                                    notification_push JSONB NOT NULL DEFAULT '{"subs":true,"tips":true,"messages":true,"mentions":true}'::jsonb,
                                                    default_ppv_cents BIGINT NOT NULL DEFAULT 0,
                                                    auto_withdraw BOOLEAN NOT NULL DEFAULT FALSE,
                                                    withdraw_threshold_cents BIGINT NOT NULL DEFAULT 0,
                                                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-ALTER TABLE ad_creator_settings ADD COLUMN IF NOT EXISTS show_explicit_content BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE ad_creator_settings ADD COLUMN IF NOT EXISTS discoverable BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE ad_creator_settings ADD COLUMN IF NOT EXISTS notification_email JSONB NOT NULL DEFAULT '{"subs":true,"tips":true,"messages":false,"marketing":false}'::jsonb;
-ALTER TABLE ad_creator_settings ADD COLUMN IF NOT EXISTS notification_push JSONB NOT NULL DEFAULT '{"subs":true,"tips":true,"messages":true,"mentions":true}'::jsonb;
-ALTER TABLE ad_creator_settings ADD COLUMN IF NOT EXISTS default_ppv_cents BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE ad_creator_settings ADD COLUMN IF NOT EXISTS auto_withdraw BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE ad_creator_settings ADD COLUMN IF NOT EXISTS withdraw_threshold_cents BIGINT NOT NULL DEFAULT 0;
 
 
 -- =====================================================================
@@ -242,7 +149,7 @@ CREATE TABLE IF NOT EXISTS ad_live_sessions (
                                                 ended_at TIMESTAMP WITH TIME ZONE
 );
 
--- Tracks one-time purchases scoped exactly to one specific session (Invariant #5)
+-- Tracks one-time purchases scoped exactly to one specific session.
 CREATE TABLE IF NOT EXISTS ad_live_entitlements (
                                                     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                                                     session_id UUID NOT NULL REFERENCES ad_live_sessions(id) ON DELETE CASCADE,
@@ -261,7 +168,6 @@ CREATE TABLE IF NOT EXISTS ad_live_stage_requests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ad_live_sessions_creator ON ad_live_sessions(creator_id, status);
-select * from users;
 
 -- =====================================================================
 -- 17. AFTER DARK (AD) DEPOSITS & WITHDRAWALS
@@ -278,6 +184,29 @@ CREATE TABLE IF NOT EXISTS ad_deposit_intents (
                                                   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS ad_payment_intents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    payment_type VARCHAR(30) NOT NULL CHECK (payment_type IN ('deposit', 'subscription', 'ppv', 'tip', 'live_tip', 'live_pass')),
+    target_id TEXT,
+    creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+    currency VARCHAR(3) NOT NULL DEFAULT 'KES',
+    provider VARCHAR(20) NOT NULL CHECK (provider IN ('paystack', 'mpesa')),
+    provider_session_id TEXT,
+    merchant_request_id TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
+    message TEXT NOT NULL DEFAULT '',
+    receipt_number TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ad_payment_provider_session_idx
+    ON ad_payment_intents (provider, provider_session_id)
+    WHERE provider_session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ad_payment_user_status_idx
+    ON ad_payment_intents (user_id, status, created_at DESC);
+
 -- Tracks creator withdrawal requests and reserved funds
 CREATE TABLE IF NOT EXISTS ad_withdrawals (
                                               id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -286,11 +215,27 @@ CREATE TABLE IF NOT EXISTS ad_withdrawals (
                                               payout_method_id VARCHAR(255) NOT NULL,
                                               status VARCHAR(20) DEFAULT 'requested' CHECK (status IN ('requested', 'processing', 'paid', 'failed', 'reversed')),
                                               failure_reason TEXT,
+                                              provider VARCHAR(30) NOT NULL DEFAULT '',
+                                              provider_reference TEXT NOT NULL DEFAULT '',
+                                              provider_conversation_id TEXT NOT NULL DEFAULT '',
                                               created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                               updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_ad_withdrawals_user ON ad_withdrawals(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_withdrawals_provider_reference
+    ON ad_withdrawals(provider, provider_reference) WHERE provider_reference <> '';
+
+CREATE TABLE IF NOT EXISTS ad_earnings_clearances (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    admin_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+    reason TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ad_earnings_clearances_user
+    ON ad_earnings_clearances(user_id, created_at DESC);
 
 
 
@@ -298,13 +243,6 @@ CREATE INDEX IF NOT EXISTS idx_ad_withdrawals_user ON ad_withdrawals(user_id, cr
 -- =====================================================================
 -- 16. AFTER DARK (AD) PRIVATE CHATS
 -- =====================================================================
-
--- Stable conversation thread
-CREATE TABLE IF NOT EXISTS ad_conversations (
-                                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
 
 -- Links users to conversations safely
 CREATE TABLE IF NOT EXISTS ad_conversation_participants (
@@ -358,19 +296,6 @@ CREATE TABLE IF NOT EXISTS ad_post_comments (
 );
 
 -- Moderation Reports
-CREATE TABLE IF NOT EXISTS ad_reports (
-                                          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                          reporter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                          target_type VARCHAR(50) NOT NULL CHECK (target_type IN ('creator', 'post', 'message', 'live_session')),
-                                          target_id UUID NOT NULL,
-                                          reason VARCHAR(100) NOT NULL,
-                                          details TEXT,
-                                          status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'reviewed', 'resolved', 'dismissed')),
-                                          reviewer_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                                          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE INDEX IF NOT EXISTS idx_ad_post_comments_post ON ad_post_comments(post_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_ad_reports_target ON ad_reports(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_ad_reports_status ON ad_reports(status);
@@ -388,7 +313,7 @@ CREATE TABLE IF NOT EXISTS ad_ledger_entries (
                                                  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                                                  amount_cents BIGINT NOT NULL, -- Positive for deposits/earnings, Negative for purchases/withdrawals
-                                                 transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN ('deposit', 'withdrawal', 'ppv_purchase', 'ppv_earning', 'subscription_purchase', 'subscription_earning', 'tip_sent', 'tip_received')),
+                                                 transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN ('deposit', 'withdrawal', 'withdrawal_reversal', 'ppv_purchase', 'ppv_earning', 'subscription_purchase', 'subscription_earning', 'tip_sent', 'tip_received', 'chat_unlock_purchase', 'chat_unlock_earning')),
                                                  reference_id VARCHAR(255), -- e.g., Provider Payment ID or Post ID
                                                  description TEXT,
                                                  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -422,83 +347,17 @@ CREATE TABLE IF NOT EXISTS ad_subscriptions (
                                                 UNIQUE (subscriber_id, creator_id)
 );
 
+-- A single wallet purchase grants ongoing DM access to a creator's chat.
+CREATE TABLE IF NOT EXISTS ad_chat_entitlements (
+                                                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                                    creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                                    payment_ref VARCHAR(255) NOT NULL,
+                                                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                                    PRIMARY KEY (user_id, creator_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_ad_ledger_user ON ad_ledger_entries(user_id, created_at DESC);
 
-
-
-
-
--- =====================================================================
--- 13. AFTER DARK (AD) MEDIA & POSTS
--- =====================================================================
-
--- Represents raw uploaded files in a private storage bucket
-CREATE TABLE IF NOT EXISTS ad_assets (
-                                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                         owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                         storage_key TEXT NOT NULL, -- Private B2/S3 Storage key
-                                         mime_type VARCHAR(100) NOT NULL,
-                                         size_bytes BIGINT NOT NULL,
-                                         status VARCHAR(20) DEFAULT 'ready' CHECK (status IN ('processing', 'ready', 'rejected', 'deleted')),
-                                         moderation_status VARCHAR(20) DEFAULT 'pending' CHECK (moderation_status IN ('pending', 'approved', 'flagged')),
-                                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Represents the content exposed to the feed/profile
-CREATE TABLE IF NOT EXISTS ad_posts (
-                                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                        creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                        asset_id UUID NOT NULL REFERENCES ad_assets(id) ON DELETE CASCADE,
-                                        caption TEXT,
-                                        access_type VARCHAR(20) DEFAULT 'free' CHECK (access_type IN ('free', 'subscriber', 'ppv')),
-                                        price_cents BIGINT DEFAULT 0, -- Stored in minor units (e.g., KES cents)
-                                        is_explicit BOOLEAN DEFAULT TRUE,
-                                        status VARCHAR(20) DEFAULT 'published' CHECK (status IN ('draft', 'processing', 'published', 'scheduled', 'rejected', 'deleted')),
-                                        publish_at TIMESTAMP WITH TIME ZONE,
-                                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_ad_assets_owner ON ad_assets(owner_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ad_posts_creator ON ad_posts(creator_id, status, created_at DESC);
-
-
-
-
-
--- =====================================================================
--- 13. AFTER DARK (AD) MEDIA & POSTS
--- =====================================================================
-
--- Represents raw uploaded files in a private storage bucket
-CREATE TABLE IF NOT EXISTS ad_assets (
-                                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                         owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                         storage_key TEXT NOT NULL, -- Private S3/Cloud Storage key
-                                         mime_type VARCHAR(100) NOT NULL,
-                                         size_bytes BIGINT NOT NULL,
-                                         status VARCHAR(20) DEFAULT 'processing' CHECK (status IN ('processing', 'ready', 'rejected', 'deleted')),
-                                         moderation_status VARCHAR(20) DEFAULT 'pending' CHECK (moderation_status IN ('pending', 'approved', 'flagged')),
-                                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Represents the content exposed to the feed/profile
-CREATE TABLE IF NOT EXISTS ad_posts (
-                                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                        creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                                        asset_id UUID NOT NULL REFERENCES ad_assets(id) ON DELETE CASCADE,
-                                        caption TEXT,
-                                        access_type VARCHAR(20) DEFAULT 'free' CHECK (access_type IN ('free', 'subscriber', 'ppv')),
-                                        price_cents BIGINT DEFAULT 0, -- Stored in minor units to prevent float precision issues
-                                        is_explicit BOOLEAN DEFAULT TRUE,
-                                        status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'processing', 'published', 'scheduled', 'rejected', 'deleted')),
-                                        publish_at TIMESTAMP WITH TIME ZONE,
-                                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_ad_assets_owner ON ad_assets(owner_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ad_posts_creator ON ad_posts(creator_id, status, created_at DESC);
 
 
 
@@ -530,21 +389,16 @@ CREATE TABLE IF NOT EXISTS performer_profiles (
                                                   cover_asset_id UUID,
                                                   subscription_price_cents BIGINT NOT NULL DEFAULT 50000,
                                                   welcome_message TEXT NOT NULL DEFAULT '',
-                                                  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'paused', 'suspended')),
+                                                  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'paused', 'suspended', 'deactivated')),
                                                   dm_control VARCHAR(20) DEFAULT 'all' CHECK (dm_control IN ('all', 'subscribers', 'none')),
                                                   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                                   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-ALTER TABLE performer_profiles ADD COLUMN IF NOT EXISTS subscription_price_cents BIGINT NOT NULL DEFAULT 50000;
-ALTER TABLE performer_profiles ADD COLUMN IF NOT EXISTS welcome_message TEXT NOT NULL DEFAULT '';
-ALTER TABLE performer_profiles DROP CONSTRAINT IF EXISTS performer_profiles_status_check;
-ALTER TABLE performer_profiles ADD CONSTRAINT performer_profiles_status_check
-	CHECK (status IN ('pending', 'active', 'paused', 'suspended', 'deactivated'));
-
 -- KYC & Onboarding Applications Tracker
 CREATE TABLE IF NOT EXISTS performer_applications (
                                                       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                                      creator_alias VARCHAR(100) NOT NULL DEFAULT '',
                                                       status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
                                                       verification_ref VARCHAR(255),
                                                       payout_method_id VARCHAR(255),
@@ -553,6 +407,8 @@ CREATE TABLE IF NOT EXISTS performer_applications (
                                                       submitted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                                       reviewed_at TIMESTAMP WITH TIME ZONE
 );
+ALTER TABLE performer_applications
+    ADD COLUMN IF NOT EXISTS creator_alias VARCHAR(100) NOT NULL DEFAULT '';
 
 -- Legal & Explicit Content Acknowledgements
 CREATE TABLE IF NOT EXISTS performer_consents (
@@ -666,29 +522,13 @@ INSERT INTO kyc_poses (instruction) VALUES
 ON CONFLICT (instruction) DO NOTHING;
 
 
-ALTER TABLE billing_plans DROP COLUMN stripe_price_id;
 -- =====================================================================
 -- CHATTIE DATABASE INITIALIZATION SCRIPT (V2)
 -- =====================================================================
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- =====================================================================
--- 1. CORE AUTH & USERS
+-- 1. CORE AUTH & USERS (users is created before After Dark above)
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS users (
-                                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                                     email VARCHAR(255) UNIQUE NOT NULL,
-                                     username VARCHAR(255) UNIQUE NOT NULL,
-                                     password_hash VARCHAR(255) NOT NULL,
-                                     role VARCHAR(20) NOT NULL DEFAULT 'client' CHECK (role IN ('client', 'model', 'admin', 'persona')),
-                                     status VARCHAR(20) NOT NULL DEFAULT 'onboarding' CHECK (status IN ('onboarding', 'active', 'suspended', 'banned', 'flagged', 'ONLINE', 'OFFLINE')),
-                                     reset_token VARCHAR(255),
-                                     reset_token_expires_at TIMESTAMP WITH TIME ZONE,
-                                     last_active TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
 -- =====================================================================
 -- 2. SUBSCRIPTION TIERS & BILLING PLANS (Must be created early)
 -- =====================================================================
@@ -751,6 +591,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
                                              cover_url VARCHAR(1024) DEFAULT '',
                                              job_title VARCHAR(255) DEFAULT '',
                                              phone_number VARCHAR(20) DEFAULT '',
+                                             phone_verified_at TIMESTAMP WITH TIME ZONE,
                                              intent VARCHAR(50) DEFAULT 'All',
                                              verified BOOLEAN DEFAULT FALSE,
                                              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -783,6 +624,8 @@ CREATE TABLE IF NOT EXISTS user_settings (
                                              notif_promotions BOOLEAN DEFAULT FALSE,
                                              privacy_incognito BOOLEAN DEFAULT FALSE,
                                              privacy_read_receipts BOOLEAN DEFAULT TRUE,
+                                             two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                                             two_factor_channel VARCHAR(10) NOT NULL DEFAULT 'email' CHECK (two_factor_channel IN ('email', 'sms')),
                                              conn_spotify BOOLEAN DEFAULT FALSE,
                                              conn_instagram BOOLEAN DEFAULT FALSE,
                                              guidelines_agreed BOOLEAN DEFAULT FALSE,
@@ -816,6 +659,52 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
                                                   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                                   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS billing_payment_intents (
+    reference UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(20) NOT NULL CHECK (provider IN ('stripe', 'paystack', 'mpesa')),
+    provider_session_id TEXT,
+    merchant_request_id TEXT,
+    months INT NOT NULL CHECK (months > 0),
+    amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
+    currency VARCHAR(3) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed')),
+    receipt_number TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    paid_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS billing_payment_provider_session_idx
+    ON billing_payment_intents (provider, provider_session_id)
+    WHERE provider_session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS billing_payment_user_status_idx
+    ON billing_payment_intents (user_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS billing_saved_payment_methods (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(20) NOT NULL CHECK (provider IN ('stripe', 'paystack')),
+    provider_method_id TEXT NOT NULL,
+    provider_customer_id TEXT,
+    authorization_ciphertext BYTEA,
+    card_brand VARCHAR(40) NOT NULL DEFAULT '',
+    last4 CHAR(4) NOT NULL,
+    exp_month SMALLINT NOT NULL DEFAULT 0,
+    exp_year SMALLINT NOT NULL DEFAULT 0,
+    bank_name VARCHAR(120) NOT NULL DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, provider, provider_method_id),
+    CHECK (
+        (provider = 'stripe' AND provider_customer_id IS NOT NULL AND authorization_ciphertext IS NULL)
+        OR
+        (provider = 'paystack' AND authorization_ciphertext IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS billing_saved_payment_methods_user_idx
+    ON billing_saved_payment_methods (user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS user_daily_usage (
                                                 user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -1124,6 +1013,46 @@ CREATE TABLE IF NOT EXISTS sms_templates (
                                              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS auth_verification_codes (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    purpose VARCHAR(30) NOT NULL CHECK (purpose IN ('login_2fa', 'enable_2fa', 'disable_2fa', 'password_reset')),
+    channel VARCHAR(10) NOT NULL CHECK (channel IN ('email', 'sms')),
+    code_hash VARCHAR(100) NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    consumed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS auth_verification_codes_user_purpose_idx
+    ON auth_verification_codes (user_id, purpose, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_version INTEGER NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT '',
+    ip_address INET,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS auth_sessions_user_active_idx
+    ON auth_sessions (user_id, last_seen_at DESC)
+    WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS web_push_subscriptions_user_idx
+    ON web_push_subscriptions (user_id);
+
 CREATE TABLE IF NOT EXISTS banned_ips (
                                           ip_address VARCHAR(45) PRIMARY KEY,
                                           banned_at TIMESTAMP DEFAULT NOW(),
@@ -1184,6 +1113,8 @@ CREATE INDEX IF NOT EXISTS idx_user_media_sort ON user_media(user_id, is_primary
 CREATE INDEX IF NOT EXISTS idx_profiles_dob ON user_profiles(date_of_birth);
 CREATE INDEX IF NOT EXISTS idx_interactions_target ON interactions(target_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON blocks(blocker_id);
+CREATE INDEX IF NOT EXISTS idx_interactions_target_actor_action ON interactions(target_id, actor_id, action_type);
+CREATE INDEX IF NOT EXISTS idx_blocks_blocked_blocker ON blocks(blocked_id, blocker_id);
 CREATE INDEX IF NOT EXISTS idx_profile_views_viewed ON profile_views(viewed_id, viewed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rooms_category ON rooms(category);
 CREATE INDEX IF NOT EXISTS idx_room_members_active ON room_members(room_id, last_active DESC);
@@ -1262,27 +1193,182 @@ INSERT INTO firewall_rules (id, name, description, is_active) VALUES
                                                                   ('RUL_4', 'Auto-Mute on Explicit Filter Hit', 'Mute users for 1 hour automatically if they trigger the banned word list 3 times.', FALSE)
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO rooms (name, room_code, icon, category, description, tags, is_private)
-VALUES
-    ('The Main Lounge', 'MAINX1', 'coffee', 'General', 'The official Chattie welcome room. Grab a coffee and say hi!', '["chill", "welcome", "general"]', false),
-    ('Late Night Coders', 'CODE99', 'moon', 'Tech', 'For the night owls pushing commits at 3 AM.', '["tech", "coding", "nightowl"]', false),
-    ('Gaming Hub', 'GGWP77', 'gamepad', 'Gaming', 'LFG, strats, and general gaming chat.', '["gaming", "pc", "console"]', false)
-ON CONFLICT (room_code) DO NOTHING;
 
 INSERT INTO email_templates (name, subject, body_html) VALUES
-                                                           ('welcome_email', 'Welcome to Chattie Premium ⚡', '...'),
-                                                           ('data_dossier', 'Your Requested Data Dossier is Ready', '...'),
-                                                           ('unread_messages', 'You have unread messages! 💬', '...'),
-                                                           ('miss_you', 'We miss you on Chattie 🥺', '...'),
-                                                           ('premium_welcome', 'Welcome to Chattie VIP! 👑', '...'),
-                                                           ('new_like', 'Someone likes you! ❤️', '...'),
-                                                           ('report_received', 'We received your report 🛡️', '...'),
-                                                           ('account_banned', 'Account Termination Notice 🚫', '...'),
-                                                           ('moderation_action', 'Moderation Notice on your Account', '...'),
-                                                           ('operator_suspended', 'Operator Account Suspended ⚠️', '...'),
-                                                           ('otp_verification_email', 'Your Verification Code', '...')
-ON CONFLICT (name) DO NOTHING;
+    ('welcome_email', 'Welcome to Chattie', '<h1>Welcome, {{.Username}}</h1><p>Your Chattie account is ready. Sign in to meet people and start conversations.</p>'),
+    ('data_dossier', 'Your Chattie data archive is ready', '<h1>Your Chattie archive is ready</h1><p>Hello {{.Username}}, your requested Chattie data archive is attached to this email.</p><p>If you did not request this, secure your account and contact support.</p>'),
+    ('after_dark_data_archive', 'Your After Dark data archive is ready', '<h1>Your After Dark archive is ready</h1><p>Hello {{.Username}}, your requested After Dark data archive is attached. It contains information from your After Dark account only.</p><p>If you did not request this, secure your account and contact support.</p>'),
+    ('unread_messages', 'You have unread messages', '<h1>Hello {{.Username}}</h1><p>You have unread messages waiting for you on Chattie.</p>'),
+    ('miss_you', 'We miss you on Chattie', '<h1>We miss you, {{.Username}}</h1><p>Come back to Chattie when you are ready to connect again.</p>'),
+    ('premium_welcome', 'Welcome to Chattie Premium', '<h1>Welcome to Premium, {{.Username}}</h1><p>Your Premium plan is active for {{.Months}} month(s).</p>'),
+    ('premium_payment_receipt', 'Chattie Premium payment receipt', '<h1>Payment received</h1><p>Hello {{.Username}}, your Premium payment was successful.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Plan: {{.Months}} month(s)<br>Reference: {{.Reference}}<br>Payment date: {{.PaidAt}}</p>'),
+    ('premium_action_required', 'Action needed for your Chattie Premium payment', '<h1>Payment needs attention</h1><p>Hello {{.Username}}, your Premium payment could not be completed.</p><p>{{.ActionMessage}}</p><p>Reference: {{.Reference}}</p>'),
+    ('new_like', 'Someone likes you', '<h1>Someone noticed you, {{.Username}}</h1><p>Open Chattie to see what is new.</p>'),
+    ('report_received', 'We received your report', '<h1>Thank you, {{.Username}}</h1><p>Your report has been received and will be reviewed by our safety team.</p>'),
+    ('account_banned', 'Account action notice', '<h1>Account notice</h1><p>Hello {{.Username}}, an account action was taken. Sign in to Chattie or contact support if you believe this is a mistake.</p>'),
+    ('moderation_action', 'Moderation notice on your account', '<h1>Account notice</h1><p>Hello {{.Username}}, a moderation action was taken.</p><p>Reason: {{.Reason}}</p>'),
+    ('operator_suspended', 'Operator account suspended', '<h1>Operator account notice</h1><p>Hello {{.Username}}, your operator account has been suspended.</p>'),
+    ('otp_verification_email', 'Your Chattie verification code', '<h1>Your verification code</h1><p style="font-size:28px;font-weight:bold;letter-spacing:6px">{{.Code}}</p><p>This code expires in {{.ExpiresMinutes}} minutes. Do not share it with anyone.</p>'),
+    ('login_2fa_email', 'Your Chattie sign-in code', '<h1>Confirm your sign-in</h1><p style="font-size:28px;font-weight:bold;letter-spacing:6px">{{.Code}}</p><p>This code expires in {{.ExpiresMinutes}} minutes. If you did not try to sign in, change your password.</p>'),
+    ('password_reset_email', 'Reset your Chattie password', '<h1>Password reset code</h1><p style="font-size:28px;font-weight:bold;letter-spacing:6px">{{.Code}}</p><p>This code expires in {{.ExpiresMinutes}} minutes. If you did not request a reset, ignore this message.</p>'),
+    ('two_factor_setup_email', 'Confirm your Chattie security change', '<h1>Confirm your security change</h1><p style="font-size:28px;font-weight:bold;letter-spacing:6px">{{.Code}}</p><p>This code expires in {{.ExpiresMinutes}} minutes. If you did not request this change, secure your account.</p>'),
+    ('ad_creator_subscription', 'New After Dark subscriber', '<h1>New subscriber</h1><p>Hello {{.Username}}, {{.CustomerName}} subscribed to your creator account.</p>'),
+    ('ad_creator_sale', 'New After Dark purchase', '<h1>New purchase</h1><p>Hello {{.Username}}, you received a new After Dark purchase.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Reference: {{.Reference}}</p>'),
+    ('ad_creator_tip', 'You received an After Dark tip', '<h1>New tip</h1><p>Hello {{.Username}}, {{.CustomerName}} sent you a tip.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Reference: {{.Reference}}</p>'),
+    ('ad_payment_receipt', 'After Dark payment receipt', '<h1>Payment received</h1><p>Hello {{.Username}}, your After Dark payment was successful.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Item: {{.PaymentType}}<br>Reference: {{.Reference}}<br>Receipt: {{.ReceiptNumber}}<br>Payment date: {{.PaidAt}}</p>'),
+    ('ad_action_required', 'Action needed for your After Dark payment', '<h1>Payment needs attention</h1><p>Hello {{.Username}}, your After Dark payment could not be completed.</p><p>{{.ActionMessage}}</p><p>Reference: {{.Reference}}</p>'),
+    ('afterdark_notification', 'After Dark account notification', '<h1>{{.Title}}</h1><p>Hello {{.Username}}, {{.Message}}</p>')
+ON CONFLICT (name) DO UPDATE SET subject = EXCLUDED.subject, body_html = EXCLUDED.body_html, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO sms_templates (name, template_content) VALUES
-    ('otp_verification_sms', 'Your verification code is: {{.Code}}. It expires in 10 minutes. Do not share this with anyone.')
-ON CONFLICT (name) DO NOTHING;
+    ('otp_verification_sms', 'Your Chattie verification code is {{.Code}}. It expires in {{.ExpiresMinutes}} minutes. Do not share it.'),
+    ('login_2fa_sms', 'Your Chattie sign-in code is {{.Code}}. It expires in {{.ExpiresMinutes}} minutes. Do not share it.'),
+    ('password_reset_sms', 'Your Chattie password reset code is {{.Code}}. It expires in {{.ExpiresMinutes}} minutes. Do not share it.'),
+    ('two_factor_setup_sms', 'Your Chattie security confirmation code is {{.Code}}. It expires in {{.ExpiresMinutes}} minutes. Do not share it.')
+ON CONFLICT (name) DO UPDATE SET template_content = EXCLUDED.template_content, is_active = TRUE, updated_at = CURRENT_TIMESTAMP;
+
+-- Development-only sample data includes synthetic consent and verification values.
+-- The referenced accounts must already exist; do not enable these records in production.
+DO $$
+BEGIN
+    IF (
+        SELECT COUNT(*)
+        FROM users
+        WHERE id IN (
+            '744447e0-c401-4348-b02a-785cb5b501a0',
+            '202c1da3-3e77-4047-9914-164c1e31ff4a',
+            '6a65db62-abb2-4506-af3b-20291db99272'
+        )
+    ) < 3 THEN
+        RAISE NOTICE 'Skipping After Dark sample data: one or more sample users do not exist.';
+    ELSE
+        INSERT INTO ad_viewer_profiles (user_id, alias, explicit_consent_at, age_verified_at) VALUES
+            ('744447e0-c401-4348-b02a-785cb5b501a0', 'User-MelisaAD', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            ('202c1da3-3e77-4047-9914-164c1e31ff4a', 'User-Jyu', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+            ('6a65db62-abb2-4506-af3b-20291db99272', 'User-Havar', NULL, NULL)
+        ON CONFLICT (user_id) DO NOTHING;
+
+        INSERT INTO performer_applications (id, user_id, status, verification_ref, payout_method_id, policy_version)
+        VALUES ('aaaa1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0', 'approved', 'KYC-REF-9921', 'MPESA-001', 'v1.0')
+        ON CONFLICT DO NOTHING;
+
+        INSERT INTO performer_consents (user_id, consent_type, policy_version)
+        SELECT '744447e0-c401-4348-b02a-785cb5b501a0', 'explicit_content_creation', 'v1.0'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM performer_consents
+            WHERE user_id = '744447e0-c401-4348-b02a-785cb5b501a0'
+              AND consent_type = 'explicit_content_creation'
+              AND policy_version = 'v1.0'
+        );
+
+        INSERT INTO performer_profiles (user_id, display_name, username, bio, website, location, status, dm_control)
+        VALUES ('744447e0-c401-4348-b02a-785cb5b501a0', 'Melisa Nights', 'melisanights', 'Exclusive content and behind the scenes.', 'https://linktr.ee/melisa', 'Nairobi, KE', 'active', 'subscribers')
+        ON CONFLICT (user_id) DO NOTHING;
+
+        INSERT INTO ad_wallets (user_id, available_balance_cents, pending_balance_cents) VALUES
+            ('744447e0-c401-4348-b02a-785cb5b501a0', 40000, 0),
+            ('202c1da3-3e77-4047-9914-164c1e31ff4a', 50000, 0),
+            ('6a65db62-abb2-4506-af3b-20291db99272', 100000, 0)
+        ON CONFLICT (user_id) DO NOTHING;
+
+        INSERT INTO ad_ledger_entries (id, user_id, amount_cents, transaction_type, reference_id, description)
+        SELECT seed.id, seed.user_id, seed.amount_cents, seed.transaction_type, seed.reference_id, seed.description
+        FROM (VALUES
+            ('eeee1111-1111-1111-1111-111111111111'::uuid, '202c1da3-3e77-4047-9914-164c1e31ff4a'::uuid, 100000::bigint, 'deposit', 'MPESA-TXN-001', 'M-Pesa Deposit'),
+            ('eeee2222-2222-2222-2222-222222222222'::uuid, '6a65db62-abb2-4506-af3b-20291db99272'::uuid, 100000::bigint, 'deposit', 'MPESA-TXN-002', 'M-Pesa Deposit'),
+            ('eeee3333-3333-3333-3333-333333333333'::uuid, '202c1da3-3e77-4047-9914-164c1e31ff4a'::uuid, -50000::bigint, 'ppv_purchase', 'cccc2222-2222-2222-2222-222222222222', 'Unlocked PPV Post'),
+            ('eeee4444-4444-4444-4444-444444444444'::uuid, '744447e0-c401-4348-b02a-785cb5b501a0'::uuid, 40000::bigint, 'ppv_earning', 'cccc2222-2222-2222-2222-222222222222', 'Earning from PPV Post')
+        ) AS seed(id, user_id, amount_cents, transaction_type, reference_id, description)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM ad_ledger_entries existing
+            WHERE existing.user_id = seed.user_id
+              AND existing.transaction_type = seed.transaction_type
+              AND existing.reference_id = seed.reference_id
+        );
+
+        INSERT INTO ad_post_entitlements (user_id, post_id, payment_ref)
+        VALUES ('202c1da3-3e77-4047-9914-164c1e31ff4a', 'cccc2222-2222-2222-2222-222222222222', 'LEDGER-REF-AUTO')
+        ON CONFLICT DO NOTHING;
+
+        INSERT INTO ad_subscriptions (subscriber_id, creator_id, status, current_period_end)
+        VALUES ('6a65db62-abb2-4506-af3b-20291db99272', '744447e0-c401-4348-b02a-785cb5b501a0', 'active', CURRENT_TIMESTAMP + INTERVAL '30 days')
+        ON CONFLICT (subscriber_id, creator_id) DO NOTHING;
+
+        INSERT INTO ad_post_likes (user_id, post_id) VALUES
+            ('202c1da3-3e77-4047-9914-164c1e31ff4a', 'cccc1111-1111-1111-1111-111111111111'),
+            ('6a65db62-abb2-4506-af3b-20291db99272', 'cccc1111-1111-1111-1111-111111111111')
+        ON CONFLICT DO NOTHING;
+
+        INSERT INTO ad_post_comments (id, user_id, post_id, content)
+        SELECT 'ffff1111-1111-1111-1111-111111111111', '202c1da3-3e77-4047-9914-164c1e31ff4a', 'cccc2222-2222-2222-2222-222222222222', 'Worth every penny! 🔥'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM ad_post_comments
+            WHERE user_id = '202c1da3-3e77-4047-9914-164c1e31ff4a'
+              AND post_id = 'cccc2222-2222-2222-2222-222222222222'
+              AND content = 'Worth every penny! 🔥'
+        )
+        ON CONFLICT (id) DO NOTHING;
+
+        INSERT INTO ad_conversations (id) VALUES ('dddd1111-1111-1111-1111-111111111111')
+        ON CONFLICT (id) DO NOTHING;
+
+        INSERT INTO ad_conversation_participants (conversation_id, user_id) VALUES
+            ('dddd1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0'),
+            ('dddd1111-1111-1111-1111-111111111111', '6a65db62-abb2-4506-af3b-20291db99272')
+        ON CONFLICT DO NOTHING;
+
+        INSERT INTO ad_messages (id, conversation_id, sender_id, content, is_read)
+        SELECT 'dddd2222-2222-2222-2222-222222222222', 'dddd1111-1111-1111-1111-111111111111', '6a65db62-abb2-4506-af3b-20291db99272', 'Hey! Just subscribed, love your content.', TRUE
+        WHERE NOT EXISTS (
+            SELECT 1 FROM ad_messages
+            WHERE conversation_id = 'dddd1111-1111-1111-1111-111111111111'
+              AND sender_id = '6a65db62-abb2-4506-af3b-20291db99272'
+              AND content = 'Hey! Just subscribed, love your content.'
+        )
+        ON CONFLICT (id) DO NOTHING;
+
+        INSERT INTO ad_messages (id, conversation_id, sender_id, content, is_read)
+        SELECT 'dddd3333-3333-3333-3333-333333333333', 'dddd1111-1111-1111-1111-111111111111', '744447e0-c401-4348-b02a-785cb5b501a0', 'Thank you! Let me know if you want custom requests.', FALSE
+        WHERE NOT EXISTS (
+            SELECT 1 FROM ad_messages
+            WHERE conversation_id = 'dddd1111-1111-1111-1111-111111111111'
+              AND sender_id = '744447e0-c401-4348-b02a-785cb5b501a0'
+              AND content = 'Thank you! Let me know if you want custom requests.'
+        )
+        ON CONFLICT (id) DO NOTHING;
+
+        INSERT INTO ad_deposit_intents (id, user_id, amount_cents, provider, status)
+        SELECT 'aaaa2222-2222-2222-2222-222222222222', '6a65db62-abb2-4506-af3b-20291db99272', 200000, 'mpesa', 'pending'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM ad_deposit_intents
+            WHERE user_id = '6a65db62-abb2-4506-af3b-20291db99272'
+              AND amount_cents = 200000
+              AND provider = 'mpesa'
+              AND status = 'pending'
+        )
+        ON CONFLICT (id) DO NOTHING;
+
+        WITH new_withdrawal AS (
+            INSERT INTO ad_withdrawals (id, user_id, amount_cents, payout_method_id, status)
+            SELECT 'aaaa3333-3333-3333-3333-333333333333', '744447e0-c401-4348-b02a-785cb5b501a0', 30000, 'MPESA-001', 'processing'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ad_withdrawals
+                WHERE user_id = '744447e0-c401-4348-b02a-785cb5b501a0'
+                  AND amount_cents = 30000
+                  AND payout_method_id = 'MPESA-001'
+                  AND status = 'processing'
+            )
+            ON CONFLICT (id) DO NOTHING
+            RETURNING user_id
+        )
+        UPDATE ad_wallets
+        SET available_balance_cents = 10000, pending_balance_cents = 30000
+        WHERE user_id = '744447e0-c401-4348-b02a-785cb5b501a0'
+          AND available_balance_cents = 40000
+          AND pending_balance_cents = 0
+          AND EXISTS (SELECT 1 FROM new_withdrawal);
+    END IF;
+END;
+$$;
+
+COMMIT;

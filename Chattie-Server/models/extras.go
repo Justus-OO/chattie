@@ -4,6 +4,7 @@ type UpgradeRequest struct {
 	PlanID       int     `json:"plan_id"` // e.g., 1, 6, 12 (months)
 	Price        float64 `json:"price"`
 	PaymentToken string  `json:"payment_token,omitempty"` // For future Stripe integration
+	PhoneNumber  string  `json:"phone_number,omitempty"`
 }
 
 // ReportRequest handles the Guidelines report modal

@@ -24,6 +24,7 @@ func (r *Repository) CanUseAdvancedFilters(ctx context.Context, userID string) (
 		FROM user_subscriptions s 
 		JOIN subscription_tiers t ON s.tier_id = t.id 
 		WHERE s.user_id = $1 AND s.status = 'active'
+		  AND (s.expires_at IS NULL OR s.expires_at > CURRENT_TIMESTAMP)
 	`
 
 	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&canUse)
@@ -43,19 +44,22 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 	// 1. Base Query using Common Table Expressions (CTEs)
 	baseQuery := `
 		WITH current_user_data AS (
-			-- Fetch the searching user's base preferences and settings
 			SELECT 
-				COALESCE(ussu.show_me, '') AS interested_in, 
+				COALESCE(ussu.show_me, 'Everyone') AS show_me,
+				COALESCE(current_profile.gender, '') AS gender,
+				EXTRACT(YEAR FROM age(current_profile.date_of_birth))::INT AS viewer_age,
+				COALESCE(pref.interested_in, 'All') AS viewer_intent,
 				COALESCE(pref.max_distance_km, 50) AS max_distance_km,
 				COALESCE(pref.min_age, 18) AS pref_min_age,
 				COALESCE(pref.max_age, 99) AS pref_max_age,
-				COALESCE(loc.latitude, 0.0) AS latitude, 
-				COALESCE(loc.longitude, 0.0) AS longitude,
+				loc.latitude AS latitude,
+				loc.longitude AS longitude,
 				COALESCE(us.global_mode, FALSE) AS global_mode,
 				COALESCE(ARRAY(SELECT tag FROM user_tags WHERE user_id = $1), ARRAY[]::VARCHAR[]) AS my_tags
 			FROM users u
 			LEFT JOIN user_preferences pref ON u.id = pref.user_id
-			    LEFT JOIN public.user_settings ussu  ON u.id = ussu.user_id
+			LEFT JOIN user_profiles current_profile ON u.id = current_profile.user_id
+			LEFT JOIN user_settings ussu ON u.id = ussu.user_id
 			LEFT JOIN user_locations loc ON u.id = loc.user_id
 			LEFT JOIN user_settings us ON u.id = us.user_id
 			WHERE u.id = $1
@@ -66,64 +70,83 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 				u.id,
 				p.display_name,
 				COALESCE(p.bio, '') AS bio,
-				COALESCE(p.intent, 'All') AS intent,
-				u.status AS current_status,
+				COALESCE(target_preferences.interested_in, 'All') AS intent,
+				LOWER(u.status) AS current_status,
 				EXTRACT(YEAR FROM age(p.date_of_birth))::INT AS age,
 				COALESCE(l.city, 'Unknown') AS city,
 				
 				-- Safe Haversine Distance Calculation (prevents NaN crashes)
 				CASE 
-					WHEN cu.latitude = 0 OR l.latitude IS NULL THEN 9999.0
-					ELSE (6371 * acos(
+					WHEN cu.latitude IS NULL OR cu.longitude IS NULL OR l.latitude IS NULL OR l.longitude IS NULL THEN 9999.0
+					ELSE (6371 * acos(LEAST(1.0, GREATEST(-1.0,
 						cos(radians(cu.latitude)) * cos(radians(l.latitude)) * 
 						cos(radians(l.longitude) - radians(cu.longitude)) + 
 						sin(radians(cu.latitude)) * sin(radians(l.latitude))
-					)) 
+					))))
 				END AS distance_km,
 				
 				COALESCE(ARRAY(SELECT tag FROM user_tags WHERE user_id = u.id), ARRAY[]::VARCHAR[]) AS their_tags,
 				
 				-- Pull ordered images directly from the media vault
 				COALESCE(
-					ARRAY(SELECT url FROM user_media WHERE user_id = u.id ORDER BY is_primary DESC, sort_order ASC, created_at ASC), 
+					ARRAY(SELECT url FROM user_media WHERE user_id = u.id AND NULLIF(BTRIM(url), '') IS NOT NULL ORDER BY is_primary DESC, sort_order ASC, created_at ASC LIMIT 6),
 					ARRAY[]::TEXT[]
 				) AS images,
 				
 				cu.my_tags,
 				u.created_at,
 				cu.max_distance_km,
-				cu.global_mode
+				cu.global_mode,
+				COALESCE(target_preferences.min_age, 18) AS target_min_age,
+				COALESCE(target_preferences.max_age, 99) AS target_max_age
 			FROM users u
 			JOIN user_profiles p ON u.id = p.user_id
 			LEFT JOIN user_locations l ON u.id = l.user_id
+			LEFT JOIN user_preferences target_preferences ON u.id = target_preferences.user_id
 			LEFT JOIN user_settings target_settings ON u.id = target_settings.user_id
 			CROSS JOIN current_user_data cu
 			
 			WHERE u.id != $1 
 			  
 			  -- 1. ACCOUNT STATUS: Target user must be active
-			  AND u.status IN ('active', 'online')
-			  
-			  -- 2. GENDER MATCH: Must align with current user's preferences
-			  AND (cu.interested_in IN ('Everyone', 'All', 'all') OR p.gender = cu.interested_in)
-			  
-			  -- 3. AGE MATCH: Base preference check
+			  AND u.status IN ('active', 'online', 'ONLINE')
+			  AND u.role <> 'admin'
+			  AND NULLIF(BTRIM(p.display_name), '') IS NOT NULL
+			  AND EXISTS (
+				  SELECT 1 FROM user_media um
+				  WHERE um.user_id = u.id AND NULLIF(BTRIM(um.url), '') IS NOT NULL
+			  )
+			  AND cu.viewer_age IS NOT NULL
+			  AND (
+				  lower(BTRIM(cu.show_me)) IN ('everyone', 'all', '')
+				  OR lower(BTRIM(p.gender)) = CASE lower(BTRIM(cu.show_me))
+					  WHEN 'men' THEN 'male'
+					  WHEN 'women' THEN 'female'
+					  ELSE lower(BTRIM(cu.show_me))
+				  END
+			  )
+			  AND (
+				  lower(BTRIM(COALESCE(target_settings.show_me, 'Everyone'))) IN ('everyone', 'all', '')
+				  OR (lower(BTRIM(COALESCE(target_settings.show_me, 'Everyone'))) = 'men' AND lower(BTRIM(cu.gender)) IN ('male', 'man'))
+				  OR (lower(BTRIM(COALESCE(target_settings.show_me, 'Everyone'))) = 'women' AND lower(BTRIM(cu.gender)) IN ('female', 'woman'))
+			  )
+			  AND (
+				  lower(BTRIM(COALESCE(target_preferences.interested_in, 'All'))) IN ('all', '')
+				  OR lower(BTRIM(cu.viewer_intent)) IN ('all', '')
+				  OR lower(BTRIM(target_preferences.interested_in)) = lower(BTRIM(cu.viewer_intent))
+			  )
 			  AND (EXTRACT(YEAR FROM age(p.date_of_birth))::INT BETWEEN cu.pref_min_age AND cu.pref_max_age)
-			  
-			  -- 4. PREVIOUS SWIPES: Exclude users I have already Liked, Passed, or Super Liked
+			  AND cu.viewer_age BETWEEN COALESCE(target_preferences.min_age, 18)
+									AND COALESCE(target_preferences.max_age, 99)
 			  AND NOT EXISTS (
 				  SELECT 1 FROM interactions my_swipes 
 				  WHERE my_swipes.actor_id = $1 AND my_swipes.target_id = u.id
 			  )
-			  
-			  -- 5. BLOCKS: Mutual block enforcement
 			  AND NOT EXISTS (
 				  SELECT 1 FROM blocks b 
 				  WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) 
 					 OR (b.blocker_id = u.id AND b.blocked_id = $1)
 			  )
-			  
-			  -- 6. INCOGNITO MODE: Hide them if incognito is true, UNLESS they already swiped right on me
 			  AND (
 				  COALESCE(target_settings.privacy_incognito, FALSE) = FALSE 
 				  OR EXISTS (
@@ -171,7 +194,7 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 
 	// Dynamic Intent Filtering
 	if filters.Intent != "" && !strings.EqualFold(filters.Intent, "All") {
-		whereClauses = append(whereClauses, fmt.Sprintf("intent = $%d", argID))
+		whereClauses = append(whereClauses, fmt.Sprintf("lower(intent) = lower($%d)", argID))
 		args = append(args, filters.Intent)
 		argID++
 	}
@@ -196,11 +219,11 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 	// 3. Sorting Logic
 	switch filters.SortBy {
 	case "distance":
-		baseQuery += " ORDER BY distance_km ASC"
+		baseQuery += " ORDER BY distance_km ASC, id ASC"
 	case "newest":
-		baseQuery += " ORDER BY created_at DESC"
+		baseQuery += " ORDER BY created_at DESC, id ASC"
 	default: // "match" (Highest match %, then closest distance)
-		baseQuery += " ORDER BY match_pct DESC, distance_km ASC"
+		baseQuery += " ORDER BY match_pct DESC, distance_km ASC, id ASC"
 	}
 
 	// 4. Pagination

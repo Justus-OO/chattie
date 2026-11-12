@@ -42,9 +42,10 @@ func (r *ADLiveRepository) EndSession(ctx context.Context, sessionID string, cre
 
 func (r *ADLiveRepository) GetLiveSessions(ctx context.Context, creatorID string) ([]models.ADLiveSession, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT ls.id::text, COALESCE(pp.id::text, ls.creator_id::text),
+		SELECT ls.id::text, COALESCE(pp.id::text, ls.creator_id::text), ls.creator_id::text,
 			COALESCE(pp.display_name, u.username), u.username,
 			COALESCE(avatar.storage_key, ''), ls.status, ls.price_cents,
+			COALESCE(pp.subscription_price_cents, 0),
 			ls.started_at, ls.ended_at
 		FROM ad_live_sessions ls
 		JOIN users u ON u.id = ls.creator_id
@@ -64,9 +65,9 @@ func (r *ADLiveRepository) GetLiveSessions(ctx context.Context, creatorID string
 		var session models.ADLiveSession
 		var endedAt sql.NullTime
 		if err := rows.Scan(
-			&session.ID, &session.CreatorID, &session.DisplayName,
+			&session.ID, &session.CreatorID, &session.HostID, &session.DisplayName,
 			&session.Username, &session.AvatarURL, &session.Status,
-			&session.PriceCents, &session.StartedAt, &endedAt,
+			&session.PriceCents, &session.SubscriptionPriceCents, &session.StartedAt, &endedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -83,6 +84,17 @@ func (r *ADLiveRepository) IsSessionCreator(ctx context.Context, sessionID strin
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM ad_live_sessions WHERE id = $1 AND creator_id = $2
+		)
+	`, sessionID, creatorID).Scan(&isCreator)
+	return isCreator, err
+}
+
+func (r *ADLiveRepository) IsLiveSessionCreator(ctx context.Context, sessionID string, creatorID string) (bool, error) {
+	var isCreator bool
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM ad_live_sessions
+			WHERE id = $1 AND creator_id = $2 AND status = 'live'
 		)
 	`, sessionID, creatorID).Scan(&isCreator)
 	return isCreator, err
@@ -113,12 +125,12 @@ func (r *ADLiveRepository) VerifyAccess(ctx context.Context, viewerID string, se
 	query := `
 		SELECT EXISTS (
 			SELECT 1 FROM ad_live_sessions ls
-			WHERE ls.id = $2 AND ls.status = 'live' AND (
-				ls.creator_id = $1 OR ls.price_cents = 0
-				OR EXISTS (SELECT 1 FROM ad_live_entitlements e WHERE e.user_id = $1 AND e.session_id = ls.id)
+			WHERE ls.id = $2::uuid AND ls.status = 'live' AND (
+				ls.creator_id = $1::uuid OR ls.price_cents = 0
+				OR EXISTS (SELECT 1 FROM ad_live_entitlements e WHERE e.user_id = $1::uuid AND e.session_id = ls.id)
 				OR EXISTS (
 					SELECT 1 FROM ad_subscriptions sub
-					WHERE sub.subscriber_id = $1 AND sub.creator_id = ls.creator_id
+					WHERE sub.subscriber_id = $1::uuid AND sub.creator_id = ls.creator_id
 					  AND sub.status = 'active' AND sub.current_period_end > CURRENT_TIMESTAMP
 				)
 			)

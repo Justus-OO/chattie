@@ -10,22 +10,26 @@ import (
 
 // AppEvent holds the placeholders. The "Action" (HTTP handler) fills these in.
 type AppEvent struct {
-	RecipientID      string
-	WSEventType      string      // e.g., "NEW_MATCH". If empty, skips WS.
-	WSPayload        interface{} // Data sent to the frontend
-	EmailTemplate    string      // e.g., "new_match". If empty, skips Email.
-	EmailNotifColumn string      // e.g., "notif_new_matches". Which DB setting to check.
+	RecipientID            string
+	WSEventType            string      // e.g., "NEW_MATCH". If empty, skips WS.
+	WSPayload              interface{} // Data sent to the frontend
+	EmailTemplate          string      // e.g., "new_match". If empty, skips Email.
+	EmailNotifColumn       string      // e.g., "notif_new_matches". Which DB setting to check.
+	EmailData              map[string]interface{}
+	AfterDarkEmailCategory string
 }
 
 type EventHandler struct {
 	Repo         *repository.Repository
 	NotifService *NotificationService
+	Push         *WebPushService
 }
 
 func NewEventHandler(repo *repository.Repository, ns *NotificationService) *EventHandler {
 	return &EventHandler{
 		Repo:         repo,
 		NotifService: ns,
+		Push:         NewWebPushService(repo),
 	}
 }
 
@@ -66,12 +70,20 @@ func (h *EventHandler) ProcessEvent(ctx context.Context, event AppEvent) {
 
 		// Fix 1: Pass ctx down to the WebSocket sender
 		h.NotifService.SendWebSocketMessage(ctx, event.RecipientID, event.WSEventType, event.WSPayload)
+		if h.Push != nil && h.Push.Configured() {
+			if err := h.Push.Send(ctx, event.RecipientID, title, message); err != nil {
+				log.Printf("[PUSH ERROR] Failed to deliver %s to %s: %v", event.WSEventType, event.RecipientID, err)
+			}
+		}
 	}
 
 	// 2. Process Email (If an Email Template was provided)
 	if event.EmailTemplate != "" {
 
 		// Check user preferences safely (Opts-out are respected)
+		if event.AfterDarkEmailCategory != "" && !h.userWantsAfterDarkEmail(ctx, event.RecipientID, event.AfterDarkEmailCategory) {
+			return
+		}
 		if event.EmailNotifColumn != "" {
 			if !h.userWantsEmail(ctx, event.RecipientID, event.EmailNotifColumn) {
 				return // User opted out, stop here.
@@ -80,7 +92,12 @@ func (h *EventHandler) ProcessEvent(ctx context.Context, event AppEvent) {
 
 		// Fix 2: Pass ctx down to GetUserByID
 		user, err := h.Repo.GetUserByID(ctx, event.RecipientID)
-		if err != nil || user.Email == "" {
+		if err != nil {
+			log.Printf("[NOTIF ERROR] Failed to load recipient %s for template %s: %v", event.RecipientID, event.EmailTemplate, err)
+			return
+		}
+		if user.Email == "" {
+			log.Printf("[NOTIF WARN] Recipient %s has no email for template %s", event.RecipientID, event.EmailTemplate)
 			return
 		}
 
@@ -88,8 +105,34 @@ func (h *EventHandler) ProcessEvent(ctx context.Context, event AppEvent) {
 		templateData := map[string]interface{}{
 			"Username": user.Username,
 		}
-		h.NotifService.SendTemplatedEmail(ctx, user.Email, event.EmailTemplate, templateData)
+		for key, value := range event.EmailData {
+			templateData[key] = value
+		}
+		if err := h.NotifService.SendTemplatedEmail(ctx, user.Email, event.EmailTemplate, templateData); err != nil {
+			log.Printf("[NOTIF ERROR] Failed to queue template %s for %s: %v", event.EmailTemplate, event.RecipientID, err)
+		}
 	}
+}
+
+func (h *EventHandler) userWantsAfterDarkEmail(ctx context.Context, userID, category string) bool {
+	if category != "subs" && category != "tips" && category != "sales" && category != "likes" && category != "messages" && category != "marketing" {
+		log.Printf("[EVENT WARN] Unknown After Dark email category %q", category)
+		return false
+	}
+	defaultEnabled := category == "subs" || category == "tips" || category == "sales"
+	var enabled bool
+	err := h.Repo.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(
+			(SELECT (notification_email ->> $2)::boolean
+			 FROM ad_creator_settings WHERE user_id = $1),
+			$3
+		)`,
+		userID, category, defaultEnabled).Scan(&enabled)
+	if err != nil {
+		log.Printf("[EVENT ERROR] Could not load After Dark email preference for %s (%s): %v", userID, category, err)
+		return false
+	}
+	return enabled
 }
 
 // notificationDetails translates raw system events into beautiful UI strings and icons
@@ -127,6 +170,12 @@ func notificationDetails(eventType string, payload interface{}) (string, string,
 		title, icon = "Room Request Approved", "door-open"
 	case "ROOM_KICKED", "ROOM_BANNED":
 		title, icon = "Room Access Revoked", "user-x"
+	case "AFTER_DARK_PAYMENT":
+		title, icon = "After Dark payment received", "coins"
+	case "AFTER_DARK_MESSAGE":
+		title, icon = "New After Dark message", "message-circle"
+	case "AFTER_DARK_LIKE":
+		title, icon = "New After Dark like", "heart"
 	case "MODERATION_ACTION", "USER_BANNED", "USER_SUSPENDED", "OPERATOR_SUSPENDED":
 		title, icon = "Account Action Notice", "alert-triangle"
 	}

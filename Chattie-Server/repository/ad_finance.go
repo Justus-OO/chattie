@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"chattie-backend/models"
@@ -12,6 +13,15 @@ import (
 
 type ADFinanceRepository struct {
 	DB *sql.DB
+}
+
+type ADPayoutMethod struct {
+	ID            string
+	UserID        string
+	Provider      string
+	AccountNumber string
+	AccountName   string
+	BankCode      string
 }
 
 func NewADFinanceRepository(db *sql.DB) *ADFinanceRepository {
@@ -53,8 +63,59 @@ func (r *ADFinanceRepository) SendTip(ctx context.Context, senderID string, crea
 	}
 	defer tx.Rollback()
 
-	var creatorUserID string
+	tipID, err := r.sendTipTx(ctx, tx, senderID, creatorID, amountCents, message)
+	if err != nil {
+		return "", err
+	}
+	return tipID, tx.Commit()
+}
+
+func (r *ADFinanceRepository) SendLiveTip(ctx context.Context, senderID string, sessionID string, amountCents int64, message string) (string, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	var creatorID string
+	var hasAccess bool
 	err = tx.QueryRowContext(ctx, `
+		SELECT ls.creator_id::text,
+			(ls.creator_id = $2 OR ls.price_cents = 0
+				OR EXISTS (
+					SELECT 1 FROM ad_live_entitlements e
+					WHERE e.user_id = $2 AND e.session_id = ls.id
+				)
+				OR EXISTS (
+					SELECT 1 FROM ad_subscriptions sub
+					WHERE sub.subscriber_id = $2 AND sub.creator_id = ls.creator_id
+					  AND sub.status = 'active' AND sub.current_period_end > CURRENT_TIMESTAMP
+				)
+			) AS has_access
+		FROM ad_live_sessions ls
+		WHERE ls.id = $1 AND ls.status = 'live'
+		FOR SHARE OF ls
+	`, sessionID, senderID).Scan(&creatorID, &hasAccess)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", errors.New("live session not found")
+		}
+		return "", err
+	}
+	if !hasAccess {
+		return "", errors.New("live session access required")
+	}
+
+	tipID, err := r.sendTipTx(ctx, tx, senderID, creatorID, amountCents, message)
+	if err != nil {
+		return "", err
+	}
+	return tipID, tx.Commit()
+}
+
+func (r *ADFinanceRepository) sendTipTx(ctx context.Context, tx *sql.Tx, senderID string, creatorID string, amountCents int64, message string) (string, error) {
+	var creatorUserID string
+	err := tx.QueryRowContext(ctx, `
 		SELECT user_id::text FROM performer_profiles
 		WHERE (id::text = $1 OR user_id::text = $1) AND status = 'active'
 		FOR UPDATE
@@ -100,10 +161,21 @@ func (r *ADFinanceRepository) SendTip(ctx context.Context, senderID string, crea
 	`, senderID, -amountCents, tipID, message, creatorUserID, amountCents); err != nil {
 		return "", err
 	}
-	return tipID, tx.Commit()
+	return tipID, nil
 }
 
-// RequestWithdrawal atomically checks cleared balance, deducts it, and creates a withdrawal record
+func (r *ADFinanceRepository) GetTipSenderName(ctx context.Context, senderID string) (string, error) {
+	var name string
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(NULLIF(pp.display_name, ''), NULLIF(u.username, ''), 'Viewer')
+		FROM users u
+		LEFT JOIN performer_profiles pp ON pp.user_id = u.id
+		WHERE u.id = $1
+	`, senderID).Scan(&name)
+	return name, err
+}
+
+// RequestWithdrawal reserves cleared funds and creates a payout request atomically.
 func (r *ADFinanceRepository) RequestWithdrawal(ctx context.Context, withdrawal *models.ADWithdrawal) error {
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -111,20 +183,27 @@ func (r *ADFinanceRepository) RequestWithdrawal(ctx context.Context, withdrawal 
 	}
 	defer tx.Rollback()
 
-	// 1. Lock the wallet row to prevent race conditions
-	var pendingBalance int64
-	err = tx.QueryRowContext(ctx, `SELECT pending_balance_cents FROM ad_wallets WHERE user_id = $1 FOR UPDATE`, withdrawal.UserID).Scan(&pendingBalance)
+	var payoutMethodExists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM ad_payout_methods WHERE id = $1 AND user_id = $2)
+	`, withdrawal.PayoutMethodID, withdrawal.UserID).Scan(&payoutMethodExists); err != nil {
+		return err
+	}
+	if !payoutMethodExists {
+		return errors.New("payout method not found")
+	}
+
+	var availableBalance int64
+	err = tx.QueryRowContext(ctx, `SELECT available_balance_cents FROM ad_wallets WHERE user_id = $1 FOR UPDATE`, withdrawal.UserID).Scan(&availableBalance)
 	if err != nil {
 		return errors.New("wallet not found")
 	}
 
-	// 2. Validate sufficient cleared/pending funds
-	if pendingBalance < withdrawal.AmountCents {
+	if availableBalance < withdrawal.AmountCents {
 		return errors.New("insufficient cleared funds for payout")
 	}
 
-	// 3. Deduct from wallet's pending/cleared balance (reserving it)
-	_, err = tx.ExecContext(ctx, `UPDATE ad_wallets SET pending_balance_cents = pending_balance_cents - $1 WHERE user_id = $2`, withdrawal.AmountCents, withdrawal.UserID)
+	_, err = tx.ExecContext(ctx, `UPDATE ad_wallets SET available_balance_cents = available_balance_cents - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`, withdrawal.AmountCents, withdrawal.UserID)
 	if err != nil {
 		return err
 	}
@@ -155,13 +234,182 @@ func (r *ADFinanceRepository) RequestWithdrawal(ctx context.Context, withdrawal 
 }
 
 // AddPayoutMethod securely stores a creator's withdrawal destination
-func (r *ADFinanceRepository) AddPayoutMethod(ctx context.Context, methodID string, userID string, provider string, accountNumber string, accountName string) error {
-	query := `
-		INSERT INTO ad_payout_methods (id, user_id, provider, account_number, account_name) 
-		VALUES ($1, $2, $3, $4, $5)
-	`
-	_, err := r.DB.ExecContext(ctx, query, methodID, userID, provider, accountNumber, accountName)
+func (r *ADFinanceRepository) AddPayoutMethodWithBank(ctx context.Context, methodID, userID, provider, accountNumber, accountName, bankCode string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO ad_payout_methods (id, user_id, provider, account_number, account_name, bank_code)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, methodID, userID, provider, accountNumber, accountName, bankCode)
 	return err
+}
+
+func (r *ADFinanceRepository) GetPayoutMethod(ctx context.Context, userID, methodID string) (*ADPayoutMethod, error) {
+	var method ADPayoutMethod
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id::text, user_id::text, provider, account_number, COALESCE(account_name, ''), COALESCE(bank_code, '')
+		FROM ad_payout_methods WHERE id = $1 AND user_id = $2
+	`, methodID, userID).Scan(
+		&method.ID, &method.UserID, &method.Provider, &method.AccountNumber, &method.AccountName, &method.BankCode,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &method, nil
+}
+
+func (r *ADFinanceRepository) SetWithdrawalProvider(ctx context.Context, withdrawalID, provider, providerReference, conversationID string) error {
+	result, err := r.DB.ExecContext(ctx, `
+		UPDATE ad_withdrawals SET status = 'processing', provider = $2,
+			provider_reference = $3, provider_conversation_id = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status = 'requested'
+	`, withdrawalID, provider, providerReference, conversationID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("withdrawal is no longer awaiting provider submission")
+	}
+	return nil
+}
+
+func (r *ADFinanceRepository) FailWithdrawal(ctx context.Context, withdrawalID, reason string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var userID string
+	var amount int64
+	err = tx.QueryRowContext(ctx, `
+		UPDATE ad_withdrawals SET status = 'failed', failure_reason = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status IN ('requested', 'processing')
+		RETURNING user_id::text, amount_cents
+	`, withdrawalID, reason).Scan(&userID, &amount)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ad_wallets SET available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $2
+	`, amount, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
+		VALUES ($1, $2, 'withdrawal_reversal', $3, 'Failed payout returned to cleared earnings')
+	`, userID, amount, withdrawalID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *ADFinanceRepository) CompleteWithdrawal(ctx context.Context, provider, reference, conversationID string, paid bool, reason string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	status := "paid"
+	if !paid {
+		status = "failed"
+	}
+	var withdrawalID, userID string
+	var amount int64
+	err = tx.QueryRowContext(ctx, `
+		UPDATE ad_withdrawals SET status = $4, failure_reason = NULLIF($5, ''), updated_at = CURRENT_TIMESTAMP
+		WHERE provider = $1 AND status = 'processing'
+		  AND (($2 <> '' AND provider_reference = $2) OR ($3 <> '' AND provider_conversation_id = $3))
+		RETURNING id::text, user_id::text, amount_cents
+	`, provider, reference, conversationID, status, reason).Scan(&withdrawalID, &userID, &amount)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !paid {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE ad_wallets SET available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = $2
+		`, amount, userID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
+			VALUES ($1, $2, 'withdrawal_reversal', $3, 'Failed payout returned to cleared earnings')
+		`, userID, amount, withdrawalID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *ADFinanceRepository) GetPendingEarningsClearance(ctx context.Context) ([]map[string]interface{}, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT w.user_id::text, COALESCE(NULLIF(pp.display_name, ''), u.username, 'Creator'),
+			w.pending_balance_cents
+		FROM ad_wallets w
+		JOIN users u ON u.id = w.user_id
+		JOIN performer_profiles pp ON pp.user_id = w.user_id AND pp.status = 'active'
+		WHERE w.pending_balance_cents > 0
+		ORDER BY w.pending_balance_cents DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	results := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		var userID, name string
+		var pending int64
+		if err := rows.Scan(&userID, &name, &pending); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"user_id": userID, "creator_name": name, "pending_cents": pending,
+		})
+	}
+	return results, rows.Err()
+}
+
+func (r *ADFinanceRepository) ClearCreatorEarnings(ctx context.Context, userID, adminID, reason string, amount int64) error {
+	if amount <= 0 || strings.TrimSpace(reason) == "" {
+		return errors.New("a positive amount and clearance reason are required")
+	}
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var pending int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT w.pending_balance_cents FROM ad_wallets w
+		JOIN performer_profiles pp ON pp.user_id = w.user_id AND pp.status = 'active'
+		WHERE w.user_id = $1 FOR UPDATE OF w
+	`, userID).Scan(&pending); err != nil {
+		return err
+	}
+	if amount > pending {
+		return errors.New("clearance amount exceeds pending creator earnings")
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ad_wallets SET pending_balance_cents = pending_balance_cents - $1,
+			available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $2
+	`, amount, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ad_earnings_clearances (user_id, admin_id, amount_cents, reason)
+		VALUES ($1, $2, $3, $4)
+	`, userID, adminID, amount, strings.TrimSpace(reason)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GetEarnings fetches the creator's earnings summary from their wallet
@@ -185,7 +433,8 @@ func (r *ADFinanceRepository) GetEarnings(ctx context.Context, userID string) (m
 // GetWithdrawals fetches the creator's withdrawal request history
 func (r *ADFinanceRepository) GetWithdrawals(ctx context.Context, userID string) ([]map[string]interface{}, error) {
 	query := `
-		SELECT id, amount_cents, status, created_at 
+		SELECT id::text, amount_cents, status, created_at, provider,
+			COALESCE(failure_reason, ''), COALESCE(provider_reference, '')
 		FROM ad_withdrawals 
 		WHERE user_id = $1 
 		ORDER BY created_at DESC LIMIT 50
@@ -198,21 +447,20 @@ func (r *ADFinanceRepository) GetWithdrawals(ctx context.Context, userID string)
 
 	var withdrawals []map[string]interface{}
 	for rows.Next() {
-		var id, status string
+		var id, status, provider, failureReason, providerReference string
 		var amount int64
 		var createdAt time.Time
-		if err := rows.Scan(&id, &amount, &status, &createdAt); err == nil {
-			withdrawals = append(withdrawals, map[string]interface{}{
-				"id":           id,
-				"amount_cents": amount,
-				"status":       status,
-				"created_at":   createdAt,
-			})
+		if err := rows.Scan(&id, &amount, &status, &createdAt, &provider, &failureReason, &providerReference); err != nil {
+			return nil, err
 		}
+		withdrawals = append(withdrawals, map[string]interface{}{
+			"id": id, "amount_cents": amount, "status": status, "created_at": createdAt,
+			"provider": provider, "provider_reference": providerReference, "failure_reason": failureReason,
+		})
 	}
 
 	if withdrawals == nil {
 		withdrawals = []map[string]interface{}{}
 	}
-	return withdrawals, nil
+	return withdrawals, rows.Err()
 }

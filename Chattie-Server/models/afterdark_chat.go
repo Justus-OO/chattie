@@ -17,6 +17,10 @@ type ADConversationSummary struct {
 	LastMessageAt  time.Time         `json:"last_message_at"`
 	UnreadCount    int               `json:"unread_count"`
 	HasAccess      bool              `json:"has_access"`
+	DMControl      string            `json:"dm_control"`
+	ChatPriceCents int64             `json:"chat_price_cents"`
+	BlockedByMe    bool              `json:"blocked_by_me"`
+	BlockedMe      bool              `json:"blocked_me"`
 }
 
 type ADChatParticipant struct {

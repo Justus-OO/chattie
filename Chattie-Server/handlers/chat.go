@@ -457,6 +457,14 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 
 			if partnerID != "" {
 				go repo.MarkMessagesAsRead(c.UserID, partnerID)
+				receiptsEnabled, err := repo.ReadReceiptsEnabled(c.UserID)
+				if err != nil {
+					log.Printf("[CHAT] Could not load read-receipt preference for %s: %v", c.UserID, err)
+					continue
+				}
+				if !receiptsEnabled {
+					continue
+				}
 
 				ActionLogQueue <- models.ActionLog{
 					UserID:     c.UserID,

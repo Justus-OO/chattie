@@ -95,16 +95,6 @@ func (h *ADSettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Settings saved"})
 }
 
-// PUT /api/afterdark/me/settings/security
-func (h *ADSettingsHandler) UpdateSecuritySettings(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
-	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	http.Error(w, "Two-factor authentication is not supported by the current login flow", http.StatusNotImplemented)
-}
-
 // POST /api/afterdark/me/data-export
 func (h *ADSettingsHandler) RequestDataExport(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)

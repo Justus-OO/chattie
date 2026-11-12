@@ -4,6 +4,9 @@ import (
 	"chattie-backend/middlewares"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -37,17 +40,34 @@ func (h *ADDiscoveryHandler) GetDirectory(w http.ResponseWriter, r *http.Request
 
 	verifiedOnly, _ := strconv.ParseBool(r.URL.Query().Get("verified_only"))
 	onlineOnly, _ := strconv.ParseBool(r.URL.Query().Get("online_only"))
+	minPriceCents, err := parseDirectoryPrice(r.URL.Query().Get("min_price_cents"))
+	if err != nil {
+		http.Error(w, "Invalid minimum subscription price", http.StatusBadRequest)
+		return
+	}
+	maxPriceCents, err := parseDirectoryPrice(r.URL.Query().Get("max_price_cents"))
+	if err != nil {
+		http.Error(w, "Invalid maximum subscription price", http.StatusBadRequest)
+		return
+	}
 	profiles, total, err := h.Repo.GetDirectory(
 		r.Context(),
 		query,
 		r.URL.Query().Get("location"),
 		verifiedOnly,
 		onlineOnly,
+		minPriceCents,
+		maxPriceCents,
 		r.URL.Query().Get("sort"),
 		limit,
 		offset,
 	)
 	if err != nil {
+		if errors.Is(err, repository.ErrInvalidDirectoryPriceRange) {
+			http.Error(w, "Minimum price cannot exceed maximum price", http.StatusBadRequest)
+			return
+		}
+		log.Printf("[AFTER DARK DISCOVERY] Directory query failed: %v", err)
 		http.Error(w, "Failed to fetch directory", http.StatusInternalServerError)
 		return
 	}
@@ -60,6 +80,28 @@ func (h *ADDiscoveryHandler) GetDirectory(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func parseDirectoryPrice(value string) (*int64, error) {
+	if value == "" {
+		return nil, nil
+	}
+	price, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || price < 0 {
+		return nil, fmt.Errorf("invalid price")
+	}
+	return &price, nil
+}
+
+func parseFeedCreatorID(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	creatorID, err := uuid.Parse(value)
+	if err != nil {
+		return "", err
+	}
+	return creatorID.String(), nil
+}
+
 // GET /api/afterdark/feed
 func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
@@ -68,6 +110,14 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	creatorID := r.URL.Query().Get("creator_id")
+	if creatorID != "" {
+		parsedCreatorID, err := parseFeedCreatorID(creatorID)
+		if err != nil {
+			http.Error(w, "Invalid creator ID", http.StatusBadRequest)
+			return
+		}
+		creatorID = parsedCreatorID
+	}
 	searchQuery := r.URL.Query().Get("q")
 	mediaType := r.URL.Query().Get("media_type")
 	accessType := r.URL.Query().Get("access")
@@ -83,6 +133,7 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 
 	posts, err := h.Repo.GetPublicFeed(r.Context(), userID, creatorID, searchQuery, mediaType, accessType, limit, offset)
 	if err != nil {
+		log.Printf("[AFTER DARK DISCOVERY] Feed query failed for user %s (creator %q): %v", userID, creatorID, err)
 		http.Error(w, "Failed to fetch feed", http.StatusInternalServerError)
 		return
 	}
@@ -97,6 +148,7 @@ func (h *ADDiscoveryHandler) GetCreatorProfile(w http.ResponseWriter, r *http.Re
 
 	profile, err := h.Repo.GetPublicCreatorProfile(r.Context(), creatorID)
 	if err != nil {
+		log.Printf("[AFTER DARK DISCOVERY] Creator profile query failed for %q: %v", creatorID, err)
 		http.Error(w, "Failed to fetch creator profile", http.StatusInternalServerError)
 		return
 	}

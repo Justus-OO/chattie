@@ -25,13 +25,13 @@ func NewRepository(db *sql.DB) *Repository {
 // CreateUser safely inserts a new user and returns the generated UUID and timestamp
 func (r *Repository) CreateUser(user *models.User) error {
 	query := `
-       INSERT INTO users (username, email, password_hash, role) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING id, created_at`
+       INSERT INTO users (username, email, password_hash, role, provider) 
+       VALUES ($1, $2, $3, $4, $5) 
+       RETURNING id, created_at, token_version`
 
 	// Execute the query and map the returned PostgreSQL ID and Timestamp back to the Go struct
-	err := r.DB.QueryRow(query, user.Username, user.Email, user.Password, user.Role).
-		Scan(&user.ID, &user.CreatedAt)
+	err := r.DB.QueryRow(query, user.Username, user.Email, user.Password, user.Role, user.Provider).
+		Scan(&user.ID, &user.CreatedAt, &user.TokenVersion)
 
 	return err
 }
@@ -39,13 +39,13 @@ func (r *Repository) CreateUser(user *models.User) error {
 // GetUserByEmail fetches a user for login authentication
 func (r *Repository) GetUserByEmail(email string) (*models.User, error) {
 	query := `
-       SELECT id, username, email, password_hash, role, created_at 
+       SELECT id, username, email, password_hash, role, created_at, provider, token_version
        FROM users 
        WHERE email = $1`
 
 	user := &models.User{}
 	err := r.DB.QueryRow(query, email).
-		Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.Role, &user.CreatedAt)
+		Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.Role, &user.CreatedAt, &user.Provider, &user.TokenVersion)
 
 	if err != nil {
 		if err == sql.ErrNoRows {

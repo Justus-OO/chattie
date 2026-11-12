@@ -85,7 +85,7 @@ func (r *ADSettingsRepository) UpsertCreatorSettings(ctx context.Context, settin
 		) VALUES (
 			$1, COALESCE($2, TRUE), COALESCE($3, ''), COALESCE($4, FALSE),
 			COALESCE($5::jsonb, '[]'::jsonb), COALESCE($6, FALSE), COALESCE($7, TRUE),
-			COALESCE($8::jsonb, '{"subs":true,"tips":true,"messages":false,"marketing":false}'::jsonb),
+			COALESCE($8::jsonb, '{"subs":true,"tips":true,"sales":true,"likes":false,"messages":false,"marketing":false}'::jsonb),
 			COALESCE($9::jsonb, '{"subs":true,"tips":true,"messages":true,"mentions":true}'::jsonb),
 			COALESCE($10, 0), COALESCE($11, FALSE), COALESCE($12, 0), CURRENT_TIMESTAMP
 		)
@@ -161,7 +161,7 @@ func (r *ADSettingsRepository) GetSettings(ctx context.Context, userID string) (
 			COALESCE(s.watermark_text, ''),
 			COALESCE(s.show_explicit_content, FALSE),
 			COALESCE(s.discoverable, TRUE),
-			COALESCE(s.notification_email, '{"subs":true,"tips":true,"messages":false,"marketing":false}'::jsonb)::text,
+			COALESCE(s.notification_email, '{"subs":true,"tips":true,"sales":true,"likes":false,"messages":false,"marketing":false}'::jsonb)::text,
 			COALESCE(s.notification_push, '{"subs":true,"tips":true,"messages":true,"mentions":true}'::jsonb)::text,
 			COALESCE(s.default_ppv_cents, 0),
 			COALESCE(s.auto_withdraw, FALSE),
@@ -246,7 +246,7 @@ func (r *ADFinanceRepository) GetTransactionHistory(ctx context.Context, userID 
 
 // GetPayoutMethods fetches a creator's saved withdrawal destinations
 func (r *ADFinanceRepository) GetPayoutMethods(ctx context.Context, userID string) ([]map[string]interface{}, error) {
-	query := `SELECT id, provider, account_number, account_name, is_default FROM ad_payout_methods WHERE user_id = $1`
+	query := `SELECT id::text, provider, account_number, account_name, is_default, COALESCE(bank_code, '') FROM ad_payout_methods WHERE user_id = $1`
 	rows, err := r.DB.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, err
@@ -255,28 +255,24 @@ func (r *ADFinanceRepository) GetPayoutMethods(ctx context.Context, userID strin
 
 	var methods []map[string]interface{}
 	for rows.Next() {
-		var id, provider, accNum, accName string
+		var id, provider, accNum, accName, bankCode string
 		var isDefault bool
 
-		if err := rows.Scan(&id, &provider, &accNum, &accName, &isDefault); err == nil {
-			// Mask the account number for security (e.g., *******1234)
-			maskedAcc := accNum
-			if len(accNum) > 4 {
-				maskedAcc = "****" + accNum[len(accNum)-4:]
-			}
-
-			methods = append(methods, map[string]interface{}{
-				"id":             id,
-				"provider":       provider,
-				"account_number": maskedAcc,
-				"account_name":   accName,
-				"is_default":     isDefault,
-			})
+		if err := rows.Scan(&id, &provider, &accNum, &accName, &isDefault, &bankCode); err != nil {
+			return nil, err
 		}
+		maskedAcc := accNum
+		if len(accNum) > 4 {
+			maskedAcc = "****" + accNum[len(accNum)-4:]
+		}
+		methods = append(methods, map[string]interface{}{
+			"id": id, "provider": provider, "account_number": maskedAcc,
+			"account_name": accName, "bank_code": bankCode, "is_default": isDefault,
+		})
 	}
 
 	if methods == nil {
 		methods = []map[string]interface{}{}
 	}
-	return methods, nil
+	return methods, rows.Err()
 }

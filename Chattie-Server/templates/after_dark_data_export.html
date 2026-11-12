@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; background: #080808; color: #eee; padding: 32px; }
+    h1 { border-bottom: 2px solid #d6a900; padding-bottom: 12px; }
+    h2 { color: #e6bb20; margin-top: 28px; }
+    .meta, .muted { color: #999; font-size: 12px; }
+    .card { border: 1px solid #444; background: #151515; padding: 16px; margin: 12px 0; }
+    .item { border-top: 1px solid #333; padding: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>After Dark data archive</h1>
+  <p class="meta">Account: {{.UserID}} | Exported: {{.ExportDate}}</p>
+  <p class="muted">This archive contains After Dark account data only; it does not include Chattie profile, match, or message data.</p>
+
+  <h2>Creator profile</h2>
+  <div class="card">
+    <p><strong>Display name:</strong> {{.Profile.DisplayName}}</p>
+    <p><strong>Username:</strong> {{.Profile.Username}}</p>
+    <p><strong>Status:</strong> {{.Profile.Status}}</p>
+    <p><strong>Bio:</strong> {{.Profile.Bio}}</p>
+    <p><strong>Website:</strong> {{.Profile.Website}}</p>
+    <p><strong>Location:</strong> {{.Profile.Location}}</p>
+  </div>
+
+  <h2>Viewing and notification preferences</h2>
+  <div class="card">
+    <p><strong>Show explicit content:</strong> {{.ShowExplicit}}</p>
+    <p><strong>Discoverable:</strong> {{.Discoverable}}</p>
+    <p><strong>Email notifications:</strong> {{.NotificationEmail}}</p>
+    <p><strong>Push notifications:</strong> {{.NotificationPush}}</p>
+  </div>
+
+  <h2>Payments ({{.PaymentCount}})</h2>
+  <div class="card">
+    {{range .Payments}}
+    <div class="item">
+      <strong>{{.PaymentType}}</strong> — {{.Currency}} {{printf "%.2f" .Amount}} — {{.Status}}<br>
+      <span class="muted">Reference: {{.Reference}} | {{.CreatedAt}}</span>
+    </div>
+    {{else}}
+    <p class="muted">No After Dark payments were found.</p>
+    {{end}}
+  </div>
+
+  <h2>Wallet ledger ({{.LedgerCount}})</h2>
+  <div class="card">
+    {{range .Ledger}}
+    <div class="item">
+      <strong>{{.Type}}</strong> — {{printf "%.2f" .Amount}}<br>
+      <span class="muted">{{.Description}} | Reference: {{.Reference}} | {{.CreatedAt}}</span>
+    </div>
+    {{else}}
+    <p class="muted">No After Dark wallet activity was found.</p>
+    {{end}}
+  </div>
+</body>
+</html>

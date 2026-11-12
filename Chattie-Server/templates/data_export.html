@@ -26,10 +26,10 @@
 <h2>1. Profile & Settings</h2>
 <div class="card">
     <div class="grid">
-        <div><div class="label">Global Mode</div><div class="val">{{.Settings.ShowMe}}</div></div>
+        <div><div class="label">Global Mode</div><div class="val">{{.Settings.IsGlobal}}</div></div>
         <div><div class="label">Show Me</div><div class="val">{{.Settings.ShowMe}}</div></div>
-        <div><div class="label">Incognito Browsing</div><div class="val">{{.Settings.ShowMe}}</div></div>
-        <div><div class="label">Read Receipts</div><div class="val">{{.Settings.ShowMe}}</div></div>
+        <div><div class="label">Incognito Browsing</div><div class="val">{{index .Settings.Privacy "incognito"}}</div></div>
+        <div><div class="label">Read Receipts</div><div class="val">{{index .Settings.Privacy "readReceipts"}}</div></div>
     </div>
 </div>
 

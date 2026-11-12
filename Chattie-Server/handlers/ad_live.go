@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -21,14 +22,15 @@ import (
 )
 
 type ADLiveHandler struct {
-	Repo       *repository.ADLiveRepository
-	RoomClient *lksdk.RoomServiceClient
-	APIKey     string
-	APISecret  string
+	Repo        *repository.ADLiveRepository
+	FinanceRepo *repository.ADFinanceRepository
+	RoomClient  *lksdk.RoomServiceClient
+	APIKey      string
+	APISecret   string
 }
 
 // NewADLiveHandler initializes the handler and the LiveKit RoomServiceClient
-func NewADLiveHandler(repo *repository.ADLiveRepository) *ADLiveHandler {
+func NewADLiveHandler(repo *repository.ADLiveRepository, financeRepo *repository.ADFinanceRepository) *ADLiveHandler {
 	apiKey := os.Getenv("LIVEKIT_API_KEY")
 	apiSecret := os.Getenv("LIVEKIT_API_SECRET")
 	livekitURL := os.Getenv("LIVEKIT_URL") // e.g., "https://your-project.livekit.cloud"
@@ -39,10 +41,11 @@ func NewADLiveHandler(repo *repository.ADLiveRepository) *ADLiveHandler {
 	}
 
 	return &ADLiveHandler{
-		Repo:       repo,
-		RoomClient: roomClient,
-		APIKey:     apiKey,
-		APISecret:  apiSecret,
+		Repo:        repo,
+		FinanceRepo: financeRepo,
+		RoomClient:  roomClient,
+		APIKey:      apiKey,
+		APISecret:   apiSecret,
 	}
 }
 
@@ -107,6 +110,7 @@ func (h *ADLiveHandler) StartLive(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"session_id": session.ID,
+		"host_id":    creatorID,
 		"sfu_token":  hostToken,
 	})
 }
@@ -120,6 +124,10 @@ func (h *ADLiveHandler) JoinLive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := chi.URLParam(r, "sessionId")
+	if _, err := uuid.Parse(sessionID); err != nil {
+		http.Error(w, "Invalid live session ID", http.StatusBadRequest)
+		return
+	}
 	if h.APIKey == "" || h.APISecret == "" {
 		http.Error(w, "Live streaming is not configured", http.StatusServiceUnavailable)
 		return
@@ -127,6 +135,7 @@ func (h *ADLiveHandler) JoinLive(w http.ResponseWriter, r *http.Request) {
 
 	hasAccess, err := h.Repo.VerifyAccess(r.Context(), viewerID, sessionID)
 	if err != nil {
+		log.Printf("[AFTER DARK LIVE] Failed to verify join access for viewer %s, session %s: %v", viewerID, sessionID, err)
 		http.Error(w, "Failed to verify access", http.StatusInternalServerError)
 		return
 	}
@@ -154,6 +163,7 @@ func (h *ADLiveHandler) JoinLive(w http.ResponseWriter, r *http.Request) {
 		SetValidFor(time.Hour * 4).
 		ToJWT()
 	if err != nil {
+		log.Printf("[AFTER DARK LIVE] Failed to generate viewer token for viewer %s, session %s: %v", viewerID, sessionID, err)
 		http.Error(w, "Failed to generate LiveKit token", http.StatusInternalServerError)
 		return
 	}
@@ -163,6 +173,149 @@ func (h *ADLiveHandler) JoinLive(w http.ResponseWriter, r *http.Request) {
 		"status":    "joined",
 		"sfu_token": viewerToken,
 	})
+}
+
+// POST /api/afterdark/live-sessions/{sessionId}/tips
+func (h *ADLiveHandler) TipLiveSession(w http.ResponseWriter, r *http.Request) {
+	senderID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || senderID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if h.RoomClient == nil || h.FinanceRepo == nil {
+		http.Error(w, "Live tipping is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		AmountCents int64  `json:"amount_cents"`
+		Message     string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AmountCents <= 0 {
+		http.Error(w, "A valid tip amount is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Message) > 120 {
+		http.Error(w, "Tip message is too long", http.StatusBadRequest)
+		return
+	}
+
+	sessionID := chi.URLParam(r, "sessionId")
+	hasAccess, err := h.Repo.VerifyAccess(r.Context(), senderID, sessionID)
+	if err != nil {
+		http.Error(w, "Failed to verify live session access", http.StatusInternalServerError)
+		return
+	}
+	if !hasAccess {
+		http.Error(w, "Payment or active subscription required to tip in this live session", http.StatusForbidden)
+		return
+	}
+
+	senderName, err := h.FinanceRepo.GetTipSenderName(r.Context(), senderID)
+	if err != nil {
+		http.Error(w, "Failed to load your display name", http.StatusInternalServerError)
+		return
+	}
+
+	tipID, err := h.FinanceRepo.SendLiveTip(r.Context(), senderID, sessionID, req.AmountCents, req.Message)
+	if err != nil {
+		switch err.Error() {
+		case "live session not found":
+			http.Error(w, "Live session not found", http.StatusNotFound)
+		case "live session access required":
+			http.Error(w, "Payment or active subscription required to tip in this live session", http.StatusForbidden)
+		case "creator not found or unavailable":
+			http.Error(w, "Creator not found or unavailable", http.StatusNotFound)
+		case "insufficient funds":
+			http.Error(w, "Insufficient wallet funds", http.StatusPaymentRequired)
+		case "you cannot tip yourself":
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			http.Error(w, "Failed to send live tip", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	notification := models.ADLiveTipNotification{
+		Type:        "tip",
+		ID:          tipID,
+		SenderID:    senderID,
+		SenderName:  senderName,
+		AmountCents: req.AmountCents,
+		Message:     req.Message,
+	}
+	payload, err := json.Marshal(notification)
+	if err != nil {
+		log.Printf("Unable to encode live tip notification for tip %s: %v", tipID, err)
+	}
+	alertPublished := false
+	if err == nil {
+		topic := "live-tip"
+		_, err = h.RoomClient.SendData(r.Context(), &livekit.SendDataRequest{
+			Room:  sessionID,
+			Data:  payload,
+			Kind:  livekit.DataPacket_RELIABLE,
+			Topic: &topic,
+		})
+		if err != nil {
+			log.Printf("Live tip %s was charged but its room alert could not be published: %v", tipID, err)
+		} else {
+			alertPublished = true
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":                   tipID,
+		"status":               "completed",
+		"amount_cents":         req.AmountCents,
+		"live_alert_published": alertPublished,
+	})
+}
+
+// POST /api/afterdark/live-sessions/{sessionId}/host-token
+func (h *ADLiveHandler) RefreshHostToken(w http.ResponseWriter, r *http.Request) {
+	creatorID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || creatorID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if h.APIKey == "" || h.APISecret == "" {
+		http.Error(w, "Live streaming is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	sessionID := chi.URLParam(r, "sessionId")
+	isCreator, err := h.Repo.IsLiveSessionCreator(r.Context(), sessionID, creatorID)
+	if err != nil {
+		http.Error(w, "Failed to verify live session ownership", http.StatusInternalServerError)
+		return
+	}
+	if !isCreator {
+		http.Error(w, "Live session not found", http.StatusNotFound)
+		return
+	}
+
+	t := true
+	token, err := auth.NewAccessToken(h.APIKey, h.APISecret).
+		AddGrant(&auth.VideoGrant{
+			RoomJoin:       true,
+			Room:           sessionID,
+			CanPublish:     &t,
+			CanSubscribe:   &t,
+			CanPublishData: &t,
+		}).
+		SetIdentity(creatorID).
+		SetValidFor(time.Hour * 4).
+		ToJWT()
+	if err != nil {
+		http.Error(w, "Failed to generate LiveKit token", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"sfu_token": token})
 }
 
 // GET /api/afterdark/live-sessions

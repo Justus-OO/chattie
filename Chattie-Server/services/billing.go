@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -24,36 +23,72 @@ type PaymentGateway interface {
 	VerifyPayment(ctx context.Context, sessionID string) (bool, error)
 }
 
+type PaymentVerification struct {
+	Paid          bool
+	AmountMinor   int64
+	Currency      string
+	UserID        string
+	PaymentMethod *PaymentMethodInfo
+}
+
+type PaymentMethodInfo struct {
+	ProviderMethodID string
+	CustomerID       string
+	Authorization    string
+	Brand            string
+	Last4            string
+	ExpMonth         int
+	ExpYear          int
+	Bank             string
+}
+
+type PaymentDetailsVerifier interface {
+	VerifyPaymentDetails(ctx context.Context, sessionID string) (*PaymentVerification, error)
+}
+
 // BillingRouter routes incoming checkout requests to the optimal gateway by geography
 type BillingRouter struct {
 	Stripe   PaymentGateway
 	Paystack PaymentGateway
+	Mpesa    *MpesaGateway
 }
 
-func NewBillingRouter(stripe PaymentGateway, paystack PaymentGateway) *BillingRouter {
+func NewBillingRouter(stripe PaymentGateway, paystack PaymentGateway, mpesa ...*MpesaGateway) *BillingRouter {
 	return &BillingRouter{
 		Stripe:   stripe,
 		Paystack: paystack,
+		Mpesa:    firstMpesaGateway(mpesa),
 	}
+}
+
+func firstMpesaGateway(gateways []*MpesaGateway) *MpesaGateway {
+	if len(gateways) == 0 {
+		return nil
+	}
+	return gateways[0]
 }
 
 // Route determines gateway choice using Cloudflare/proxy headers or IP geolocation
 func (r *BillingRouter) Route(req *http.Request) PaymentGateway {
+	if forced := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("gateway"))); forced != "" {
+		switch forced {
+		case "stripe":
+			return r.Stripe
+		case "paystack":
+			return r.Paystack
+		case "mpesa":
+			if r.Mpesa != nil {
+				return r.Mpesa
+			}
+		}
+	}
+
 	// 1. Direct Edge Header (Cloudflare delivers ISO 3166-1 alpha-2)
 	countryCode := strings.ToUpper(strings.TrimSpace(req.Header.Get("CF-IPCountry")))
 
 	// 2. Generic Reverse Proxy Header Fallback
 	if countryCode == "" {
 		countryCode = strings.ToUpper(strings.TrimSpace(req.Header.Get("X-Country-Code")))
-	}
-
-	// 3. Optional forced override via query parameter for testing/QA (e.g. ?gateway=paystack)
-	if env := os.Getenv("APP_ENV"); env != "production" {
-		if forced := strings.ToLower(req.URL.Query().Get("gateway")); forced == "paystack" {
-			return r.Paystack
-		} else if forced == "stripe" {
-			return r.Stripe
-		}
 	}
 
 	// African regions natively served by Paystack (Card, M-Pesa, Mobile Money, EFT)

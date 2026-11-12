@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/MicahParks/keyfunc/v2"
+	"github.com/google/uuid"
 
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
@@ -27,6 +30,8 @@ var jwtSecret = []byte("super_secret_chattie_key_do_not_leak")
 type AuthHandler struct {
 	Repo   *repository.Repository
 	Events *services.EventHandler
+	Email  *EmailHandler
+	SMS    *services.SMSClient
 }
 
 // NewAuthHandler creates a new handler with the injected dependencies
@@ -134,7 +139,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendAuthResponse(w, user)
+	if err := h.Repo.ProvisionAfterDarkViewer(r.Context(), user.ID); err != nil {
+		log.Printf("[AUTH] Failed to provision After Dark viewer profile for %s: %v", user.ID, err)
+	}
+
+	h.sendLoginOrChallenge(w, r, user)
 }
 
 // POST /api/settings/password
@@ -170,12 +179,22 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to update password", http.StatusInternalServerError)
 		return
 	}
-	if err := h.Repo.UpdatePasswordHash(r.Context(), userID, string(newHash)); err != nil {
+	version, err := h.Repo.UpdatePasswordAndRevokeOtherSessions(r.Context(), userID, string(newHash))
+	if err != nil {
 		http.Error(w, "Failed to update password", http.StatusInternalServerError)
 		return
 	}
+	role, _ := r.Context().Value(middlewares.RoleKey).(string)
+	if role == "" {
+		role = "client"
+	}
+	token, err := h.issueSessionToken(r, userID, role, version)
+	if err != nil {
+		http.Error(w, "Password updated, but session refresh failed. Please sign in again.", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated", "token": token})
 }
 
 // ============================================================================
@@ -299,13 +318,6 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 			return
 		}
 
-		// ---------------------------------------------------------
-		// NEW: Auto-provision the After Dark Viewer Profile
-		// ---------------------------------------------------------
-		if err := h.Repo.ProvisionAfterDarkViewer(r.Context(), user.ID); err != nil {
-			fmt.Println("WARNING: Failed to provision After Dark profile:", err)
-		}
-
 		detachedCtx := context.WithoutCancel(r.Context())
 		go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 			RecipientID:   user.ID,
@@ -313,7 +325,11 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 		})
 	}
 
-	h.sendAuthResponse(w, user)
+	if err := h.Repo.ProvisionAfterDarkViewer(r.Context(), user.ID); err != nil {
+		log.Printf("[AUTH] Failed to provision After Dark viewer profile for %s: %v", user.ID, err)
+	}
+
+	h.sendLoginOrChallenge(w, r, user)
 }
 
 // ============================================================================
@@ -321,15 +337,26 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 // ============================================================================
 
 // sendAuthResponse centralizes the JWT generation and JSON response
-func (h *AuthHandler) sendAuthResponse(w http.ResponseWriter, user *models.User) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": user.ID,
-		"role":    user.Role,
-		"exp":     time.Now().Add(time.Hour * 72).Unix(),
-	})
+func (h *AuthHandler) issueSessionToken(r *http.Request, userID, role string, tokenVersion int64) (string, error) {
+	sessionID := uuid.NewString()
+	expiresAt := time.Now().Add(72 * time.Hour)
+	ipAddress := services.ExtractClientIP(r)
+	if net.ParseIP(ipAddress) == nil {
+		ipAddress = ""
+	}
+	if err := h.Repo.CreateAuthSession(
+		r.Context(), sessionID, userID, tokenVersion, r.UserAgent(),
+		ipAddress, expiresAt,
+	); err != nil {
+		return "", err
+	}
+	return middlewares.GenerateAuthTokenWithSession(userID, role, tokenVersion, sessionID)
+}
 
-	tokenString, err := token.SignedString(jwtSecret)
+func (h *AuthHandler) sendAuthResponse(w http.ResponseWriter, r *http.Request, user *models.User) {
+	tokenString, err := h.issueSessionToken(r, user.ID, user.Role, user.TokenVersion)
 	if err != nil {
+		log.Printf("[AUTH] Failed to create login session for user %s: %v", user.ID, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Could not generate token"})
 		return

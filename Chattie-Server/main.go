@@ -93,7 +93,8 @@ func main() {
 	// Dynamic Billing Router
 	stripeGateway := services.NewStripeGateway()
 	paystackGateway := services.NewPaystackGateway()
-	billingRouter := services.NewBillingRouter(stripeGateway, paystackGateway)
+	mpesaGateway := services.NewMpesaGateway()
+	billingRouter := services.NewBillingRouter(stripeGateway, paystackGateway, mpesaGateway)
 
 	// Notification Engine & Event Handler
 	notifService := services.NewNotificationService(repo, emailClient, chatHub)
@@ -108,6 +109,8 @@ func main() {
 
 	cronWorker := workers.NewCronWorker(repo, notifService)
 	cronWorker.Start(context.Background())
+	adCreatorApplicationWorker := workers.NewADCreatorApplicationWorker(adPerformerRepo)
+	adCreatorApplicationWorker.Start(context.Background())
 
 	// =======================================================
 	// 5. INITIALIZE HTTP HANDLERS
@@ -116,13 +119,15 @@ func main() {
 	otpHandler := handlers.NewOTPHandler(repo, smsClient, emailHandler)
 	onboardingHandler := handlers.NewOnboardingHandler(repo, emailHandler, uploadService)
 	authHandler := handlers.NewAuthHandler(repo, eventHandler)
+	authHandler.Email = emailHandler
+	authHandler.SMS = smsClient
 
 	// Core Handlers
 	discoverHandler := handlers.NewDiscoverHandler(repo)
 	gridHandler := handlers.NewGridHandler(repo)
 	interactionHandler := handlers.NewInteractionHandler(repo, eventHandler)
 	roomHandler := handlers.NewRoomHandler(roomRepo, eventHandler)
-	notificationHandler := handlers.NewNotificationHandler(repo)
+	notificationHandler := handlers.NewNotificationHandler(repo, eventHandler.Push)
 
 	// Settings & Billing Handlers
 	billingHandler := handlers.NewBillingHandler(repo, billingRouter, eventHandler)
@@ -136,11 +141,12 @@ func main() {
 	adMediaHandler := handlers.NewADMediaHandler(adMediaRepo, uploadService)
 	adDiscoveryHandler := handlers.NewADDiscoveryHandler(adDiscoveryRepo)
 	adBillingHandler := handlers.NewADBillingHandler(adBillingRepo)
-	adInteractionsHandler := handlers.NewADInteractionsHandler(adInteractionsRepo)
-	adChatHandler := handlers.NewADChatHandler(adChatRepo, adMediaRepo, uploadService)
-	adFinanceHandler := handlers.NewADFinanceHandler(adFinanceRepo)
+	adInteractionsHandler := handlers.NewADInteractionsHandler(adInteractionsRepo, eventHandler)
+	adChatHandler := handlers.NewADChatHandler(adChatRepo, adMediaRepo, uploadService, chatHub, eventHandler)
+	adFinanceHandler := handlers.NewADFinanceHandler(adFinanceRepo, mpesaGateway, paystackGateway)
 	adSubscriptionHandler := handlers.NewADSubscriptionHandler(adSubscriptionRepo)
-	adLiveHandler := handlers.NewADLiveHandler(adLiveRepo)
+	adLiveHandler := handlers.NewADLiveHandler(adLiveRepo, adFinanceRepo)
+	adPaymentsHandler := handlers.NewADPaymentsHandler(adFinanceRepo, repo, eventHandler, paystackGateway, mpesaGateway, adLiveHandler.RoomClient)
 	adSettingsHandler := handlers.NewADSettingsHandler(adSettingsRepo)
 	// adMediaHandler := handlers.NewADMediaHandler(adMediaRepo, uploadService) // Ready for Phase 2 completion
 
@@ -173,13 +179,24 @@ func main() {
 	// Public API Routes
 	r.Post("/api/auth/register", authHandler.Register)
 	r.Post("/api/auth/login", authHandler.Login)
+	r.Post("/api/auth/login/verify", authHandler.VerifyLoginTwoFactor)
+	r.Post("/api/auth/password-reset/request", authHandler.RequestPasswordReset)
+	r.Post("/api/auth/password-reset/complete", authHandler.CompletePasswordReset)
 	r.Post("/api/auth/google", authHandler.GoogleSignIn)
 	r.Post("/api/auth/apple", authHandler.AppleSignIn)
 	r.Get("/ws", chatHandler.HandleWebSocket)
+	r.Post("/api/subscriptions/mpesa/callback", billingHandler.MpesaCallback)
+	r.Post("/api/afterdark/payments/mpesa/callback", adPaymentsHandler.MpesaCallback)
+	r.Post("/api/afterdark/payments/paystack/webhook", adPaymentsHandler.PaystackWebhook)
+	r.Post("/api/afterdark/payouts/mpesa/result", adFinanceHandler.MpesaB2CResult)
+	r.Post("/api/afterdark/payouts/mpesa/timeout", adFinanceHandler.MpesaB2CTimeout)
 
 	// Protected API Routes (Requires JWT Authentication)
 	r.Group(func(r chi.Router) {
-		r.Use(middlewares.AuthMiddleware)
+		r.Use(middlewares.AuthMiddlewareWithDB(db))
+		r.Get("/api/auth/two-factor", authHandler.GetTwoFactorSettings)
+		r.Post("/api/auth/two-factor/setup", authHandler.RequestTwoFactorChange)
+		r.Post("/api/auth/two-factor/verify", authHandler.VerifyTwoFactorChange)
 
 		// -----------------------------------------------------
 		// AFTER DARK (AD) ROUTES
@@ -187,6 +204,7 @@ func main() {
 		r.Route("/api/afterdark", func(r chi.Router) {
 			// Onboarding & Consents
 			r.Post("/me/creator-application", adPerformerHandler.SubmitApplication)
+			r.Get("/me/creator-application", adPerformerHandler.GetMyApplication)
 
 			// Creator Profile Management
 			r.Get("/me/creator-profile", adProfileHandler.GetMyPerformerProfile)
@@ -204,6 +222,8 @@ func main() {
 
 			r.Get("/wallet", adBillingHandler.GetWallet)
 			r.Post("/checkout-intents", adBillingHandler.UnlockPostWithWallet)
+			r.Post("/payments/checkout", adPaymentsHandler.CreateCheckout)
+			r.Get("/payments/{intentId}", adPaymentsHandler.GetPaymentStatus)
 			r.Get("/checkout-intents/{intentId}", adFinanceHandler.GetCheckoutIntent)
 
 			r.Post("/posts/{postId}/likes", adInteractionsHandler.ToggleLike)
@@ -216,6 +236,8 @@ func main() {
 			r.Post("/conversations/{conversationId}/attachments", adChatHandler.UploadAttachment)
 			r.Get("/conversations/{conversationId}/messages", adChatHandler.GetMessages)
 			r.Post("/conversations/{conversationId}/messages", adChatHandler.SendMessage)
+			r.Post("/conversations/{conversationId}/block", adChatHandler.SetConversationBlock)
+			r.Post("/conversations/{conversationId}/unlock", adChatHandler.UnlockChat)
 
 			r.Post("/wallet/deposits", adFinanceHandler.InitiateDeposit)
 			r.Post("/wallet/withdrawals", adFinanceHandler.RequestWithdrawal)
@@ -226,8 +248,10 @@ func main() {
 
 			r.Get("/live-sessions", adLiveHandler.GetLiveSessions)
 			r.Post("/live-sessions", adLiveHandler.StartLive)
+			r.Post("/live-sessions/{sessionId}/host-token", adLiveHandler.RefreshHostToken)
 			r.Post("/live-sessions/{sessionId}/leave", adLiveHandler.LeaveLive)
 			r.Post("/live-sessions/{sessionId}/join", adLiveHandler.JoinLive)
+			r.Post("/live-sessions/{sessionId}/tips", adLiveHandler.TipLiveSession)
 			r.Post("/live-sessions/{sessionId}/end", adLiveHandler.EndLive)
 			r.Post("/live-sessions/{sessionId}/guest-requests", adLiveHandler.RequestStage)
 			r.Post("/live-sessions/{sessionId}/guest-requests/{viewerId}/approve", adLiveHandler.ApproveGuest)
@@ -237,7 +261,6 @@ func main() {
 			r.Delete("/me/creator-pause", adSettingsHandler.ResumeCreator)
 			r.Delete("/me/creator-status", adSettingsHandler.DeactivateCreator)
 			r.Patch("/me/settings", adSettingsHandler.UpdateSettings)
-			r.Put("/me/settings/security", adSettingsHandler.UpdateSecuritySettings)
 			r.Post("/me/data-export", adSettingsHandler.RequestDataExport)
 
 			r.Get("/stories", adDiscoveryHandler.GetStories)
@@ -248,6 +271,7 @@ func main() {
 			r.Post("/creators/{creatorId}/follow", adDiscoveryHandler.ToggleFollow)
 			r.Post("/share-links", adDiscoveryHandler.CreateShareLink)
 			r.Post("/me/payout-methods", adFinanceHandler.AddPayoutMethod)
+			r.Get("/payout-methods/paystack/banks", adFinanceHandler.GetPaystackBanks)
 
 			r.Get("/me/settings", adSettingsHandler.GetSettings)
 			r.Get("/wallet/history", adFinanceHandler.GetTransactionHistory)
@@ -292,6 +316,8 @@ func main() {
 			r.Post("/verify", settingsHandler.VerifyProfile)
 			r.Post("/request-data", settingsHandler.RequestDataDownload)
 			r.Post("/terminate-sessions", settingsHandler.TerminateOtherSessions)
+			r.Get("/sessions", settingsHandler.GetActiveSessions)
+			r.Delete("/sessions/{sessionId}", settingsHandler.RevokeActiveSession)
 			r.Get("/blocked", settingsHandler.GetBlockedUsers)
 			r.Delete("/blocked/{id}", settingsHandler.UnblockUser)
 
@@ -320,6 +346,9 @@ func main() {
 			r.Patch("/read", notificationHandler.MarkAllRead)
 			r.Patch("/{id}/read", notificationHandler.MarkRead)
 			r.Delete("/{id}", notificationHandler.Delete)
+			r.Get("/push/vapid", notificationHandler.GetVAPIDPublicKey)
+			r.Post("/push/subscriptions", notificationHandler.SavePushSubscription)
+			r.Delete("/push/subscriptions", notificationHandler.DeletePushSubscription)
 		})
 
 		// Rooms Routes
@@ -342,6 +371,9 @@ func main() {
 			r.Post("/upgrade", billingHandler.UpgradeTier)
 			r.Get("/plans", billingHandler.GetPlans)
 			r.Get("/verify", billingHandler.VerifyPayment)
+			r.Get("/mpesa/status", billingHandler.MpesaPaymentStatus)
+			r.Get("/payment-methods", billingHandler.GetPaymentMethods)
+			r.Delete("/payment-methods/{id}", billingHandler.DeletePaymentMethod)
 			r.Post("/kyc", settingsHandler.VerifyIdentityKYC)
 			r.Post("/extras", extrasHandler.HandleUpgrade)
 		})
@@ -357,6 +389,9 @@ func main() {
 		// Admin Routes
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(middlewares.RequireRole("admin"))
+
+			r.Get("/afterdark/earnings-clearance", adFinanceHandler.GetPendingEarningsClearance)
+			r.Post("/afterdark/earnings-clearance/{userId}", adFinanceHandler.ClearCreatorEarnings)
 
 			r.Route("/media", func(r chi.Router) {
 				r.Get("/vaults", adminMediaHandler.GetVaults)

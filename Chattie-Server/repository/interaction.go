@@ -145,20 +145,11 @@ func (r *Repository) ProcessAction(ctx context.Context, userID string, req model
 }
 
 func (r *Repository) GetFullProfile(ctx context.Context, currentUserID, targetUserID string) (*models.DiscoverProfile, error) {
-	if currentUserID != targetUserID {
-		viewQuery := `
-          INSERT INTO profile_views (viewer_id, viewed_id, viewed_at) 
-          VALUES ($1, $2, NOW()) 
-          ON CONFLICT (viewer_id, viewed_id) DO UPDATE SET viewed_at = NOW()
-       `
-		r.DB.ExecContext(ctx, viewQuery, currentUserID, targetUserID)
-	}
-
 	query := `
        WITH current_user_data AS (
           SELECT 
-             COALESCE(loc.latitude, 0.0) AS latitude, 
-             COALESCE(loc.longitude, 0.0) AS longitude,
+             loc.latitude AS latitude,
+             loc.longitude AS longitude,
              COALESCE(ARRAY(SELECT tag FROM user_tags WHERE user_id = $1), ARRAY[]::VARCHAR[]) AS my_tags
           FROM users u
           LEFT JOIN user_locations loc ON u.id = loc.user_id
@@ -170,14 +161,16 @@ func (r *Repository) GetFullProfile(ctx context.Context, currentUserID, targetUs
           
           -- SAFE DISTANCE
           CASE 
-             WHEN cu.latitude = 0 OR l.latitude IS NULL THEN 9999.0
-             ELSE (6371 * acos(cos(radians(cu.latitude)) * cos(radians(l.latitude)) * cos(radians(l.longitude) - radians(cu.longitude)) + sin(radians(cu.latitude)) * sin(radians(l.latitude)))) 
+             WHEN cu.latitude IS NULL OR cu.longitude IS NULL OR l.latitude IS NULL OR l.longitude IS NULL THEN 9999.0
+             ELSE (6371 * acos(LEAST(1.0, GREATEST(-1.0,
+                 cos(radians(cu.latitude)) * cos(radians(l.latitude)) * cos(radians(l.longitude) - radians(cu.longitude)) + sin(radians(cu.latitude)) * sin(radians(l.latitude))
+             ))))
           END AS distance_km,
           
           COALESCE(ARRAY(SELECT tag FROM user_tags WHERE user_id = u.id), ARRAY[]::VARCHAR[]) AS their_tags,
           
           -- SAFE MEDIA ORDERING
-          COALESCE(ARRAY(SELECT url FROM user_media WHERE user_id = u.id ORDER BY is_primary DESC, sort_order ASC, created_at ASC), ARRAY[]::TEXT[]) AS images,
+          COALESCE(ARRAY(SELECT url FROM user_media WHERE user_id = u.id AND NULLIF(BTRIM(url), '') IS NOT NULL ORDER BY is_primary DESC, sort_order ASC, created_at ASC), ARRAY[]::TEXT[]) AS images,
           
           -- SAFE MATCH PCT (NULLIF prevents Div-By-Zero)
           (50 + COALESCE((SELECT COUNT(*) * 50.0 / NULLIF(array_length(cu.my_tags, 1), 0) FROM unnest(COALESCE(ARRAY(SELECT tag FROM user_tags WHERE user_id = u.id), ARRAY[]::VARCHAR[])) AS t WHERE t = ANY(cu.my_tags)), 0))::INT AS match_pct
@@ -185,13 +178,28 @@ func (r *Repository) GetFullProfile(ctx context.Context, currentUserID, targetUs
        FROM users u
        JOIN user_profiles p ON u.id = p.user_id
        LEFT JOIN user_locations l ON u.id = l.user_id
+       LEFT JOIN user_settings target_settings ON target_settings.user_id = u.id
        CROSS JOIN current_user_data cu
        WHERE u.id = $2 
-         AND u.status IN ('active', 'online', 'onboarding')
+         AND u.status IN ('active', 'online', 'ONLINE')
+         AND u.role <> 'admin'
+         AND NULLIF(BTRIM(p.display_name), '') IS NOT NULL
+         AND EXISTS (
+             SELECT 1 FROM user_media um
+             WHERE um.user_id = u.id AND NULLIF(BTRIM(um.url), '') IS NOT NULL
+         )
          -- EXCLUDE IF MUTUALLY BLOCKED
          AND NOT EXISTS (
              SELECT 1 FROM blocks b 
              WHERE (b.blocker_id = $1 AND b.blocked_id = $2) OR (b.blocker_id = $2 AND b.blocked_id = $1)
+         )
+         AND (
+             $1 = $2
+             OR COALESCE(target_settings.privacy_incognito, FALSE) = FALSE
+             OR EXISTS (
+                 SELECT 1 FROM interactions i
+                 WHERE i.actor_id = $2 AND i.target_id = $1 AND i.action_type IN ('LIKE', 'SUPER_LIKE')
+             )
          )
     `
 	var p models.DiscoverProfile
@@ -204,6 +212,16 @@ func (r *Repository) GetFullProfile(ctx context.Context, currentUserID, targetUs
 			return nil, ErrUserNotFound
 		}
 		return nil, err
+	}
+	if currentUserID != targetUserID {
+		_, err := r.DB.ExecContext(ctx, `
+			INSERT INTO profile_views (viewer_id, viewed_id, viewed_at)
+			VALUES ($1, $2, CURRENT_TIMESTAMP)
+			ON CONFLICT (viewer_id, viewed_id) DO UPDATE SET viewed_at = EXCLUDED.viewed_at
+		`, currentUserID, targetUserID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &p, nil
 }

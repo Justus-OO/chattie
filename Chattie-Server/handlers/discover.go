@@ -32,7 +32,14 @@ func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
 		limit = 20 // Default deck batch size
 	}
 
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
+	if r.URL.Query().Get("offset") != "" && (err != nil || offset < 0 || offset > 10000) {
+		http.Error(w, "Offset must be between 0 and 10000", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		offset = 0
+	}
 
 	// Fetch curated profiles
 	profiles, err := h.Repo.GetSwipeDeck(r.Context(), userID, limit, offset)

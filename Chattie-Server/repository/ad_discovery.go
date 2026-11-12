@@ -4,8 +4,11 @@ import (
 	"chattie-backend/models"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
+
+var ErrInvalidDirectoryPriceRange = errors.New("invalid directory price range")
 
 type ADDiscoveryRepository struct {
 	DB *sql.DB
@@ -16,7 +19,7 @@ func NewADDiscoveryRepository(db *sql.DB) *ADDiscoveryRepository {
 }
 
 // GetDirectory fetches creators for AfterDarkDirectory.jsx with search and filters
-func (r *ADDiscoveryRepository) GetDirectory(ctx context.Context, searchQuery string, location string, verifiedOnly bool, onlineOnly bool, sortBy string, limit int, offset int) ([]models.PerformerProfile, int, error) {
+func (r *ADDiscoveryRepository) GetDirectory(ctx context.Context, searchQuery string, location string, verifiedOnly bool, onlineOnly bool, minPriceCents, maxPriceCents *int64, sortBy string, limit int, offset int) ([]models.PerformerProfile, int, error) {
 	where := `
 		WHERE performer_profiles.status = 'active'
 		  AND COALESCE((
@@ -33,7 +36,20 @@ func (r *ADDiscoveryRepository) GetDirectory(ctx context.Context, searchQuery st
 	}
 	if location != "" && location != "Global" {
 		where += fmt.Sprintf(` AND performer_profiles.location ILIKE $%d`, argID)
-		args = append(args, location)
+		args = append(args, "%"+location+"%")
+		argID++
+	}
+	if minPriceCents != nil && maxPriceCents != nil && *minPriceCents > *maxPriceCents {
+		return nil, 0, ErrInvalidDirectoryPriceRange
+	}
+	if minPriceCents != nil {
+		where += fmt.Sprintf(` AND performer_profiles.subscription_price_cents >= $%d`, argID)
+		args = append(args, *minPriceCents)
+		argID++
+	}
+	if maxPriceCents != nil {
+		where += fmt.Sprintf(` AND performer_profiles.subscription_price_cents <= $%d`, argID)
+		args = append(args, *maxPriceCents)
 		argID++
 	}
 	if verifiedOnly {
@@ -65,6 +81,12 @@ func (r *ADDiscoveryRepository) GetDirectory(ctx context.Context, searchQuery st
 		orderBy = `performer_profiles.subscription_price_cents ASC, performer_profiles.created_at DESC`
 	case "price_high":
 		orderBy = `performer_profiles.subscription_price_cents DESC, performer_profiles.created_at DESC`
+	case "most_subscribers":
+		orderBy = `(SELECT COUNT(*) FROM ad_subscriptions s WHERE s.creator_id = performer_profiles.user_id AND s.status = 'active' AND s.current_period_end > CURRENT_TIMESTAMP) DESC, performer_profiles.created_at DESC`
+	case "most_content":
+		orderBy = `(SELECT COUNT(*) FROM ad_posts p WHERE p.creator_id = performer_profiles.user_id AND p.status = 'published' AND (p.publish_at IS NULL OR p.publish_at <= CURRENT_TIMESTAMP)) DESC, performer_profiles.created_at DESC`
+	case "most_liked":
+		orderBy = `(SELECT COUNT(*) FROM ad_post_likes l JOIN ad_posts p ON p.id = l.post_id WHERE p.creator_id = performer_profiles.user_id AND p.status = 'published') DESC, performer_profiles.created_at DESC`
 	}
 
 	query := `
@@ -77,7 +99,12 @@ func (r *ADDiscoveryRepository) GetDirectory(ctx context.Context, searchQuery st
 			performer_profiles.status, performer_profiles.dm_control,
 			performer_profiles.subscription_price_cents, performer_profiles.welcome_message,
 			COALESCE(avatar.storage_key, ''), COALESCE(cover.storage_key, ''),
-			performer_profiles.created_at, performer_profiles.updated_at
+			performer_profiles.created_at, performer_profiles.updated_at,
+			COALESCE(up.verified, FALSE),
+			EXISTS (SELECT 1 FROM ad_live_sessions ls WHERE ls.creator_id = performer_profiles.user_id AND ls.status = 'live'),
+			(SELECT COUNT(*) FROM ad_subscriptions s WHERE s.creator_id = performer_profiles.user_id AND s.status = 'active' AND s.current_period_end > CURRENT_TIMESTAMP),
+			(SELECT COUNT(*) FROM ad_posts p WHERE p.creator_id = performer_profiles.user_id AND p.status = 'published' AND (p.publish_at IS NULL OR p.publish_at <= CURRENT_TIMESTAMP)),
+			(SELECT COUNT(*) FROM ad_post_likes l JOIN ad_posts p ON p.id = l.post_id WHERE p.creator_id = performer_profiles.user_id AND p.status = 'published')
 		FROM performer_profiles
 		LEFT JOIN ad_assets avatar ON avatar.id = performer_profiles.avatar_asset_id
 		LEFT JOIN ad_assets cover ON cover.id = performer_profiles.cover_asset_id
@@ -102,7 +129,8 @@ func (r *ADDiscoveryRepository) GetDirectory(ctx context.Context, searchQuery st
 			&p.ID, &p.UserID, &p.DisplayName, &p.Username, &p.Bio, &p.Website,
 			&p.Location, &avatarID, &coverID, &p.Status, &p.DMControl,
 			&p.SubscriptionPriceCents, &p.WelcomeMessage, &p.AvatarURL, &p.CoverURL,
-			&p.CreatedAt, &p.UpdatedAt,
+			&p.CreatedAt, &p.UpdatedAt, &p.IsVerified, &p.IsLive,
+			&p.SubscriberCount, &p.PostCount, &p.LikeCount,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -129,15 +157,15 @@ func (r *ADDiscoveryRepository) GetPublicFeed(ctx context.Context, viewerID stri
 			p.id::text, p.creator_id::text, p.asset_id::text, COALESCE(p.caption, ''), 
 			''::text,
 			a.mime_type, p.access_type, p.price_cents,
-			(p.access_type = 'free' OR p.creator_id::text = $1 OR
+			(p.access_type = 'free' OR p.creator_id = $1::uuid OR
 			 (p.access_type = 'subscriber' AND EXISTS (
 				SELECT 1 FROM ad_subscriptions s
-				WHERE s.subscriber_id = $1 AND s.creator_id = p.creator_id
+				WHERE s.subscriber_id = $1::uuid AND s.creator_id = p.creator_id
 				  AND s.status = 'active' AND s.current_period_end > CURRENT_TIMESTAMP
 			 )) OR
 			 (p.access_type = 'ppv' AND EXISTS (
 				SELECT 1 FROM ad_post_entitlements e
-				WHERE e.user_id = $1 AND e.post_id = p.id
+				WHERE e.user_id = $1::uuid AND e.post_id = p.id
 			 ))),
 			pp.id::text, pp.display_name, pp.username,
 			COALESCE(avatar.storage_key, ''), pp.subscription_price_cents, pp.dm_control,
@@ -148,6 +176,10 @@ func (r *ADDiscoveryRepository) GetPublicFeed(ctx context.Context, viewerID stri
 		LEFT JOIN ad_assets avatar ON avatar.id = pp.avatar_asset_id
 		WHERE p.status = 'published'
 		  AND (p.publish_at IS NULL OR p.publish_at <= CURRENT_TIMESTAMP)
+		  AND (NOT p.is_explicit OR COALESCE((
+			SELECT s.show_explicit_content FROM ad_creator_settings s
+			WHERE s.user_id = $1::uuid
+		  ), FALSE))
 		  AND EXISTS (
 			SELECT 1 FROM performer_profiles pp
 			WHERE pp.user_id = p.creator_id
@@ -170,8 +202,8 @@ func (r *ADDiscoveryRepository) GetPublicFeed(ctx context.Context, viewerID stri
 
 	if creatorID != "" {
 		query += fmt.Sprintf(` AND p.creator_id = COALESCE(
-			(SELECT pp.user_id FROM performer_profiles pp WHERE pp.id::text = $%d OR pp.user_id::text = $%d LIMIT 1),
-			NULLIF($%d, '')::uuid
+			(SELECT pp.user_id FROM performer_profiles pp WHERE pp.id = $%d::uuid OR pp.user_id = $%d::uuid LIMIT 1),
+			$%d::uuid
 		)`, argId, argId, argId)
 		args = append(args, creatorID)
 		argId++
@@ -218,7 +250,7 @@ func (r *ADDiscoveryRepository) GetPublicFeed(ctx context.Context, viewerID stri
 			&post.IsExplicit, &post.Status,
 			&publishAt, &post.CreatedAt, &post.UpdatedAt,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("scan feed post: %w", err)
 		}
 		post.Creator.UserID = post.CreatorID
 		post.Creator.Status = "active"
@@ -228,6 +260,9 @@ func (r *ADDiscoveryRepository) GetPublicFeed(ctx context.Context, viewerID stri
 			post.PublishAt = &publishAt.Time
 		}
 		posts = append(posts, post)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate feed rows: %w", err)
 	}
 
 	if posts == nil {
@@ -288,10 +323,16 @@ func (r *ADDiscoveryRepository) GetPublicCreatorProfile(ctx context.Context, cre
 // GetActiveStories fetches live sessions for the story circles
 func (r *ADDiscoveryRepository) GetActiveStories(ctx context.Context) ([]models.ADLiveSession, error) {
 	query := `
-		SELECT id::text, creator_id::text, status, price_cents, started_at
-		FROM ad_live_sessions
-		WHERE status = 'live'
-		ORDER BY started_at DESC
+		SELECT ls.id::text, COALESCE(pp.id::text, ls.creator_id::text), ls.creator_id::text,
+			COALESCE(pp.display_name, u.username), u.username, COALESCE(avatar.storage_key, ''),
+			ls.status, ls.price_cents, COALESCE(pp.subscription_price_cents, 0),
+			ls.started_at, ls.ended_at
+		FROM ad_live_sessions ls
+		JOIN users u ON u.id = ls.creator_id
+		LEFT JOIN performer_profiles pp ON pp.user_id = ls.creator_id
+		LEFT JOIN ad_assets avatar ON avatar.id = pp.avatar_asset_id
+		WHERE ls.status = 'live'
+		ORDER BY ls.started_at DESC
 	`
 	rows, err := r.DB.QueryContext(ctx, query)
 	if err != nil {
@@ -302,15 +343,22 @@ func (r *ADDiscoveryRepository) GetActiveStories(ctx context.Context) ([]models.
 	var stories []models.ADLiveSession
 	for rows.Next() {
 		var s models.ADLiveSession
-		if err := rows.Scan(&s.ID, &s.CreatorID, &s.Status, &s.PriceCents, &s.StartedAt); err != nil {
-			continue
+		var endedAt sql.NullTime
+		if err := rows.Scan(
+			&s.ID, &s.CreatorID, &s.HostID, &s.DisplayName, &s.Username, &s.AvatarURL,
+			&s.Status, &s.PriceCents, &s.SubscriptionPriceCents, &s.StartedAt, &endedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan active live session: %w", err)
+		}
+		if endedAt.Valid {
+			s.EndedAt = &endedAt.Time
 		}
 		stories = append(stories, s)
 	}
 	if stories == nil {
 		stories = []models.ADLiveSession{}
 	}
-	return stories, nil
+	return stories, rows.Err()
 }
 
 func (r *ADDiscoveryRepository) ToggleFollow(ctx context.Context, followerID string, creatorID string) (bool, error) {

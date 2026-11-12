@@ -29,6 +29,11 @@ type PerformerProfile struct {
 	SubscriptionPriceCentsProvided bool      `json:"-"`
 	WelcomeMessage                 string    `json:"welcome_message,omitempty"`
 	WelcomeMessageProvided         bool      `json:"-"`
+	IsVerified                     bool      `json:"is_verified"`
+	IsLive                         bool      `json:"is_live"`
+	SubscriberCount                int       `json:"subscriber_count"`
+	PostCount                      int       `json:"post_count"`
+	LikeCount                      int       `json:"like_count"`
 	CreatedAt                      time.Time `json:"created_at"`
 	UpdatedAt                      time.Time `json:"updated_at"`
 }
@@ -36,6 +41,7 @@ type PerformerProfile struct {
 type PerformerApplication struct {
 	ID                 string     `json:"id"`
 	UserID             string     `json:"user_id"`
+	CreatorAlias       string     `json:"creator_alias"`
 	Status             string     `json:"status"`
 	VerificationRef    string     `json:"verification_ref"`
 	PayoutMethodID     string     `json:"payout_method_id"`

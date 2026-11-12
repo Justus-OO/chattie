@@ -13,6 +13,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Provider  string    `json:"provider"`
+	TokenVersion int64  `json:"-"`
 }
 
 type UserProfile struct {

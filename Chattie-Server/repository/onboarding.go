@@ -89,9 +89,9 @@ func (r *Repository) ActivateUserSecure(ctx context.Context, userID string, cons
 
 func (r *Repository) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
 	var user models.User
-	query := `SELECT id, email, username FROM users WHERE id = $1`
+	query := `SELECT id, email, username, role, provider, token_version FROM users WHERE id = $1`
 
-	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&user.ID, &user.Email, &user.Username)
+	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&user.ID, &user.Email, &user.Username, &user.Role, &user.Provider, &user.TokenVersion)
 	if err != nil {
 		return nil, err
 	}

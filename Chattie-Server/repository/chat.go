@@ -320,3 +320,15 @@ func (r *ChatRepository) MarkMessagesAsRead(userID string, partnerID string) err
 	`, userID, partnerID)
 	return err
 }
+
+func (r *ChatRepository) ReadReceiptsEnabled(userID string) (bool, error) {
+	var enabled bool
+	err := r.DB.QueryRow(`
+		SELECT COALESCE(privacy_read_receipts, TRUE)
+		FROM user_settings WHERE user_id = $1
+	`, userID).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+	return enabled, err
+}

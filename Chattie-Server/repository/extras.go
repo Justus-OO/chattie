@@ -21,6 +21,13 @@ func (r *Repository) UpgradeToPremium(ctx context.Context, userID string, months
 	}
 	defer tx.Rollback()
 
+	if err := upgradeToPremiumTx(ctx, tx, userID, months); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func upgradeToPremiumTx(ctx context.Context, tx *sql.Tx, userID string, months int) error {
 	// 1. Extend or activate the subscription
 	query := `
        INSERT INTO user_subscriptions (user_id, tier_id, status, expires_at)
@@ -60,7 +67,7 @@ func (r *Repository) UpgradeToPremium(ctx context.Context, userID string, months
 		return err
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // =====================================================================

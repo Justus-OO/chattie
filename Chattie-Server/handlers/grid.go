@@ -34,34 +34,85 @@ func (h *GridHandler) GetGridBrowse(w http.ResponseWriter, r *http.Request) {
 
 	query := r.URL.Query()
 
-	// 2. Parse and sanitize pagination
-	limit, _ := strconv.Atoi(query.Get("limit"))
-	if limit <= 0 || limit > 50 {
-		limit = 24 // Grid pages look best with multiples of 4, 6, or 8
+	// 2. Parse and bound pagination and age filters.
+	parseQueryInt := func(key string, fallback int) (int, error) {
+		raw := strings.TrimSpace(query.Get(key))
+		if raw == "" {
+			return fallback, nil
+		}
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, err
+		}
+		return value, nil
+	}
+	limit, err := parseQueryInt("limit", 24)
+	if err != nil {
+		http.Error(w, "Invalid limit", http.StatusBadRequest)
+		return
+	}
+	if limit <= 0 {
+		limit = 24
+	}
+	if limit > 50 {
+		limit = 50
 	}
 
-	offset, _ := strconv.Atoi(query.Get("offset"))
-	if offset < 0 {
-		offset = 0 // Prevent PostgreSQL syntax errors
+	offset, err := parseQueryInt("offset", 0)
+	if err != nil || offset < 0 || offset > 10000 {
+		http.Error(w, "Offset must be between 0 and 10000", http.StatusBadRequest)
+		return
 	}
 
-	// 3. Parse Age safely
-	minAge, _ := strconv.Atoi(query.Get("min_age"))
-	maxAge, _ := strconv.Atoi(query.Get("max_age"))
+	minAge, err := parseQueryInt("min_age", 0)
+	if err != nil {
+		http.Error(w, "Invalid minimum age", http.StatusBadRequest)
+		return
+	}
+	maxAge, err := parseQueryInt("max_age", 0)
+	if err != nil {
+		http.Error(w, "Invalid maximum age", http.StatusBadRequest)
+		return
+	}
+	if (minAge != 0 && (minAge < 18 || minAge > 99)) ||
+		(maxAge != 0 && (maxAge < 18 || maxAge > 99)) ||
+		(minAge != 0 && maxAge != 0 && minAge > maxAge) {
+		http.Error(w, "Age range must be between 18 and 99 with minimum no greater than maximum", http.StatusBadRequest)
+		return
+	}
 
-	// 4. Construct safe, trimmed filters
+	status := strings.TrimSpace(query.Get("status"))
+	if status != "" && !strings.EqualFold(status, "all") && !strings.EqualFold(status, "online") {
+		http.Error(w, "Status must be All or Online", http.StatusBadRequest)
+		return
+	}
+	intent := strings.TrimSpace(query.Get("intent"))
+	if intent != "" && !strings.EqualFold(intent, "all") &&
+		!strings.EqualFold(intent, "casual") &&
+		!strings.EqualFold(intent, "dating") &&
+		!strings.EqualFold(intent, "friends") {
+		http.Error(w, "Intent must be All, Casual, Dating, or Friends", http.StatusBadRequest)
+		return
+	}
+	searchQuery := strings.TrimSpace(query.Get("q"))
+	if len(searchQuery) > 100 {
+		http.Error(w, "Search query cannot exceed 100 characters", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Construct safe, trimmed filters
 	filters := models.GridFilters{
-		Intent:      strings.TrimSpace(query.Get("intent")),
+		Intent:      intent,
 		Status:      strings.TrimSpace(query.Get("status")),
 		MinAge:      minAge,
 		MaxAge:      maxAge,
-		SearchQuery: strings.TrimSpace(query.Get("q")),
+		SearchQuery: searchQuery,
 		SortBy:      strings.TrimSpace(query.Get("sort")), // "match", "distance", "newest"
 		Limit:       limit,
 		Offset:      offset,
 	}
 
-	// 5. REAL-WORLD SECURITY LOGIC: Premium Feature Gate
+	// 4. Premium feature gate for advanced filters.
 	// If the user tries to use advanced filters, verify they have the rights to do so.
 	if (filters.Status != "" && !strings.EqualFold(filters.Status, "All")) ||
 		(filters.Intent != "" && !strings.EqualFold(filters.Intent, "All")) {

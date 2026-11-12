@@ -2,6 +2,7 @@ package repository
 
 import (
 	"chattie-backend/models"
+	"context"
 	"database/sql"
 	"log"
 )
@@ -12,6 +13,18 @@ type SettingsRepository struct {
 
 func NewSettingsRepository(db *sql.DB) *SettingsRepository {
 	return &SettingsRepository{DB: db}
+}
+
+func (r *SettingsRepository) CanUseIncognito(ctx context.Context, userID string) (bool, error) {
+	var allowed bool
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_subscriptions
+			WHERE user_id = $1 AND tier_id = 2 AND status = 'active'
+			  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+		)
+	`, userID).Scan(&allowed)
+	return allowed, err
 }
 
 // UpdateSettings updates profile, preferences, settings, and tags in a single transaction
@@ -136,6 +149,7 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
 	data.Connected = make(map[string]bool)
 
 	var notifNewMatches, notifMessages, notifSuperLikes, notifPromotions bool
+	var twoFactorEnabled bool
 	var privIncognito, privReadReceipts bool
 	var connSpotify, connInstagram bool
 
@@ -154,6 +168,9 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
          COALESCE(upref.max_age, 50), 
          COALESCE(upref.max_distance_km, 25), 
          COALESCE(upref.interested_in, 'Everyone'),
+         COALESCE(up.verified, false),
+         COALESCE(us.two_factor_enabled, false),
+         COALESCE(us.two_factor_channel, 'email'),
          COALESCE(us.global_mode, false), 
          COALESCE(us.notif_new_matches, true), 
          COALESCE(us.notif_messages, true), 
@@ -182,7 +199,7 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
 		&data.Name, &data.Email, &data.PhoneNumber, &data.Bio, &data.Intent, &data.Avatar,
 		&data.Job, &data.Cover, &data.Location,
 		&data.AgeMin, &data.AgeMax, &data.Distance, &data.ShowMe,
-		&data.IsGlobal,
+		&data.Verified, &twoFactorEnabled, &data.TwoFactorChannel, &data.IsGlobal,
 		&notifNewMatches, &notifMessages, &notifSuperLikes, &notifPromotions,
 		&privIncognito, &privReadReceipts,
 		&connSpotify, &connInstagram, &data.SubStatus, &data.ExpiresAt, &data.Plan,
@@ -192,6 +209,7 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
 		return data, err
 	}
 
+	data.TwoFactorEnabled = twoFactorEnabled
 	data.Notifs["newMatches"] = notifNewMatches
 	data.Notifs["messages"] = notifMessages
 	data.Notifs["superLikes"] = notifSuperLikes
@@ -321,9 +339,14 @@ func (r *SettingsRepository) SetPrimaryMedia(userID string, mediaID string) erro
 }
 
 // IncrementTokenVersion instantly logs out old JWTs
-func (r *SettingsRepository) IncrementTokenVersion(userID string) error {
-	_, err := r.DB.Exec("UPDATE users SET token_version = token_version + 1 WHERE id = $1", userID)
-	return err
+func (r *SettingsRepository) IncrementTokenVersion(userID string) (int64, error) {
+	var version int64
+	err := r.DB.QueryRow(`
+		UPDATE users SET token_version = token_version + 1
+		WHERE id = $1
+		RETURNING token_version
+	`, userID).Scan(&version)
+	return version, err
 }
 
 // ============================================================================

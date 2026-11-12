@@ -89,7 +89,7 @@ func (h *EmailHandler) SendWelcomeEmail(ctx context.Context, toEmail, username s
 // 2. DATA DOSSIER LOGIC
 // ============================================================================
 
-func (h *EmailHandler) SendDataDossier(ctx context.Context, toEmail string, pdfBytes []byte, filename string) error {
+func (h *EmailHandler) SendDataDossier(ctx context.Context, toEmail string, pdfBytes []byte, filename, username string) error {
 	fallback := &repository.EmailTemplate{
 		Subject:  "Your Requested Data Dossier is Ready",
 		BodyHTML: "<p>Your requested data payload is attached as a PDF.</p>",
@@ -99,11 +99,27 @@ func (h *EmailHandler) SendDataDossier(ctx context.Context, toEmail string, pdfB
 		filename: pdfBytes,
 	}
 
-	err := h.processAndQueueEmail(ctx, toEmail, "data_dossier", fallback, nil, attachments)
+	err := h.processAndQueueEmail(ctx, toEmail, "data_dossier", fallback, map[string]interface{}{
+		"Username": username,
+	}, attachments)
 	if err != nil {
 		log.Printf("[EMAIL ERROR] SendDataDossier failed: %v", err)
 	}
 
+	return err
+}
+
+func (h *EmailHandler) SendAfterDarkDataArchive(ctx context.Context, toEmail string, pdfBytes []byte, filename, username string) error {
+	fallback := &repository.EmailTemplate{
+		Subject:  "Your After Dark data archive is ready",
+		BodyHTML: "<h1>Your After Dark archive is ready</h1><p>Hello {{.Username}}, your requested After Dark data archive is attached.</p>",
+	}
+	err := h.processAndQueueEmail(ctx, toEmail, "after_dark_data_archive", fallback, map[string]interface{}{
+		"Username": username,
+	}, map[string][]byte{filename: pdfBytes})
+	if err != nil {
+		log.Printf("[EMAIL ERROR] SendAfterDarkDataArchive failed: %v", err)
+	}
 	return err
 }
 
@@ -112,19 +128,31 @@ func (h *EmailHandler) SendDataDossier(ctx context.Context, toEmail string, pdfB
 // ============================================================================
 
 func (h *EmailHandler) SendOTPEmail(ctx context.Context, toEmail, otpCode string) error {
-	fallback := &repository.EmailTemplate{
-		Subject:  "Your Verification Code",
-		BodyHTML: "<h2>Your verification code is: {{.Code}}</h2><p>This code is valid for 10 minutes.</p>",
-	}
-
-	data := map[string]interface{}{
-		"Code": otpCode,
-	}
-
-	err := h.processAndQueueEmail(ctx, toEmail, "otp_verification_email", fallback, data, nil)
+	err := h.SendSecurityCode(ctx, toEmail, "otp_verification_email", otpCode)
 	if err != nil {
 		log.Printf("[EMAIL ERROR] SendOTPEmail failed: %v", err)
 	}
 
 	return err
+}
+
+func (h *EmailHandler) SendSecurityCode(ctx context.Context, toEmail, templateName, code string) error {
+	subjects := map[string]string{
+		"otp_verification_email": "Your Chattie verification code",
+		"login_2fa_email":        "Your Chattie sign-in code",
+		"password_reset_email":   "Reset your Chattie password",
+		"two_factor_setup_email": "Confirm your Chattie security change",
+	}
+	subject, ok := subjects[templateName]
+	if !ok {
+		return fmt.Errorf("unsupported security email template %q", templateName)
+	}
+	fallback := &repository.EmailTemplate{
+		Subject: subject,
+		BodyHTML: "<h1>Your security code</h1><p style=\"font-size:28px;font-weight:bold;letter-spacing:6px\">{{.Code}}</p>" +
+			"<p>This code expires in {{.ExpiresMinutes}} minutes. Do not share it with anyone.</p>",
+	}
+	return h.processAndQueueEmail(ctx, toEmail, templateName, fallback, map[string]interface{}{
+		"Code": code, "ExpiresMinutes": 10,
+	}, nil)
 }

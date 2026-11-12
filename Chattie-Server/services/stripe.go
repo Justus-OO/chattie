@@ -3,11 +3,13 @@ package services
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/checkout/session"
+	"github.com/stripe/stripe-go/v76/paymentmethod"
 )
 
 type StripeGateway struct {
@@ -34,8 +36,12 @@ func NewStripeGateway() *StripeGateway {
 
 // CreateSubscription uses dynamic PriceData passed from the DB instead of resolving pre-made Stripe IDs
 func (s *StripeGateway) CreateSubscription(ctx context.Context, email, userID string, price float64, months int) (*CheckoutSession, error) {
+	return s.CreateSubscriptionForCustomer(ctx, email, userID, "", price, months)
+}
+
+func (s *StripeGateway) CreateSubscriptionForCustomer(ctx context.Context, email, userID, customerID string, price float64, months int) (*CheckoutSession, error) {
 	// Stripe expects amounts in the smallest currency unit (e.g., cents for USD)
-	amountInCents := int64(price * 100)
+	amountInCents := int64(math.Round(price * 100))
 
 	planName := fmt.Sprintf("%d Month Premium Upgrade", months)
 	if months == 1 {
@@ -50,11 +56,13 @@ func (s *StripeGateway) CreateSubscription(ctx context.Context, email, userID st
 	finalReturnURL := fmt.Sprintf("%s%smonths=%d", s.ReturnURL, separator, months)
 
 	params := &stripe.CheckoutSessionParams{
-		CustomerEmail:     stripe.String(email),
 		ClientReferenceID: stripe.String(userID),
 
 		// UPGRADE: Changed to Payment (one-time charge) instead of Subscription mode
 		Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
+		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
+			SetupFutureUsage: stripe.String(string(stripe.PaymentIntentSetupFutureUsageOffSession)),
+		},
 
 		// UPGRADE: Force embedded modal mode (Zero-Redirect Checkout)
 		UIMode: stripe.String("embedded"),
@@ -82,6 +90,12 @@ func (s *StripeGateway) CreateSubscription(ctx context.Context, email, userID st
 			"months":  fmt.Sprintf("%d", months),
 		},
 	}
+	if customerID != "" {
+		params.Customer = stripe.String(customerID)
+	} else {
+		params.CustomerEmail = stripe.String(email)
+		params.CustomerCreation = stripe.String(string(stripe.CheckoutSessionCustomerCreationAlways))
+	}
 
 	// Propagate the HTTP context to cancel the request if the user drops connection early
 	params.Context = ctx
@@ -101,17 +115,58 @@ func (s *StripeGateway) CreateSubscription(ctx context.Context, email, userID st
 }
 
 func (s *StripeGateway) VerifyPayment(ctx context.Context, sessionID string) (bool, error) {
+	verification, err := s.VerifyPaymentDetails(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	return verification.Paid, nil
+}
+
+func (s *StripeGateway) VerifyPaymentDetails(ctx context.Context, sessionID string) (*PaymentVerification, error) {
 	params := &stripe.CheckoutSessionParams{}
 	params.Context = ctx
+	params.AddExpand("customer")
+	params.AddExpand("payment_intent.payment_method")
 
 	sess, err := session.Get(sessionID, params)
 	if err != nil {
-		return false, fmt.Errorf("stripe session retrieval failed: %w", err)
+		return nil, fmt.Errorf("stripe session retrieval failed: %w", err)
 	}
 
-	// UPGRADE: Account for both immediate payment success and general subscription completion states
-	isPaid := sess.PaymentStatus == stripe.CheckoutSessionPaymentStatusPaid ||
-		(sess.Status == stripe.CheckoutSessionStatusComplete)
+	verification := &PaymentVerification{
+		Paid:        sess.PaymentStatus == stripe.CheckoutSessionPaymentStatusPaid,
+		AmountMinor: sess.AmountTotal,
+		Currency:    strings.ToUpper(string(sess.Currency)),
+		UserID:      sess.ClientReferenceID,
+	}
+	if sess.PaymentIntent != nil && sess.PaymentIntent.PaymentMethod != nil && sess.PaymentIntent.PaymentMethod.Card != nil {
+		method := sess.PaymentIntent.PaymentMethod
+		customerID := ""
+		if sess.Customer != nil {
+			customerID = sess.Customer.ID
+		}
+		if customerID == "" && sess.PaymentIntent.Customer != nil {
+			customerID = sess.PaymentIntent.Customer.ID
+		}
+		if customerID != "" {
+			verification.PaymentMethod = &PaymentMethodInfo{
+				ProviderMethodID: method.ID,
+				CustomerID:       customerID,
+				Brand:            string(method.Card.Brand),
+				Last4:            method.Card.Last4,
+				ExpMonth:         int(method.Card.ExpMonth),
+				ExpYear:          int(method.Card.ExpYear),
+			}
+		}
+	}
+	return verification, nil
+}
 
-	return isPaid, nil
+func (s *StripeGateway) DetachPaymentMethod(ctx context.Context, methodID string) error {
+	params := &stripe.PaymentMethodDetachParams{}
+	params.Context = ctx
+	if _, err := paymentmethod.Detach(methodID, params); err != nil {
+		return fmt.Errorf("detach Stripe payment method: %w", err)
+	}
+	return nil
 }

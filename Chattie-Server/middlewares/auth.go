@@ -2,8 +2,10 @@ package middlewares
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -13,14 +15,25 @@ type ContextKey string
 
 // 2. Export context keys so your handlers and middlewares can use them
 const (
-	UserIDKey ContextKey = "user_id"
-	RoleKey   ContextKey = "role"
+	UserIDKey    ContextKey = "user_id"
+	RoleKey      ContextKey = "role"
+	SessionIDKey ContextKey = "session_id"
 )
 
 var jwtSecret = []byte("super_secret_chattie_key_do_not_leak")
 
 // AuthMiddleware validates the JWT token and injects user_id and role into context
 func AuthMiddleware(next http.Handler) http.Handler {
+	return authMiddleware(next, nil)
+}
+
+func AuthMiddlewareWithDB(db *sql.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return authMiddleware(next, db)
+	}
+}
+
+func authMiddleware(next http.Handler, db *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Get the Authorization header
 		authHeader := r.Header.Get("Authorization")
@@ -61,6 +74,36 @@ func AuthMiddleware(next http.Handler) http.Handler {
 				http.Error(w, "Unauthorized: Invalid Claims", http.StatusUnauthorized)
 				return
 			}
+			if db != nil {
+				tokenVersion, ok := claims["token_version"].(float64)
+				if !ok {
+					http.Error(w, "Unauthorized: Invalid Session", http.StatusUnauthorized)
+					return
+				}
+				var currentVersion int64
+				if err := db.QueryRowContext(r.Context(), `SELECT token_version FROM users WHERE id = $1`, userID).Scan(&currentVersion); err != nil || int64(tokenVersion) != currentVersion {
+					http.Error(w, "Unauthorized: Session expired", http.StatusUnauthorized)
+					return
+				}
+				if sessionID, ok := claims["session_id"].(string); ok && sessionID != "" {
+					var active bool
+					if err := db.QueryRowContext(r.Context(), `
+						SELECT EXISTS (
+							SELECT 1 FROM auth_sessions
+							WHERE id = $1 AND user_id = $2 AND token_version = $3
+							  AND revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+						)
+					`, sessionID, userID, int64(tokenVersion)).Scan(&active); err != nil || !active {
+						http.Error(w, "Unauthorized: Session revoked or expired", http.StatusUnauthorized)
+						return
+					}
+					_, _ = db.ExecContext(r.Context(), `
+						UPDATE auth_sessions SET last_seen_at = CURRENT_TIMESTAMP
+						WHERE id = $1 AND user_id = $2
+						  AND last_seen_at < CURRENT_TIMESTAMP - INTERVAL '2 minutes'
+					`, sessionID, userID)
+				}
+			}
 
 			// Extract role claim (defaulting to 'client' if missing)
 			role, _ := claims["role"].(string)
@@ -71,6 +114,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			// 5. Inject both keys into context
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
 			ctx = context.WithValue(ctx, RoleKey, role)
+			if sessionID, ok := claims["session_id"].(string); ok && sessionID != "" {
+				ctx = context.WithValue(ctx, SessionIDKey, sessionID)
+			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		} else {
@@ -78,6 +124,24 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized: Invalid Claims", http.StatusUnauthorized)
 		}
 	})
+}
+
+func GenerateAuthToken(userID, role string, tokenVersion int64) (string, error) {
+	return GenerateAuthTokenWithSession(userID, role, tokenVersion, "")
+}
+
+func GenerateAuthTokenWithSession(userID, role string, tokenVersion int64, sessionID string) (string, error) {
+	claims := jwt.MapClaims{
+		"user_id":       userID,
+		"role":          role,
+		"token_version": tokenVersion,
+		"exp":           time.Now().Add(72 * time.Hour).Unix(),
+	}
+	if sessionID != "" {
+		claims["session_id"] = sessionID
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
 }
 
 // RequireRole ensures the authenticated user has the specified role (e.g., 'model')

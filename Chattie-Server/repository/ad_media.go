@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 type ADMediaRepository struct {
@@ -84,23 +85,38 @@ func (r *ADMediaRepository) CreatePost(ctx context.Context, post *models.ADPost)
 func (r *ADMediaRepository) CreatePostWithAsset(ctx context.Context, asset *models.ADAsset, post *models.ADPost) error {
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin post transaction: %w", err)
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_assets (id, owner_id, storage_key, mime_type, size_bytes, status, moderation_status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, asset.ID, asset.OwnerID, asset.StorageKey, asset.MimeType, asset.SizeBytes, asset.Status, asset.ModerationStatus, asset.CreatedAt); err != nil {
-		return err
+		return fmt.Errorf("insert post asset: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_posts (id, creator_id, asset_id, caption, access_type, price_cents, is_explicit, status, publish_at, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`, post.ID, post.CreatorID, post.AssetID, post.Caption, post.AccessType, post.PriceCents,
 		post.IsExplicit, post.Status, post.PublishAt, post.CreatedAt, post.UpdatedAt); err != nil {
-		return err
+		return fmt.Errorf("insert post: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit post transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *ADMediaRepository) IsActiveCreator(ctx context.Context, userID string) (bool, error) {
+	var active bool
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM performer_profiles
+			WHERE user_id = $1 AND status = 'active'
+		)
+	`, userID).Scan(&active)
+	return active, err
 }
 
 // GetVaultPosts fetches a creator's media vault for the 'My Channel' view
