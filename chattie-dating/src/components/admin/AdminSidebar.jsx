@@ -3,9 +3,8 @@ import { NavLink, Link } from 'react-router-dom';
 import { 
   ShieldCheck, Activity, Users, UserCheck, 
   MessageSquare, Image, DollarSign, Flag, 
-  CreditCard, Settings, Lock, Bell
+  CreditCard, Settings, Lock, Bell, Wallet, Flame, LifeBuoy, ClipboardCheck
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { getUserRole } from '../../utils/roles';
 import { useI18n } from '../../i18n';
@@ -16,7 +15,7 @@ export default function AdminSidebar() {
   const { t } = useI18n();
   return (
     <aside 
-      className="w-80 flex flex-col justify-between h-full text-zinc-300 rounded-none z-50 relative shrink-0 font-mono"
+      className="relative z-50 flex h-full w-[clamp(13rem,23vw,20rem)] shrink-0 flex-col justify-between font-mono text-zinc-300 rounded-none"
       style={{ backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)' }}
     >
       <div className="flex flex-col h-full overflow-hidden">
@@ -35,18 +34,15 @@ export default function AdminSidebar() {
             </div>
           </Link>
 
-          <button
-            onClick={() => toast.info(t('telemetryRefreshed'))}
+          <Link
+            to="/admin/moderation"
             className="relative p-2 transition-colors border"
             style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text-secondary)' }}
-            title={t('viewNotifications')}
-            aria-label={t('viewNotifications')}
+            title={t('moderation')}
+            aria-label={t('moderation')}
           >
             <Bell className="w-4 h-4" />
-            <span className="absolute -top-1 -right-1 min-w-3.5 h-4 px-1 flex items-center justify-center text-[8px] font-black rounded-full" style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
-              3
-            </span>
-          </button>
+          </Link>
         </div>
 
         {/* Clean, File-Mapped Navigation Links */}
@@ -85,6 +81,10 @@ export default function AdminSidebar() {
               <Image className="w-4 h-4" style={{ color: 'var(--accent)' }} />
               <span className="text-xs font-bold uppercase tracking-widest">{t('mediaVault')}</span>
             </NavLink>
+            <NavLink to="/admin/afterdark-posts" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <Flame className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-bold uppercase tracking-widest">After Dark Posts</span>
+            </NavLink>
           </div>
 
           {/* Section 4: Finance & Safety */}
@@ -98,9 +98,21 @@ export default function AdminSidebar() {
               <CreditCard className="w-4 h-4" style={{ color: 'var(--accent-strong)' }} />
               <span className="text-xs font-bold uppercase tracking-widest">{t('payouts')}</span>
             </NavLink>
+            <NavLink to="/admin/creator-payouts" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <Wallet className="w-4 h-4" style={{ color: 'var(--success)' }} />
+              <span className="text-xs font-bold uppercase tracking-widest">{t('creatorCryptoPayouts')}</span>
+            </NavLink>
             <NavLink to="/admin/moderation" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
               <Flag className="w-4 h-4" style={{ color: 'var(--warning)' }} />
               <span className="text-xs font-bold uppercase tracking-widest">{t('moderation')}</span>
+            </NavLink>
+            <NavLink to="/admin/support" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <LifeBuoy className="w-4 h-4" style={{ color: 'var(--warning)' }} />
+              <span className="text-xs font-bold uppercase tracking-widest">Support inbox</span>
+            </NavLink>
+            <NavLink to="/admin/creator-applications" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <ClipboardCheck className="w-4 h-4" style={{ color: 'var(--warning)' }} />
+              <span className="text-xs font-bold uppercase tracking-widest">Creator applications</span>
             </NavLink>
           </div>
 

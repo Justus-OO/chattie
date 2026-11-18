@@ -72,8 +72,8 @@ export default function AdminPayouts() {
   };
 
   return (
-    <main className="min-h-screen flex-1 bg-black p-4 font-mono text-zinc-300 sm:p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
+    <main className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-black p-2 font-mono text-zinc-300 sm:p-3 lg:p-4">
+      <div className="w-full space-y-4">
         <header className="flex flex-col justify-between gap-4 border-b-2 border-zinc-800 pb-5 sm:flex-row sm:items-end">
           <div>
             <p className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">

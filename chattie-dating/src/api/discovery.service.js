@@ -1,5 +1,7 @@
 import { apiClient } from './client';
 
+let premiumStatusRequest = null;
+
 export const discoveryService = {
   // 1. Fetch the swipe deck profiles
   getSwipeDeck: async (limit = 20, offset = 0) => {
@@ -49,8 +51,10 @@ export const discoveryService = {
       return response.data; // Returns { allowed, is_match, message }
     } catch (error) {
       // Preserve status code context for UI handling (e.g. 402 for limits, 409 for duplicate)
-      const err = new Error(error.response?.data?.error || 'Failed to process interaction');
+      const responseData = error.response?.data;
+      const err = new Error(responseData?.message || responseData?.error || 'Failed to process interaction');
       err.status = error.response?.status;
+      err.code = responseData?.code || responseData?.error;
       throw err;
     }
   },
@@ -65,14 +69,37 @@ export const discoveryService = {
     }
   },
 
+  getPremiumStatus: async () => {
+    if (!premiumStatusRequest) {
+      premiumStatusRequest = apiClient.get('/extras/admirers')
+        .then(response => {
+          if (typeof response.data?.is_premium !== 'boolean') {
+            throw new Error('The server returned an invalid subscription status');
+          }
+          return response.data.is_premium;
+        })
+        .catch(error => {
+          throw new Error(error.response?.data?.error || error.message || 'Failed to load subscription status');
+        });
+    }
+
+    try {
+      return await premiumStatusRequest;
+    } finally {
+      premiumStatusRequest = null;
+    }
+  },
+
   // 5. Undo the last swipe action (Rewind)
   undoLastAction: async () => {
     try {
       const response = await apiClient.post('/extras/undo');
       return response.data;
     } catch (error) {
-      const err = new Error(error.response?.data?.error || 'Failed to undo action');
+      const responseData = error.response?.data;
+      const err = new Error(responseData?.message || responseData?.error || 'Failed to undo action');
       err.status = error.response?.status;
+      err.code = responseData?.code || responseData?.error;
       throw err;
     }
   },

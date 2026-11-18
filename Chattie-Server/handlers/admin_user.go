@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"chattie-backend/repository"
 	"chattie-backend/services"
@@ -48,21 +51,37 @@ func (h *AdminClientHandler) GetClientTelemetry(w http.ResponseWriter, r *http.R
 func (h *AdminClientHandler) ToggleBan(w http.ResponseWriter, r *http.Request) {
 	clientID := chi.URLParam(r, "id")
 
-	// FIX: Pass r.Context() to GetUserByID
 	user, err := h.Repo.GetUserByID(r.Context(), clientID)
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "User not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			sendAdminError(w, http.StatusNotFound, "Client not found")
+			return
+		}
+		log.Printf("Error checking client before ban update: %v", err)
+		sendAdminError(w, http.StatusInternalServerError, "Failed to verify client")
 		return
 	}
-	isBanned := user.Status == "BANNED"
+	if !strings.EqualFold(user.Role, "client") {
+		sendAdminError(w, http.StatusNotFound, "Client not found")
+		return
+	}
+	isBanned := strings.EqualFold(user.Status, "banned")
 
 	if err := h.Repo.ToggleClientBan(r.Context(), clientID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			sendAdminError(w, http.StatusNotFound, "Client not found")
+			return
+		}
+		log.Printf("Error updating client ban status: %v", err)
 		sendAdminError(w, http.StatusInternalServerError, "Failed to update ban status")
 		return
 	}
 
 	// Notify client if they're being banned
 	if !isBanned {
+		if h.Events != nil && h.Events.NotifService != nil {
+			h.Events.NotifService.DisconnectUser(clientID)
+		}
 		// FIX: Detach the context so the goroutine survives after the HTTP response is sent
 		detachedCtx := context.WithoutCancel(r.Context())
 
@@ -81,7 +100,23 @@ func (h *AdminClientHandler) ToggleBan(w http.ResponseWriter, r *http.Request) {
 func (h *AdminClientHandler) RevokeTier(w http.ResponseWriter, r *http.Request) {
 	clientID := chi.URLParam(r, "id")
 
+	user, err := h.Repo.GetUserByID(r.Context(), clientID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			sendAdminError(w, http.StatusNotFound, "Client not found")
+			return
+		}
+		log.Printf("Error checking client before tier revocation: %v", err)
+		sendAdminError(w, http.StatusInternalServerError, "Failed to verify client")
+		return
+	}
+	if !strings.EqualFold(user.Role, "client") {
+		sendAdminError(w, http.StatusNotFound, "Client not found")
+		return
+	}
+
 	if err := h.Repo.RevokeClientTier(r.Context(), clientID); err != nil {
+		log.Printf("Error revoking client tier: %v", err)
 		sendAdminError(w, http.StatusInternalServerError, "Failed to revoke tier")
 		return
 	}

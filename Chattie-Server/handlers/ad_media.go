@@ -218,6 +218,14 @@ func (h *ADMediaHandler) UploadCreatorImage(w http.ResponseWriter, r *http.Reque
 		MimeType: mimeType, SizeBytes: size, Status: "ready",
 		ModerationStatus: "pending", CreatedAt: time.Now(),
 	}
+	previewURL, err := presignMediaURL(r.Context(), h.UploadService, uploadURL)
+	if err != nil {
+		if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
+			log.Printf("[AFTERDARK MEDIA] Failed to clean up creator image after signing failed: %v", deleteErr)
+		}
+		http.Error(w, "Could not prepare creator image for display", http.StatusBadGateway)
+		return
+	}
 	if err := h.Repo.CreateCreatorImage(r.Context(), asset, kind); err != nil {
 		if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
 			log.Printf("[AFTERDARK MEDIA] Failed to clean up uploaded creator image: %v", deleteErr)
@@ -230,10 +238,11 @@ func (h *ADMediaHandler) UploadCreatorImage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
 		"asset_id": asset.ID,
-		"url":      uploadURL,
+		"url":      previewURL,
 		"kind":     kind,
 	})
 }
@@ -253,7 +262,16 @@ func (h *ADMediaHandler) GetVaultPosts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to fetch vault posts", http.StatusInternalServerError)
 		return
 	}
+	for i := range posts {
+		posts[i].MediaURL, err = presignMediaURL(r.Context(), h.UploadService, posts[i].MediaURL)
+		if err != nil {
+			log.Printf("[AFTERDARK MEDIA] Could not sign vault image for user %s: %v", userID, err)
+			http.Error(w, "Could not load your media vault images", http.StatusBadGateway)
+			return
+		}
+	}
 
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(posts)
 }
@@ -270,7 +288,12 @@ func (h *ADMediaHandler) GetPostMediaURL(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	asset, err := h.Repo.GetAuthorizedPostAsset(r.Context(), userID, chi.URLParam(r, "postId"))
+	asset, err := h.Repo.GetAuthorizedPostAsset(
+		r.Context(),
+		userID,
+		middlewares.CountryCodeFromContext(r.Context()),
+		chi.URLParam(r, "postId"),
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "Post media not found", http.StatusNotFound)
 		return
@@ -281,7 +304,7 @@ func (h *ADMediaHandler) GetPostMediaURL(w http.ResponseWriter, r *http.Request)
 	}
 
 	const urlLifetime = 10 * time.Minute
-	mediaURL, err := h.UploadService.PresignGetFile(r.Context(), asset.StorageKey, urlLifetime)
+	mediaURL, err := h.UploadService.ReadURL(r.Context(), asset.StorageKey, urlLifetime)
 	if err != nil {
 		http.Error(w, "Could not provide post media", http.StatusBadGateway)
 		return

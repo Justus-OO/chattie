@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     reset_token VARCHAR(255),
     reset_token_expires_at TIMESTAMP WITH TIME ZONE,
     provider VARCHAR(30) NOT NULL DEFAULT 'local',
+    email_verified_at TIMESTAMP WITH TIME ZONE,
     token_version INTEGER NOT NULL DEFAULT 1,
     last_active TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS ad_posts (
 
 CREATE INDEX IF NOT EXISTS idx_ad_assets_owner ON ad_assets(owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_posts_creator ON ad_posts(creator_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_posts_published_feed ON ad_posts(created_at DESC, id DESC) WHERE status = 'published';
 
 CREATE TABLE IF NOT EXISTS ad_reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -191,8 +193,11 @@ CREATE TABLE IF NOT EXISTS ad_payment_intents (
     target_id TEXT,
     creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
     amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+    settlement_amount_cents BIGINT NOT NULL CHECK (settlement_amount_cents > 0),
     currency VARCHAR(3) NOT NULL DEFAULT 'KES',
-    provider VARCHAR(20) NOT NULL CHECK (provider IN ('paystack', 'mpesa')),
+    settlement_currency VARCHAR(3) NOT NULL DEFAULT 'KES' CHECK (settlement_currency = 'KES'),
+    exchange_rate NUMERIC(18, 8) NOT NULL DEFAULT 1 CHECK (exchange_rate > 0),
+    provider VARCHAR(20) NOT NULL CHECK (provider IN ('paystack', 'mpesa', 'stripe')),
     provider_session_id TEXT,
     merchant_request_id TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
@@ -212,14 +217,20 @@ CREATE TABLE IF NOT EXISTS ad_withdrawals (
                                               id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                               user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                                               amount_cents BIGINT NOT NULL,
+                                              payout_amount_cents BIGINT NOT NULL,
+                                              fee_cents BIGINT NOT NULL DEFAULT 0,
                                               payout_method_id VARCHAR(255) NOT NULL,
-                                              status VARCHAR(20) DEFAULT 'requested' CHECK (status IN ('requested', 'processing', 'paid', 'failed', 'reversed')),
+                                              status VARCHAR(24) DEFAULT 'requested' CHECK (status IN ('requested', 'submitting', 'submission_unknown', 'processing', 'paid', 'failed', 'reversed')),
                                               failure_reason TEXT,
                                               provider VARCHAR(30) NOT NULL DEFAULT '',
                                               provider_reference TEXT NOT NULL DEFAULT '',
                                               provider_conversation_id TEXT NOT NULL DEFAULT '',
                                               created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                                              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                              CHECK (amount_cents > 0),
+                                              CHECK (payout_amount_cents > 0),
+                                              CHECK (fee_cents >= 0),
+                                              CHECK (payout_amount_cents <= amount_cents AND fee_cents = amount_cents - payout_amount_cents)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ad_withdrawals_user ON ad_withdrawals(user_id, created_at DESC);
@@ -261,11 +272,27 @@ CREATE TABLE IF NOT EXISTS ad_messages (
                                            media_asset_id UUID REFERENCES ad_assets(id) ON DELETE SET NULL,
                                            is_explicit BOOLEAN DEFAULT FALSE,
                                            is_read BOOLEAN DEFAULT FALSE,
+                                           message_kind VARCHAR(30) NOT NULL DEFAULT 'chat',
+                                           call_mode VARCHAR(10),
+                                           reply_to_message_id UUID REFERENCES ad_messages(id) ON DELETE SET NULL,
+                                           is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+                                           pinned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                                           pinned_at TIMESTAMP WITH TIME ZONE,
                                            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_ad_conv_participants ON ad_conversation_participants(user_id);
 CREATE INDEX IF NOT EXISTS idx_ad_messages_conv ON ad_messages(conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_messages_unread_conversation_sender
+    ON ad_messages (conversation_id, sender_id)
+    WHERE is_read = FALSE;
+CREATE TABLE IF NOT EXISTS ad_message_reactions (
+    message_id UUID NOT NULL REFERENCES ad_messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji VARCHAR(16) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (message_id, user_id, emoji)
+);
 
 
 
@@ -284,6 +311,7 @@ CREATE TABLE IF NOT EXISTS ad_post_likes (
                                              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                              PRIMARY KEY (user_id, post_id)
 );
+CREATE INDEX IF NOT EXISTS idx_ad_post_likes_post ON ad_post_likes(post_id);
 
 -- Post Comments
 CREATE TABLE IF NOT EXISTS ad_post_comments (
@@ -405,7 +433,11 @@ CREATE TABLE IF NOT EXISTS performer_applications (
                                                       policy_version VARCHAR(50),
                                                       decision_reason_code VARCHAR(255),
                                                       submitted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                                                      reviewed_at TIMESTAMP WITH TIME ZONE
+                                                      reviewed_at TIMESTAMP WITH TIME ZONE,
+                                                      reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                                                      ai_triage_summary TEXT NOT NULL DEFAULT '',
+                                                      ai_triaged_at TIMESTAMPTZ,
+                                                      ai_triage_claimed_at TIMESTAMPTZ
 );
 ALTER TABLE performer_applications
     ADD COLUMN IF NOT EXISTS creator_alias VARCHAR(100) NOT NULL DEFAULT '';
@@ -603,7 +635,17 @@ CREATE TABLE IF NOT EXISTS user_locations (
                                               longitude DECIMAL(11, 8),
                                               city VARCHAR(100),
                                               country VARCHAR(100),
+                                              country_code CHAR(2),
                                               last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_locations_country_code
+    ON user_locations(country_code);
+
+CREATE TABLE IF NOT EXISTS regional_country_blocks (
+    country_code CHAR(2) PRIMARY KEY,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS user_preferences (
@@ -631,6 +673,14 @@ CREATE TABLE IF NOT EXISTS user_settings (
                                              guidelines_agreed BOOLEAN DEFAULT FALSE,
                                              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+UPDATE user_preferences
+SET interested_in = 'All'
+WHERE LOWER(BTRIM(interested_in)) IN ('men', 'women', 'everyone', 'other', 'male', 'female', 'man', 'woman', 'nonbinary', 'non-binary');
+
+UPDATE user_profiles
+SET gender = 'other'
+WHERE LOWER(BTRIM(gender)) = 'everyone';
 
 CREATE TABLE IF NOT EXISTS user_tags (
                                          user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -775,8 +825,33 @@ CREATE TABLE IF NOT EXISTS reports (
                                        reason VARCHAR(100) NOT NULL,
                                        description TEXT,
                                        status VARCHAR(20) DEFAULT 'pending',
-                                       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                                       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                       ai_triage_summary TEXT NOT NULL DEFAULT '',
+                                       ai_triaged_at TIMESTAMPTZ,
+                                       ai_triage_claimed_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS account_review_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 20 AND 2000),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'reinstated', 'upheld')),
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMPTZ,
+    reviewer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewer_note TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_review_requests_pending_user
+    ON account_review_requests(user_id)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_account_review_requests_queue
+    ON account_review_requests(submitted_at)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_reports_active_target_created
+    ON reports(reported_id, created_at DESC)
+    WHERE status <> 'dismissed';
 
 -- =====================================================================
 -- 5. ROOMS & MESSAGING
@@ -790,21 +865,46 @@ CREATE TABLE IF NOT EXISTS rooms (
                                      description TEXT,
                                      tags JSONB DEFAULT '[]'::jsonb,
                                      is_private BOOLEAN DEFAULT FALSE,
+                                     is_voice_room BOOLEAN NOT NULL DEFAULT FALSE,
+                                     rules TEXT NOT NULL DEFAULT '',
+                                     content_mode VARCHAR(20) NOT NULL DEFAULT 'general' CHECK (content_mode IN ('general', 'mature')),
+                                     allow_media BOOLEAN NOT NULL DEFAULT TRUE,
+                                     allow_links BOOLEAN NOT NULL DEFAULT TRUE,
+                                     slow_mode_seconds INT NOT NULL DEFAULT 0 CHECK (slow_mode_seconds BETWEEN 0 AND 300),
+                                     is_read_only BOOLEAN NOT NULL DEFAULT FALSE,
                                      status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'WARNING', 'SUSPENDED')),
                                      warning_level INT DEFAULT 0,
                                      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
                                      active_count INT DEFAULT 0,
-                                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS room_members (
                                             room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
                                             user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                                            role VARCHAR(20) DEFAULT 'member' CHECK (role IN ('creator', 'admin', 'speaker', 'member', 'host')),
-                                            is_muted BOOLEAN DEFAULT FALSE,
+                                            role VARCHAR(20) DEFAULT 'member' CHECK (role IN ('creator', 'admin', 'moderator', 'speaker', 'member', 'host')),
+                                            is_muted BOOLEAN NOT NULL DEFAULT FALSE,
                                             joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                             last_active TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                            last_message_at TIMESTAMP WITH TIME ZONE,
                                             PRIMARY KEY (room_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS room_voice_sessions (
+    room_id UUID PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
+    started_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS room_bans (
+                                         room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+                                         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                         banned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                                         banned_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                         PRIMARY KEY (room_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS room_join_requests (
@@ -823,9 +923,93 @@ CREATE TABLE IF NOT EXISTS messages (
                                         room_id VARCHAR(255) DEFAULT 'default',
                                         content TEXT NOT NULL,
                                         media TEXT,
+                                        is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+                                        pinned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                                        pinned_at TIMESTAMP WITH TIME ZONE,
+                                        message_kind VARCHAR(30) NOT NULL DEFAULT 'chat',
+                                        call_mode VARCHAR(10),
                                         status VARCHAR(20) DEFAULT 'sent',
+                                        client_message_id VARCHAR(128),
+                                        is_ai_generated BOOLEAN NOT NULL DEFAULT FALSE,
                                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_sender_client_message
+    ON messages(sender_id, client_message_id)
+    WHERE client_message_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS room_message_reactions (
+    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji VARCHAR(16) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (message_id, user_id, emoji)
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id, room_id);
+CREATE INDEX IF NOT EXISTS idx_room_bans_user ON room_bans(user_id, room_id);
+CREATE INDEX IF NOT EXISTS idx_room_join_requests_pending ON room_join_requests(room_id, created_at) WHERE status = 'PENDING';
+CREATE INDEX IF NOT EXISTS idx_room_message_reactions_message ON room_message_reactions(message_id, emoji);
+
+CREATE TABLE IF NOT EXISTS ai_dm_preferences (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    partner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    auto_reply_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, partner_id),
+    CHECK (user_id <> partner_id)
+);
+
+CREATE TABLE IF NOT EXISTS ai_auto_reply_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    partner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    due_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processing', 'sent', 'cancelled', 'failed')),
+    attempts SMALLINT NOT NULL DEFAULT 0,
+    claimed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, partner_id, source_message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_auto_reply_jobs_due
+    ON ai_auto_reply_jobs(due_at)
+    WHERE status = 'pending';
+
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
+    subject VARCHAR(160) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'waiting_human', 'in_progress', 'resolved')),
+    priority VARCHAR(12) NOT NULL DEFAULT 'normal'
+        CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+    category VARCHAR(60) NOT NULL DEFAULT 'general',
+    ai_summary TEXT NOT NULL DEFAULT '',
+    ai_triaged_at TIMESTAMPTZ,
+    ai_triage_claimed_at TIMESTAMPTZ,
+    human_requested BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_user_updated
+    ON support_tickets(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_queue
+    ON support_tickets(status, priority, updated_at DESC)
+    WHERE status <> 'resolved';
+
+CREATE TABLE IF NOT EXISTS support_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id UUID NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+    sender_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    sender_type VARCHAR(12) NOT NULL
+        CHECK (sender_type IN ('user', 'assistant', 'admin', 'system')),
+    content TEXT NOT NULL CHECK (length(trim(content)) BETWEEN 1 AND 10000),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_support_messages_ticket_created
+    ON support_messages(ticket_id, created_at, id);
 
 -- =====================================================================
 -- 6. CREATOR, OPERATOR, & CLIENT LOGIC
@@ -835,9 +1019,11 @@ CREATE TABLE IF NOT EXISTS managed_profiles (
                                                 manager_id UUID REFERENCES users(id) ON DELETE CASCADE,
                                                 name VARCHAR(100) NOT NULL,
                                                 avatar_url TEXT,
+                                                bio TEXT NOT NULL DEFAULT '',
                                                 status VARCHAR(20) DEFAULT 'offline',
                                                 archetype VARCHAR(100) DEFAULT 'General',
-                                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                                updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS chat_requests (
@@ -858,8 +1044,57 @@ CREATE TABLE IF NOT EXISTS transactions (
                                             tx_type VARCHAR(50) NOT NULL,
                                             amount DECIMAL(10, 2) NOT NULL,
                                             status VARCHAR(20) DEFAULT 'COMPLETED',
+                                            message_id UUID REFERENCES messages(id) ON DELETE RESTRICT,
                                             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_message_id
+    ON transactions(message_id)
+    WHERE message_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS creator_payout_methods (
+    creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    asset_network VARCHAR(32) NOT NULL CHECK (asset_network IN ('USDT-TRC20', 'USDT-ERC20')),
+    wallet_address VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (creator_id, asset_network)
+);
+
+CREATE TABLE IF NOT EXISTS creator_payout_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    idempotency_key UUID NOT NULL,
+    amount_cents BIGINT NOT NULL CHECK (amount_cents >= 5000),
+    asset_network VARCHAR(32) NOT NULL CHECK (asset_network IN ('USDT-TRC20', 'USDT-ERC20')),
+    wallet_address VARCHAR(255) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'PAID')),
+    crypto_amount NUMERIC(30, 12) CHECK (crypto_amount IS NULL OR crypto_amount > 0),
+    transaction_hash VARCHAR(128),
+    rejection_reason TEXT,
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    paid_at TIMESTAMP WITH TIME ZONE,
+    CHECK (status <> 'PAID' OR (crypto_amount IS NOT NULL AND transaction_hash IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_creator_payout_requests_idempotency
+    ON creator_payout_requests(creator_id, idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_creator_payout_requests_transaction_hash
+    ON creator_payout_requests(asset_network, LOWER(transaction_hash))
+    WHERE transaction_hash IS NOT NULL;
+
+ALTER TABLE transactions
+    ADD COLUMN IF NOT EXISTS payout_request_id UUID
+    REFERENCES creator_payout_requests(id) ON DELETE RESTRICT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_creator_payout_request
+    ON transactions(payout_request_id)
+    WHERE payout_request_id IS NOT NULL AND tx_type = 'CRYPTO_PAYOUT';
+CREATE INDEX IF NOT EXISTS idx_creator_payout_requests_status_created
+    ON creator_payout_requests(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_creator_payout_requests_creator_created
+    ON creator_payout_requests(creator_id, created_at DESC);
 
 -- Model/Operator Specific
 CREATE TABLE IF NOT EXISTS creator_stats (
@@ -875,6 +1110,7 @@ CREATE TABLE IF NOT EXISTS operator_profiles (
                                                  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
                                                  commission_rate DECIMAL(5, 2) DEFAULT 50.00,
                                                  auto_pilot BOOLEAN DEFAULT FALSE,
+                                                 ai_drafts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
                                                  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -954,6 +1190,19 @@ CREATE TABLE IF NOT EXISTS export_jobs (
                                            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_action_jobs_pending_claim
+    ON action_jobs (next_attempt_at, created_at)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_jobs_stale_claim
+    ON action_jobs (updated_at, next_attempt_at, created_at)
+    WHERE status = 'processing';
+CREATE INDEX IF NOT EXISTS idx_export_jobs_pending_claim
+    ON export_jobs (next_attempt_at, created_at)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_export_jobs_stale_claim
+    ON export_jobs (updated_at, next_attempt_at, created_at)
+    WHERE status = 'processing';
+
 CREATE TABLE IF NOT EXISTS email_jobs (
                                           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                           to_email VARCHAR(255) NOT NULL,
@@ -968,6 +1217,13 @@ CREATE TABLE IF NOT EXISTS email_jobs (
                                           created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_email_jobs_pending_claim
+    ON email_jobs (next_attempt_at, created_at)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_email_jobs_stale_claim
+    ON email_jobs (updated_at, next_attempt_at, created_at)
+    WHERE status = 'processing';
 
 CREATE TABLE IF NOT EXISTS sms_queue (
                                          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1084,6 +1340,22 @@ CREATE TABLE IF NOT EXISTS user_action_logs (
                                                 created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS idanalyzer_docupass_sessions (
+    custom_data VARCHAR(64) PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reference VARCHAR(128) UNIQUE,
+    hosted_url TEXT NOT NULL DEFAULT '',
+    status VARCHAR(16) NOT NULL DEFAULT 'creating'
+        CHECK (status IN ('creating', 'pending', 'accept', 'review', 'reject', 'failed')),
+    transaction_id VARCHAR(128) UNIQUE,
+    warning_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    consented_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_idanalyzer_docupass_user_created
+    ON idanalyzer_docupass_sessions (user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS admin_audit_logs (
                                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                 admin_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -1094,6 +1366,16 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
                                                 reason TEXT,
                                                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS ad_afterdark_moderation_settings (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    auto_approve_new_posts BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO ad_afterdark_moderation_settings (id, auto_approve_new_posts)
+VALUES (1, FALSE)
+ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS media_audit_logs (
                                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1349,8 +1631,13 @@ BEGIN
         ON CONFLICT (id) DO NOTHING;
 
         WITH new_withdrawal AS (
-            INSERT INTO ad_withdrawals (id, user_id, amount_cents, payout_method_id, status)
-            SELECT 'aaaa3333-3333-3333-3333-333333333333', '744447e0-c401-4348-b02a-785cb5b501a0', 30000, 'MPESA-001', 'processing'
+            INSERT INTO ad_withdrawals (
+                id, user_id, amount_cents, payout_amount_cents, fee_cents,
+                payout_method_id, status, provider
+            )
+            SELECT 'aaaa3333-3333-3333-3333-333333333333',
+                   '744447e0-c401-4348-b02a-785cb5b501a0', 30000, 30000, 0,
+                   'MPESA-001', 'processing', 'mpesa'
             WHERE NOT EXISTS (
                 SELECT 1 FROM ad_withdrawals
                 WHERE user_id = '744447e0-c401-4348-b02a-785cb5b501a0'

@@ -3,6 +3,7 @@ package repository
 import (
 	"chattie-backend/models"
 	"context"
+	"database/sql"
 )
 
 // GetAdminClientDirectory fetches all standard users with their nested metadata
@@ -36,7 +37,7 @@ func (r *Repository) GetAdminClientDirectory(ctx context.Context) ([]models.Admi
 	}
 	defer rows.Close()
 
-	var clients []models.AdminUserDetail
+	clients := make([]models.AdminUserDetail, 0)
 	for rows.Next() {
 		var c models.AdminUserDetail
 		if err := rows.Scan(
@@ -45,7 +46,7 @@ func (r *Repository) GetAdminClientDirectory(ctx context.Context) ([]models.Admi
 			&c.Behavior.RiskScore, &c.Behavior.Flags, &c.Behavior.MessagesSent,
 			&c.Security.LastIp, &c.Security.Location, &c.Security.Device,
 		); err != nil {
-			continue
+			return nil, err
 		}
 
 		// Ensure UI matches exact casing
@@ -53,6 +54,9 @@ func (r *Repository) GetAdminClientDirectory(ctx context.Context) ([]models.Admi
 			c.Tier = "STANDARD"
 		}
 		clients = append(clients, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return clients, nil
 }
@@ -64,8 +68,8 @@ func (r *Repository) GetAdminClientTelemetry(ctx context.Context) (models.AdminC
 	query := `
 		SELECT 
 			COUNT(u.id) as total_users,
-			COUNT(CASE WHEN st.name = 'vip' THEN 1 END) as vip_count,
-			COUNT(CASE WHEN st.name = 'premium' THEN 1 END) as premium_count,
+			COUNT(CASE WHEN LOWER(st.name) = 'vip' THEN 1 END) as vip_count,
+			COUNT(CASE WHEN LOWER(st.name) = 'premium' THEN 1 END) as premium_count,
 			COUNT(CASE WHEN u.last_active >= NOW() - INTERVAL '24 hours' THEN 1 END) as daily_active
 		FROM users u
 		LEFT JOIN user_subscriptions us ON u.id = us.user_id AND us.status = 'active'
@@ -78,25 +82,44 @@ func (r *Repository) GetAdminClientTelemetry(ctx context.Context) (models.AdminC
 
 // ToggleClientBan switches a user between BANNED and ACTIVE
 func (r *Repository) ToggleClientBan(ctx context.Context, userID string) error {
-	_, err := r.DB.ExecContext(ctx, `
+	result, err := r.DB.ExecContext(ctx, `
 		UPDATE users 
-		SET status = CASE WHEN status = 'banned' THEN 'active' ELSE 'banned' END,
+		SET status = CASE WHEN LOWER(status) = 'banned' THEN 'active' ELSE 'banned' END,
+		    token_version = token_version + 1,
 		    updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND role = 'client'
 	`, userID)
-	return err
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // RevokeClientTier downgrades a user to the free/standard tier
 func (r *Repository) RevokeClientTier(ctx context.Context, userID string) error {
 	// Find the 'free' tier ID
 	var freeTierID int
-	r.DB.QueryRowContext(ctx, "SELECT id FROM subscription_tiers WHERE name = 'free' LIMIT 1").Scan(&freeTierID)
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id FROM subscription_tiers
+		WHERE LOWER(name) = 'free'
+		ORDER BY id
+		LIMIT 1
+	`).Scan(&freeTierID)
+	if err != nil {
+		return err
+	}
 
-	_, err := r.DB.ExecContext(ctx, `
+	_, err = r.DB.ExecContext(ctx, `
 		UPDATE user_subscriptions 
 		SET tier_id = $1, updated_at = NOW(), status = 'cancelled'
-		WHERE user_id = $2
+		WHERE user_id = $2 AND status = 'active'
 	`, freeTierID, userID)
 	return err
 }

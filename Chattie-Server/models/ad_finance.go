@@ -15,7 +15,9 @@ type ADDepositIntent struct {
 type ADWithdrawal struct {
 	ID                     string    `json:"id"`
 	UserID                 string    `json:"user_id"`
-	AmountCents            int64     `json:"amount_cents"`
+	AmountCents            int64     `json:"amount_cents"` // Total wallet debit, including any payout fee.
+	PayoutAmountCents      int64     `json:"payout_amount_cents"`
+	FeeCents               int64     `json:"fee_cents"`
 	PayoutMethodID         string    `json:"payout_method_id"`
 	Provider               string    `json:"provider"`
 	ProviderReference      string    `json:"provider_reference,omitempty"`

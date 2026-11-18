@@ -96,6 +96,23 @@ func (r *Repository) SubmitReport(ctx context.Context, reporterID string, req mo
 		tx.QueryRowContext(ctx, "SELECT username FROM users WHERE id = $1", req.ReportedID).Scan(&reportedUsername)
 	}
 
+	lockTargetID := reporterID
+	if targetID.Valid {
+		lockTargetID = targetID.String
+	}
+	lockedUsers, err := lockUsersInOrder(ctx, tx, reporterID, lockTargetID)
+	if err != nil {
+		return err
+	}
+	if _, ok := lockedUsers[reporterID]; !ok {
+		return sql.ErrNoRows
+	}
+	if targetID.Valid {
+		if _, ok := lockedUsers[lockTargetID]; !ok {
+			return ErrUserNotFound
+		}
+	}
+
 	// 2. Insert the actual report
 	query := `
        INSERT INTO reports (reporter_id, reported_id, reported_username, reason, description) 

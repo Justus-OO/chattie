@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"chattie-backend/models"
@@ -261,9 +262,11 @@ func (r *ADFinanceRepository) GetPayoutMethods(ctx context.Context, userID strin
 		if err := rows.Scan(&id, &provider, &accNum, &accName, &isDefault, &bankCode); err != nil {
 			return nil, err
 		}
-		maskedAcc := accNum
-		if len(accNum) > 4 {
-			maskedAcc = "****" + accNum[len(accNum)-4:]
+		maskedAcc := "****"
+		if provider == "mpesa" && len(accNum) == 12 && strings.HasPrefix(accNum, "254") {
+			maskedAcc = accNum[:4] + "XX XXX " + accNum[9:]
+		} else if len(accNum) > 4 {
+			maskedAcc += accNum[len(accNum)-4:]
 		}
 		methods = append(methods, map[string]interface{}{
 			"id": id, "provider": provider, "account_number": maskedAcc,

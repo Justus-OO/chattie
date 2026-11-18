@@ -24,9 +24,6 @@ import (
 	"google.golang.org/api/idtoken"
 )
 
-// In a real production environment, load this from config/environment variables!
-var jwtSecret = []byte("super_secret_chattie_key_do_not_leak")
-
 type AuthHandler struct {
 	Repo   *repository.Repository
 	Events *services.EventHandler
@@ -85,13 +82,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ---------------------------------------------------------
-	// NEW: Auto-provision the After Dark Viewer Profile
-	// ---------------------------------------------------------
-	if err := h.Repo.ProvisionAfterDarkViewer(r.Context(), user.ID); err != nil {
-		fmt.Println("WARNING: Failed to provision After Dark profile:", err)
-	}
-
 	detachedCtx := context.WithoutCancel(r.Context())
 	go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 		RecipientID:   user.ID,
@@ -137,10 +127,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidCredentials", "Invalid credentials")})
 		return
-	}
-
-	if err := h.Repo.ProvisionAfterDarkViewer(r.Context(), user.ID); err != nil {
-		log.Printf("[AUTH] Failed to provision After Dark viewer profile for %s: %v", user.ID, err)
 	}
 
 	h.sendLoginOrChallenge(w, r, user)
@@ -308,6 +294,7 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 			Email:    email,
 			Username: name,
 			Role:     "client",
+			Status:   "active",
 			Password: "oauth_managed_account", // Cannot be logged into via standard login
 			Provider: provider,
 		}
@@ -361,6 +348,9 @@ func (h *AuthHandler) sendAuthResponse(w http.ResponseWriter, r *http.Request, u
 		json.NewEncoder(w).Encode(map[string]string{"error": "Could not generate token"})
 		return
 	}
+	if err := h.Repo.RecordSuccessfulLogin(r.Context(), user.ID); err != nil {
+		log.Printf("[AUTH] Failed to record successful login for user %s: %v", user.ID, err)
+	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"token": tokenString,
@@ -368,6 +358,7 @@ func (h *AuthHandler) sendAuthResponse(w http.ResponseWriter, r *http.Request, u
 			"id":       user.ID,
 			"username": user.Username,
 			"role":     user.Role,
+			"status":   user.Status,
 			"provider": user.Provider,
 		},
 	})

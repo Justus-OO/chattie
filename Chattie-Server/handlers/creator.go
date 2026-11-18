@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -171,6 +174,125 @@ func (h *CreatorHandler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, http.StatusOK, profiles)
 }
 
+func (h *CreatorHandler) GetProfileConversations(w http.ResponseWriter, r *http.Request) {
+	_, profileID, chatUserID, ok := h.profileChatIdentity(w, r)
+	if !ok {
+		return
+	}
+
+	conversations, err := repository.NewChatRepository(h.Repo.DB).GetInbox(chatUserID)
+	if err != nil {
+		log.Printf("Error fetching conversations for managed profile %s: %v", profileID, err)
+		sendError(w, http.StatusInternalServerError, "Failed to load profile conversations")
+		return
+	}
+	sendJSON(w, http.StatusOK, conversations)
+}
+
+func (h *CreatorHandler) GetProfileConversationMessages(w http.ResponseWriter, r *http.Request) {
+	_, profileID, chatUserID, ok := h.profileChatIdentity(w, r)
+	if !ok {
+		return
+	}
+	partnerID := chi.URLParam(r, "partner_id")
+	if partnerID == "" || partnerID == chatUserID {
+		sendError(w, http.StatusBadRequest, "A conversation partner is required")
+		return
+	}
+
+	chatRepo := repository.NewChatRepository(h.Repo.DB)
+	messages, err := chatRepo.GetDirectMessages(chatUserID, partnerID, 100)
+	if err != nil {
+		log.Printf("Error fetching profile conversation %s/%s: %v", profileID, partnerID, err)
+		sendError(w, http.StatusInternalServerError, "Failed to load conversation")
+		return
+	}
+	if err := chatRepo.MarkMessagesAsRead(chatUserID, partnerID); err != nil {
+		log.Printf("Error marking profile conversation %s/%s as read: %v", profileID, partnerID, err)
+		sendError(w, http.StatusInternalServerError, "Failed to update read status")
+		return
+	}
+	sendJSON(w, http.StatusOK, messages)
+}
+
+func (h *CreatorHandler) BlockProfileConversationUser(w http.ResponseWriter, r *http.Request) {
+	creatorID, profileID, chatUserID, ok := h.profileChatIdentity(w, r)
+	if !ok {
+		return
+	}
+	partnerID := chi.URLParam(r, "partner_id")
+	if partnerID == "" || partnerID == chatUserID {
+		sendError(w, http.StatusBadRequest, "A conversation partner is required")
+		return
+	}
+	if err := h.Repo.BlockUser(r.Context(), chatUserID, partnerID); err != nil {
+		log.Printf("Creator %s failed to block user %s for profile %s: %v", creatorID, partnerID, profileID, err)
+		sendError(w, http.StatusInternalServerError, "Failed to block user")
+		return
+	}
+	sendJSON(w, http.StatusOK, map[string]string{"message": "User blocked"})
+}
+
+func (h *CreatorHandler) ReportProfileConversationUser(w http.ResponseWriter, r *http.Request) {
+	creatorID, profileID, chatUserID, ok := h.profileChatIdentity(w, r)
+	if !ok {
+		return
+	}
+	partnerID := chi.URLParam(r, "partner_id")
+	var payload struct {
+		Reason string `json:"reason"`
+	}
+	if partnerID == "" || partnerID == chatUserID {
+		sendError(w, http.StatusBadRequest, "A conversation partner is required")
+		return
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Reason == "" {
+		sendError(w, http.StatusBadRequest, "A report reason is required")
+		return
+	}
+	restricted, err := h.Repo.ReportUser(r.Context(), chatUserID, partnerID, payload.Reason)
+	if err != nil {
+		log.Printf("Creator %s failed to report user %s for profile %s: %v", creatorID, partnerID, profileID, err)
+		sendError(w, http.StatusInternalServerError, "Failed to submit report")
+		return
+	}
+	if restricted && h.Events != nil && h.Events.NotifService != nil {
+		h.Events.NotifService.DisconnectUser(partnerID)
+	}
+	if restricted && h.Events != nil {
+		detachedCtx := context.WithoutCancel(r.Context())
+		go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
+			RecipientID:   partnerID,
+			EmailTemplate: "account_banned",
+		})
+	}
+	sendJSON(w, http.StatusOK, map[string]string{"message": "Report submitted"})
+}
+
+func (h *CreatorHandler) profileChatIdentity(w http.ResponseWriter, r *http.Request) (string, string, string, bool) {
+	creatorID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || creatorID == "" {
+		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		return "", "", "", false
+	}
+	profileID := chi.URLParam(r, "profile_id")
+	if profileID == "" {
+		sendError(w, http.StatusBadRequest, "Missing profile_id URL parameter")
+		return "", "", "", false
+	}
+	chatUserID, err := h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, creatorID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			sendError(w, http.StatusNotFound, "Assigned profile not found")
+			return "", "", "", false
+		}
+		log.Printf("Error resolving chat identity for profile %s and creator %s: %v", profileID, creatorID, err)
+		sendError(w, http.StatusInternalServerError, "Failed to validate assigned profile")
+		return "", "", "", false
+	}
+	return creatorID, profileID, chatUserID, true
+}
+
 // UpdateStatus handles PATCH /api/creator/profiles/{profile_id}/status
 func (h *CreatorHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
@@ -199,8 +321,13 @@ func (h *CreatorHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 
 	err := h.Repo.UpdateProfileStatus(r.Context(), profileID, userID, payload.Status)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			sendError(w, http.StatusNotFound, "Assigned profile not found")
+			return
+		}
 		log.Printf("Error updating status for profile %s: %v", profileID, err)
 		sendError(w, http.StatusInternalServerError, "Failed to update profile status")
+		return
 	}
 
 	sendJSON(w, http.StatusOK, map[string]string{"message": "Status updated successfully"})

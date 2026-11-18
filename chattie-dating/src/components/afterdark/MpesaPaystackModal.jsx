@@ -8,6 +8,8 @@ import {
 import { toast } from 'sonner';
 import { afterDarkService } from '../../api/afterdark.service';
 import { PagePrivacyShield, usePageFocus } from '../../hooks/usePageFocus';
+import { loadStripe } from '@stripe/stripe-js';
+import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 
 const PAYSTACK_SCRIPT_URL = 'https://js.paystack.co/v2/inline.js';
 
@@ -55,6 +57,12 @@ export default function CheckoutModal({
   const [errorMessage, setErrorMessage] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
   const [confirmedAmountCents, setConfirmedAmountCents] = useState(null);
+  const [confirmedChargeCents, setConfirmedChargeCents] = useState(null);
+  const [chargeCurrency, setChargeCurrency] = useState('KES');
+  const [checkoutConfig, setCheckoutConfig] = useState(null);
+  const [checkoutProvider, setCheckoutProvider] = useState('');
+  const [stripePromise, setStripePromise] = useState(null);
+  const [stripeCheckout, setStripeCheckout] = useState(null);
   const [walletBalance, setWalletBalance] = useState(0);
   const [isLoadingWallet, setIsLoadingWallet] = useState(false);
   const pollIntervalRef = useRef(null);
@@ -68,6 +76,15 @@ export default function CheckoutModal({
   const platformFee = 0; // Assuming absorbed
   const vatAmount = itemPrice * 0.16; // 16% Kenyan VAT for receipt display
   const totalAmount = itemPrice; 
+  const estimatedCharge = chargeCurrency === 'USD' && checkoutConfig?.kes_per_usd > 0
+    ? itemPrice / checkoutConfig.kes_per_usd
+    : itemPrice;
+  const paymentCurrency = checkoutConfig?.currency || 'KES';
+  const paymentAmount = confirmedChargeCents === null
+    ? (paymentCurrency === 'USD' && checkoutConfig?.kes_per_usd > 0
+      ? itemPrice / checkoutConfig.kes_per_usd
+      : itemPrice)
+    : confirmedChargeCents / 100;
 
   // ==========================================
   // HELPERS & VALIDATION
@@ -94,6 +111,11 @@ export default function CheckoutModal({
     setErrorMessage('');
     setCountdown(180);
     setConfirmedAmountCents(null);
+    setConfirmedChargeCents(null);
+    setChargeCurrency('KES');
+    setCheckoutProvider('');
+    setStripePromise(null);
+    setStripeCheckout(null);
     clearInterval(pollIntervalRef.current);
     clearInterval(timerRef.current);
   };
@@ -104,6 +126,10 @@ export default function CheckoutModal({
     setErrorMessage('');
     setCountdown(180);
     setConfirmedAmountCents(null);
+    setConfirmedChargeCents(null);
+    setCheckoutProvider('');
+    setStripePromise(null);
+    setStripeCheckout(null);
     clearInterval(pollIntervalRef.current);
     clearInterval(timerRef.current);
     setActiveTab(isWalletPurchase ? 'wallet' : defaultProvider === 'paystack' ? 'card' : 'mpesa');
@@ -129,6 +155,31 @@ export default function CheckoutModal({
 
     return () => { active = false; };
   }, [defaultProvider, initialPhoneNumber, isOpen, isWalletPurchase, postItem?.id]);
+
+  useEffect(() => {
+    if (!isOpen || isWalletPurchase) {
+      setCheckoutConfig(null);
+      return undefined;
+    }
+    let active = true;
+    setCheckoutConfig(null);
+    afterDarkService.getCheckoutConfig()
+      .then((config) => {
+        if (!active) return;
+        if (!config || !Array.isArray(config.supported_providers) || !config.default_provider) {
+          throw new Error('Regional checkout settings are unavailable.');
+        }
+        setCheckoutConfig(config);
+        setChargeCurrency(config.currency || 'KES');
+        setActiveTab(config.default_provider === 'stripe'
+          ? 'card'
+          : defaultProvider === 'paystack' ? 'card' : 'mpesa');
+      })
+      .catch((error) => {
+        if (active) setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load regional checkout settings.'));
+      });
+    return () => { active = false; };
+  }, [defaultProvider, isOpen, isWalletPurchase]);
 
   const handleClose = () => {
     resetModal();
@@ -156,20 +207,34 @@ export default function CheckoutModal({
     });
     const intentId = checkout?.id;
     if (!intentId) throw new Error('The checkout service did not return a valid payment reference.');
-    if (Number.isFinite(Number(checkout.amount_cents))) {
-      setConfirmedAmountCents(Number(checkout.amount_cents));
+    if (Number.isFinite(Number(checkout.settlement_amount_cents))) {
+      setConfirmedAmountCents(Number(checkout.settlement_amount_cents));
     }
+    if (Number.isFinite(Number(checkout.amount_cents))) {
+      setConfirmedChargeCents(Number(checkout.amount_cents));
+      setChargeCurrency(checkout.currency || 'KES');
+    }
+    const actualProvider = checkout.provider;
+    setCheckoutProvider(actualProvider);
     setTransactionRef(intentId);
     setStep('polling');
-    setCountdown(180);
+    setCountdown(actualProvider === 'stripe' ? 600 : 180);
 
-    if (provider === 'paystack') {
+    if (actualProvider === 'paystack') {
       await loadPaystackScript();
       if (typeof window.PaystackPop !== 'function' || !checkout.client_secret) {
         throw new Error('Paystack checkout could not initialize.');
       }
       const popup = new window.PaystackPop();
       popup.resumeTransaction(checkout.client_secret);
+    } else if (actualProvider === 'stripe') {
+      if (!checkout.client_secret || !checkout.public_key) {
+        throw new Error('Stripe checkout could not initialize.');
+      }
+      setStripePromise(loadStripe(checkout.public_key));
+      setStripeCheckout(checkout);
+    } else if (actualProvider !== 'mpesa') {
+      throw new Error('The server returned an unsupported payment provider.');
     }
 
     pollIntervalRef.current = window.setInterval(async () => {
@@ -302,7 +367,7 @@ export default function CheckoutModal({
     setStep('processing');
     setErrorMessage('');
     try {
-      await startCheckout('paystack');
+      await startCheckout(checkoutConfig?.default_provider === 'stripe' ? 'stripe' : 'paystack');
     } catch (err) {
       setStep('failed');
       setErrorMessage(err?.response?.data?.error || (err instanceof Error ? err.message : 'Failed to reach Paystack secure gateway.'));
@@ -319,7 +384,7 @@ export default function CheckoutModal({
         onClick={() => (step === 'checkout' || step === 'failed' || step === 'success') && handleClose()} 
       />
       
-      <div className="relative w-full max-w-4xl bg-black border-2 border-zinc-700 shadow-[12px_12px_0px_rgba(255,255,255,0.05)] flex flex-col md:flex-row z-10 font-mono h-[90vh] md:h-[600px] animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative flex h-[90dvh] min-h-0 w-full max-w-4xl flex-col border-2 border-zinc-700 bg-black font-mono shadow-[12px_12px_0px_rgba(255,255,255,0.05)] animate-in fade-in zoom-in-95 duration-200 md:flex-row">
         
         {/* LEFT PANEL: ORDER SUMMARY */}
         <div className="w-full md:w-[40%] bg-zinc-950 border-b-2 md:border-b-0 md:border-r-2 border-zinc-800 flex flex-col">
@@ -370,7 +435,12 @@ export default function CheckoutModal({
           <div className="p-6 bg-zinc-900 border-t-2 border-zinc-800 shrink-0">
             <div className="flex justify-between items-end">
               <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest">Total Due</span>
-              <span className="text-2xl font-black text-yellow-500 tracking-wider">KES {totalAmount.toFixed(2)}</span>
+              <div className="text-right">
+                <span className="text-2xl font-black text-yellow-500 tracking-wider">
+                  {paymentCurrency} {paymentAmount.toFixed(paymentCurrency === 'USD' ? 2 : 0)}
+                </span>
+                {paymentCurrency === 'USD' && <span className="mt-1 block text-[9px] text-zinc-500">KES {totalAmount.toFixed(2)} settlement · approx. USD {estimatedCharge.toFixed(2)}</span>}
+              </div>
             </div>
           </div>
         </div>
@@ -397,21 +467,23 @@ export default function CheckoutModal({
               </div>
 
               {/* Payment Tabs */}
-              {!isWalletPurchase && <div className="flex px-8 gap-4 shrink-0">
-                <button 
+              {!isWalletPurchase && checkoutConfig && <div className="flex px-8 gap-4 shrink-0">
+                {checkoutConfig.supported_providers.includes('mpesa') && <button
                   onClick={() => setActiveTab('mpesa')}
                   className={`flex-1 p-4 border-2 transition-all flex flex-col items-center justify-center gap-3 ${activeTab === 'mpesa' ? 'border-green-500 bg-green-500/10 shadow-[4px_4px_0px_rgba(34,197,94,0.2)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'}`}
                 >
                   <Smartphone className={`w-7 h-7 ${activeTab === 'mpesa' ? 'text-green-500' : 'text-zinc-500'}`} />
                   <span className={`text-[10px] font-black uppercase tracking-widest ${activeTab === 'mpesa' ? 'text-green-500' : 'text-zinc-500'}`}>M-Pesa Express</span>
-                </button>
-                <button 
+                </button>}
+                {(checkoutConfig.supported_providers.includes('paystack') || checkoutConfig.supported_providers.includes('stripe')) && <button
                   onClick={() => setActiveTab('card')}
                   className={`flex-1 p-4 border-2 transition-all flex flex-col items-center justify-center gap-3 ${activeTab === 'card' ? 'border-blue-500 bg-blue-500/10 shadow-[4px_4px_0px_rgba(59,130,246,0.2)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'}`}
                 >
                   <CreditCard className={`w-7 h-7 ${activeTab === 'card' ? 'text-blue-500' : 'text-zinc-500'}`} />
-                  <span className={`text-[10px] font-black uppercase tracking-widest ${activeTab === 'card' ? 'text-blue-500' : 'text-zinc-500'}`}>Card / Bank</span>
-                </button>
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${activeTab === 'card' ? 'text-blue-500' : 'text-zinc-500'}`}>
+                    {checkoutConfig.default_provider === 'stripe' ? 'Stripe card' : 'Paystack card'}
+                  </span>
+                </button>}
               </div>}
 
               {/* Tab Content */}
@@ -437,6 +509,15 @@ export default function CheckoutModal({
                         Go to wallet
                       </button>
                     )}
+                  </div>
+                ) : !checkoutConfig ? (
+                  <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 text-center">
+                    {errorMessage
+                      ? <AlertTriangle className="h-8 w-8 text-red-400" />
+                      : <Loader2 className="h-8 w-8 animate-spin text-blue-400" />}
+                    <p role={errorMessage ? 'alert' : 'status'} className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+                      {errorMessage || 'Loading regional payment options...'}
+                    </p>
                   </div>
                 ) : <>
                 
@@ -519,7 +600,9 @@ export default function CheckoutModal({
                           <Shield className="w-6 h-6 text-blue-500" />
                           <div>
                             <p className="text-xs font-black text-white uppercase tracking-widest">PCI-DSS COMPLIANT</p>
-                            <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Processed securely by Paystack</p>
+                            <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">
+                              Processed securely by {checkoutConfig.default_provider === 'stripe' ? 'Stripe' : 'Paystack'}
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -527,7 +610,6 @@ export default function CheckoutModal({
                       <div className="flex items-center justify-between opacity-60">
                         <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Accepts</span>
                         <div className="flex gap-2">
-                          {/* Generic card icons representing Visa/MC without loading external images if possible, using text for now to maintain brute aesthetic */}
                           <div className="px-2 py-1 border border-zinc-700 text-[8px] font-black text-white">VISA</div>
                           <div className="px-2 py-1 border border-zinc-700 text-[8px] font-black text-white">MASTERCARD</div>
                         </div>
@@ -538,7 +620,7 @@ export default function CheckoutModal({
                       type="submit"
                       className="w-full py-5 bg-blue-500 text-black border-2 border-blue-500 font-black uppercase tracking-widest text-xs hover:bg-blue-400 transition-all shadow-[4px_4px_0px_rgba(59,130,246,0.2)] hover:shadow-[6px_6px_0px_rgba(59,130,246,0.4)] flex items-center justify-center gap-2"
                     >
-                      PROCEED TO SECURE CHECKOUT <ChevronRight className="w-4 h-4" />
+                      PROCEED TO {checkoutConfig.default_provider === 'stripe' ? 'STRIPE' : 'PAYSTACK'} CHECKOUT <ChevronRight className="w-4 h-4" />
                     </button>
                   </form>
                 )}
@@ -553,17 +635,35 @@ export default function CheckoutModal({
               <Loader2 className={`w-16 h-16 animate-spin mb-8 ${activeTab === 'mpesa' ? 'text-green-500' : 'text-blue-500'}`} />
               <h3 className="text-base font-black text-white uppercase tracking-widest mb-3">CONTACTING GATEWAY</h3>
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest max-w-sm leading-relaxed">
-                Establishing a secure connection with {activeTab === 'mpesa' ? 'Safaricom Daraja API' : 'Paystack'}...
+                Establishing a secure connection with {activeTab === 'mpesa' ? 'Safaricom Daraja API' : checkoutConfig?.default_provider === 'stripe' ? 'Stripe' : 'Paystack'}...
               </p>
             </div>
           )}
 
-          {/* STATE: POLLING (Waiting for M-Pesa PIN) */}
+          {/* STATE: POLLING (Waiting for provider confirmation) */}
           {step === 'polling' && (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in-95 duration-300">
+            <div className={`flex-1 flex flex-col items-center ${checkoutProvider === 'stripe' ? 'justify-start overflow-y-auto' : 'justify-center'} p-8 text-center animate-in zoom-in-95 duration-300`}>
+              {checkoutProvider === 'stripe' ? (
+                <div className="w-full max-w-lg space-y-4">
+                  <h3 className="text-base font-black text-white uppercase tracking-widest">Complete secure checkout</h3>
+                  <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest leading-relaxed">
+                    Pay USD {paymentAmount.toFixed(2)}. The creator receives KES {totalAmount.toFixed(2)}.
+                  </p>
+                  {stripePromise && stripeCheckout?.client_secret ? (
+                    <div className="min-h-[min(45dvh,28rem)] border-2 border-zinc-800 bg-white p-3 text-left">
+                      <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret: stripeCheckout.client_secret }}>
+                        <EmbeddedCheckout />
+                      </EmbeddedCheckoutProvider>
+                    </div>
+                  ) : <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-400" />}
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                    This page will confirm the payment automatically.
+                  </p>
+                </div>
+              ) : <>
               <div className="relative mb-10 group">
                 {/* SVG Progress Ring */}
-                <svg className="w-32 h-32 transform -rotate-90">
+                <svg viewBox="0 0 128 128" className="size-[clamp(7rem,20vw,8rem)] transform -rotate-90">
                   <circle cx="64" cy="64" r="60" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-zinc-900" />
                   <circle 
                     cx="64" cy="64" r="60" stroke="currentColor" strokeWidth="4" fill="transparent" 
@@ -578,35 +678,36 @@ export default function CheckoutModal({
                 </div>
               </div>
 
-              <h3 className="text-base font-black text-white uppercase tracking-widest mb-3 animate-pulse">CHECK YOUR PHONE</h3>
+              <h3 className="text-base font-black text-white uppercase tracking-widest mb-3 animate-pulse">{checkoutProvider === 'mpesa' ? 'CHECK YOUR PHONE' : 'AWAITING PAYMENT'}</h3>
               <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest max-w-xs leading-relaxed mb-8">
-                {activeTab === 'mpesa'
+                {checkoutProvider === 'mpesa'
                   ? <>An STK Push has been sent to <span className="text-white font-black">+{phoneNumber}</span>. Enter your M-Pesa PIN to complete the payment of KES {totalAmount.toFixed(2)}.</>
                   : <>Complete the payment in the Paystack checkout window for KES {totalAmount.toFixed(2)}. This page will confirm the result automatically.</>}
               </p>
 
               {errorMessage && <p role="status" className="mb-4 max-w-sm text-xs text-amber-400">{errorMessage}</p>}
               <div className="flex items-center gap-3 text-[10px] font-black text-zinc-500 uppercase tracking-widest bg-zinc-950 px-5 py-3 border-2 border-zinc-800">
-                <Loader2 className="w-4 h-4 animate-spin text-green-500" /> Awaiting Safaricom Confirmation...
+                <Loader2 className="w-4 h-4 animate-spin text-green-500" /> Awaiting {checkoutProvider === 'mpesa' ? 'Safaricom' : 'Paystack'} confirmation...
               </div>
+              </>}
             </div>
           )}
 
           {/* STATE: SUCCESS (Receipt View) */}
           {step === 'success' && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 animate-in slide-in-from-bottom-8 duration-500 bg-green-500/5">
-              <div className="w-24 h-24 bg-green-500/10 border-4 border-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
+              <div className="size-[clamp(5rem,12vw,6rem)] bg-green-500/10 border-4 border-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
                 <CheckCircle2 className="w-12 h-12 text-green-500" />
               </div>
               <h3 className="text-xl font-black text-white uppercase tracking-widest mb-3">PAYMENT SUCCESSFUL</h3>
               <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-8 text-center max-w-md leading-relaxed">
                 {isLivePassPurchase
-                  ? `Your payment of KES ${totalAmount.toFixed(2)} was confirmed. Live access has been granted.`
+                  ? `Your payment was confirmed. Live access has been granted.`
                   : isLiveSubscriptionPurchase
-                    ? `Your payment of KES ${totalAmount.toFixed(2)} was confirmed. Your VIP subscription is active.`
+                    ? `Your payment was confirmed. Your VIP subscription is active.`
                     : isChatPurchase
-                      ? `Your payment of KES ${totalAmount.toFixed(2)} was confirmed. You can now message this creator.`
-                      : `Your payment of KES ${totalAmount.toFixed(2)} was confirmed. The post is unlocked and added to your vault.`}
+                      ? `Your payment was confirmed. You can now message this creator.`
+                      : `Your payment was confirmed. The post is unlocked and added to your vault.`}
               </p>
 
               <div className="w-full max-w-sm bg-black border-2 border-green-500/30 p-6 space-y-4">
@@ -619,8 +720,20 @@ export default function CheckoutModal({
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Payment Method</span>
-                  <span className="text-[10px] font-bold text-white uppercase tracking-widest">{activeTab === 'wallet' ? 'WALLET' : activeTab === 'mpesa' ? 'M-PESA' : 'CARD'}</span>
+                  <span className="text-[10px] font-bold text-white uppercase tracking-widest">{activeTab === 'wallet' ? 'WALLET' : checkoutProvider === 'mpesa' ? 'M-PESA' : checkoutProvider === 'stripe' ? 'STRIPE' : 'PAYSTACK'}</span>
                 </div>
+                {checkoutProvider && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Customer charge</span>
+                      <span className="text-xs font-bold text-white">{chargeCurrency} {paymentAmount.toFixed(chargeCurrency === 'USD' ? 2 : 0)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">KES settlement</span>
+                      <span className="text-xs font-bold text-white">KES {totalAmount.toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <button 
@@ -635,7 +748,7 @@ export default function CheckoutModal({
           {/* STATE: FAILED / TIMEOUT */}
           {step === 'failed' && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in-95 duration-300">
-              <div className="w-24 h-24 bg-red-500/10 border-4 border-red-500 flex items-center justify-center mb-6">
+              <div className="size-[clamp(5rem,12vw,6rem)] bg-red-500/10 border-4 border-red-500 flex items-center justify-center mb-6">
                 <AlertTriangle className="w-12 h-12 text-red-500" />
               </div>
               <h3 className="text-xl font-black text-white uppercase tracking-widest mb-3">TRANSACTION FAILED</h3>

@@ -1,6 +1,17 @@
 import { apiClient } from './client';
 
 export const profileService = {
+  requestEmailOTP: async (token) => {
+    try {
+      const response = await apiClient.post('/profile/request-otp', { channel: 'email' }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(error.response?.data?.error || 'Could not send verification code');
+    }
+  },
+
   verifyOTP: async (code, token) => {
     try {
       const response = await apiClient.post('/profile/verify-otp', { code }, {
@@ -66,7 +77,10 @@ export const profileService = {
       });
       return response.data;
     } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to activate account');
+      const responseData = error.response?.data;
+      const missing = Array.isArray(responseData?.missing) ? responseData.missing : [];
+      const message = responseData?.error || 'Failed to activate account';
+      throw new Error(missing.length ? `${message} ${missing.join('; ')}` : message);
     }
   }
 };

@@ -1,6 +1,73 @@
 import { apiClient } from './client';
 
 export const adminService = {
+  getDashboardTelemetry: async () => {
+    const res = await apiClient.get('/admin/dashboard');
+    return res.data;
+  },
+
+  getModerationTerms: async () => {
+    const res = await apiClient.get('/admin/settings/moderation-terms');
+    return res.data;
+  },
+
+  createModerationTerm: async (payload) => {
+    const res = await apiClient.post('/admin/settings/moderation-terms', payload);
+    return res.data;
+  },
+
+  deleteModerationTerm: async (termId) => {
+    const res = await apiClient.delete(`/admin/settings/moderation-terms/${encodeURIComponent(termId)}`);
+    return res.data;
+  },
+
+  getAfterDarkAutoModeration: async () => {
+    const res = await apiClient.get('/admin/settings/afterdark/auto-moderation');
+    return res.data;
+  },
+
+  updateAfterDarkAutoModeration: async (enabled) => {
+    const res = await apiClient.patch('/admin/settings/afterdark/auto-moderation', {
+      auto_approve_new_posts: Boolean(enabled),
+    });
+    return res.data;
+  },
+
+  getRegionalCountries: async () => {
+    const res = await apiClient.get('/admin/settings/regions/countries');
+    return res.data;
+  },
+
+  blockRegionalCountry: async (countryCode) => {
+    const res = await apiClient.post('/admin/settings/regions/countries', { country_code: countryCode });
+    return res.data;
+  },
+
+  unblockRegionalCountry: async (countryCode) => {
+    const res = await apiClient.delete(`/admin/settings/regions/countries/${encodeURIComponent(countryCode)}`);
+    return res.data;
+  },
+
+  getFinanceAnalytics: async (period = '30D') => {
+    const res = await apiClient.get('/admin/finance', { params: { period } });
+    return res.data;
+  },
+
+  getAfterDarkPosts: async ({ status = 'all', limit = 50, offset = 0 } = {}) => {
+    const res = await apiClient.get('/admin/afterdark/posts', { params: { status, limit, offset } });
+    return res.data;
+  },
+
+  getAfterDarkPostMedia: async (postId) => {
+    const res = await apiClient.get(`/admin/afterdark/posts/${encodeURIComponent(postId)}/media-url`);
+    return res.data;
+  },
+
+  moderateAfterDarkPost: async (postId, action, reason) => {
+    const res = await apiClient.patch(`/admin/afterdark/posts/${encodeURIComponent(postId)}/moderation`, { action, reason });
+    return res.data;
+  },
+
   getPendingAfterDarkEarnings: async () => {
     const res = await apiClient.get('/admin/afterdark/earnings-clearance');
     return res.data;
@@ -35,12 +102,17 @@ export const adminService = {
   },
 
   bindPersona: async (operatorId, personaId) => {
-    const res = await apiClient.post(`/admin/operators/${operatorId}/personas/${personaId}`);
+    const res = await apiClient.post(`/admin/operators/${encodeURIComponent(operatorId)}/personas/${encodeURIComponent(personaId)}`);
     return res.data;
   },
 
   unbindPersona: async (operatorId, personaId) => {
-    const res = await apiClient.delete(`/admin/operators/${operatorId}/personas/${personaId}`);
+    const res = await apiClient.delete(`/admin/operators/${encodeURIComponent(operatorId)}/personas/${encodeURIComponent(personaId)}`);
+    return res.data;
+  },
+
+  notifyOperatorPendingReplies: async (operatorId) => {
+    const res = await apiClient.post(`/admin/operators/${encodeURIComponent(operatorId)}/notify-pending-replies`);
     return res.data;
   },
 
@@ -51,6 +123,22 @@ export const adminService = {
 
   provisionCreator: async (payload) => {
     const res = await apiClient.post('/admin/creators/provision', payload);
+    return res.data;
+  },
+  getCreatorApplications: async () => {
+    const res = await apiClient.get('/admin/creator-applications');
+    return res.data;
+  },
+  reviewCreatorApplication: async (applicationId, decision) => {
+    const res = await apiClient.patch(`/admin/creator-applications/${encodeURIComponent(applicationId)}`, { decision });
+    return res.data;
+  },
+  getCreatorPayoutRequests: async (status = 'ALL') => {
+    const res = await apiClient.get('/admin/creator-payouts', { params: { status } });
+    return res.data;
+  },
+  reviewCreatorPayout: async (payoutId, payload) => {
+    const res = await apiClient.post(`/admin/creator-payouts/${encodeURIComponent(payoutId)}/review`, payload);
     return res.data;
   },
 
@@ -170,6 +258,16 @@ export const adminService = {
     return res.data;
   },
 
+  getAccountReviewQueue: async () => {
+    const res = await apiClient.get('/admin/moderation/appeals');
+    return res.data;
+  },
+
+  resolveAccountReview: async (reviewId, decision, note) => {
+    const res = await apiClient.post(`/admin/moderation/appeals/${encodeURIComponent(reviewId)}`, { decision, note });
+    return res.data;
+  },
+
   getModerationAuditLogs: async () => {
     const res = await apiClient.get('/admin/moderation/audit');
     return res.data; // Array of AuditLog
@@ -186,18 +284,8 @@ export const adminService = {
   },
 
 
-  getPersonaMetrics: async () => {
-    const res = await apiClient.get('/admin/personas-metrics');
-    return res.data; // Array of PersonaMetric
-  },
-
   createPersona: async (payload) => {
     const res = await apiClient.post('/admin/personas', payload);
-    return res.data;
-  },
-
-  provisionCreator: async (payload) => {
-    const res = await apiClient.post('/admin/creators/provision', payload);
     return res.data;
   },
 

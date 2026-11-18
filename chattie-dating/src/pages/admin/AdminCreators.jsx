@@ -20,6 +20,9 @@ export default function AdminCreators() {
   const [creators, setCreators] = useState([]);
   const [personas, setPersonas] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingPersonas, setIsLoadingPersonas] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [personaLoadError, setPersonaLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('ALL');
 
@@ -29,6 +32,9 @@ export default function AdminCreators() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showCreatePersonaModal, setShowCreatePersonaModal] = useState(false);
+  const [busyPersonaId, setBusyPersonaId] = useState('');
+  const [notifyingCreatorId, setNotifyingCreatorId] = useState('');
+  const [isProvisioningCreator, setIsProvisioningCreator] = useState(false);
 
   // Forms
   const [newOperatorForm, setNewOperatorForm] = useState({
@@ -36,6 +42,8 @@ export default function AdminCreators() {
     email: '',
     password: '',
     displayName: '',
+    gender: '',
+    dateOfBirth: '',
     intent: 'companion',
   });
 
@@ -46,7 +54,13 @@ export default function AdminCreators() {
     bio: '',
     gender: 'Female',
     dateOfBirth: '2000-01-01',
-    height: 165
+    height: 165,
+    city: '',
+    country: '',
+    countryCode: '',
+    latitude: '',
+    longitude: '',
+    interests: ''
   });
 
   // Derived State
@@ -75,14 +89,45 @@ export default function AdminCreators() {
         adminService.getOperatorRoster(),
         adminService.getPersonaMetrics()
       ]);
-      
-      setCreators(rosterData || []);
+      if (
+        (rosterData != null && !Array.isArray(rosterData)) ||
+        (personasData != null && !Array.isArray(personasData))
+      ) {
+        throw new Error('The server returned an invalid creators or profiles list.');
+      }
+
+      setCreators((rosterData || []).map(creator => ({
+        ...creator,
+        personas: Array.isArray(creator.personas) ? creator.personas : [],
+      })));
       setPersonas(personasData || []);
+      setLoadError('');
     } catch (error) {
       console.error("Failed to fetch admin data", error);
-      toast.error("Failed to sync with operator engine");
+      const message = error.response?.data?.error || error.message || 'Failed to sync with operator engine.';
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const refreshPersonas = async () => {
+    try {
+      setIsLoadingPersonas(true);
+      setPersonaLoadError('');
+      const data = await adminService.getPersonaMetrics();
+      if (!Array.isArray(data)) {
+        throw new Error('The server returned an invalid persona list.');
+      }
+      setPersonas(data);
+    } catch (error) {
+      console.error('Failed to fetch assignable persona profiles', error);
+      const message = error.response?.data?.error || error.message || 'Failed to load persona profiles.';
+      setPersonaLoadError(message);
+      toast.error(message);
+    } finally {
+      setIsLoadingPersonas(false);
     }
   };
 
@@ -101,12 +146,44 @@ export default function AdminCreators() {
   
   const handleCreatePersona = async () => {
     try {
-      if (!newPersonaForm.name) {
-        toast.error("Persona Name is required");
+      const name = newPersonaForm.name.trim();
+      const bio = newPersonaForm.bio.trim();
+      const interests = [...new Set(newPersonaForm.interests.split(',').map(value => value.trim()).filter(Boolean))];
+      const latitude = Number(newPersonaForm.latitude);
+      const longitude = Number(newPersonaForm.longitude);
+      if (name.length < 2) {
+        toast.error("Persona name must be at least 2 characters.");
+        return;
+      }
+      if (bio.length < 10) {
+        toast.error("Persona bio must be at least 10 characters.");
+        return;
+      }
+      if (!newPersonaForm.city.trim() || !newPersonaForm.country.trim() || !/^[a-z]{2}$/i.test(newPersonaForm.countryCode.trim())) {
+        toast.error("Enter the persona's city, country, and two-letter country code.");
+        return;
+      }
+      if (!newPersonaForm.latitude.trim() || !newPersonaForm.longitude.trim() ||
+        !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 ||
+        (latitude === 0 && longitude === 0)) {
+        toast.error("Enter valid coordinates for the persona's actual location.");
+        return;
+      }
+      if (interests.length < 3 || interests.length > 7) {
+        toast.error("Enter 3 to 7 unique interests, separated by commas.");
         return;
       }
       
-      await adminService.createPersona(newPersonaForm);
+      await adminService.createPersona({
+        ...newPersonaForm,
+        name,
+        bio,
+        countryCode: newPersonaForm.countryCode.trim().toUpperCase(),
+        latitude,
+        longitude,
+        interests
+      });
       toast.success('New Virtual Persona (User Account) provisioned successfully');
       
       setShowCreatePersonaModal(false);
@@ -117,11 +194,17 @@ export default function AdminCreators() {
         bio: '',
         gender: 'Female',
         dateOfBirth: '2000-01-01',
-        height: 165
+        height: 165,
+        city: '',
+        country: '',
+        countryCode: '',
+        latitude: '',
+        longitude: '',
+        interests: ''
       });
-      fetchDashboardData(); 
+      await refreshPersonas();
     } catch (error) {
-      toast.error("Failed to create new persona");
+      toast.error(error.response?.data?.error || "Failed to create new persona");
     }
   };
 
@@ -140,19 +223,33 @@ export default function AdminCreators() {
   };
 
   const handleProvisionOperator = async () => {
+    if (isProvisioningCreator) return;
     try {
-      if (!newOperatorForm.email || !newOperatorForm.username || !newOperatorForm.password) {
-        toast.error("Email, Username, and Password are required");
+      const displayName = newOperatorForm.displayName.trim();
+      const email = newOperatorForm.email.trim();
+      const username = newOperatorForm.username.trim();
+      if (!email || !username || !newOperatorForm.password || !displayName || !newOperatorForm.gender || !newOperatorForm.dateOfBirth) {
+        toast.error("Display name, email, username, password, gender, and date of birth are required.");
         return;
       }
-      
-      await adminService.provisionCreator(newOperatorForm);
+      setIsProvisioningCreator(true);
+      await adminService.provisionCreator({
+        username,
+        email,
+        password: newOperatorForm.password,
+        display_name: displayName,
+        gender: newOperatorForm.gender,
+        date_of_birth: newOperatorForm.dateOfBirth,
+        intent: newOperatorForm.intent,
+      });
       toast.success('Operator provisioned successfully');
       setShowAddModal(false);
-      setNewOperatorForm({ username: '', email: '', password: '', displayName: '', intent: 'companion' });
-      fetchDashboardData(); 
+      setNewOperatorForm({ username: '', email: '', password: '', displayName: '', gender: '', dateOfBirth: '', intent: 'companion' });
+      await fetchDashboardData();
     } catch (error) {
-      toast.error("Failed to provision new operator");
+      toast.error(error.response?.data?.error || "Failed to provision new operator");
+    } finally {
+      setIsProvisioningCreator(false);
     }
   };
 
@@ -226,40 +323,73 @@ export default function AdminCreators() {
   };
 
   const handleBindPersona = async (creatorId, persona) => {
+    if (!creatorId || !persona?.id || busyPersonaId) return;
+    if (persona.manager_id && persona.manager_id !== creatorId) {
+      toast.error('This profile is already assigned to another creator.');
+      return;
+    }
+
+    setBusyPersonaId(persona.id);
     try {
       await adminService.bindPersona(creatorId, persona.id);
-      setCreators(prev => prev.map(c => 
-        c.id === creatorId ? { ...c, personas: [...(c.personas || []), persona] } : c
-      ));
-      
-      if (selectedCreator?.id === creatorId) {
-        setSelectedCreator(prev => ({ ...prev, personas: [...(prev.personas || []), persona] }));
-      }
+      const assignedPersona = { ...persona, manager_id: creatorId };
+      setCreators(current => current.map(creator => {
+        if (creator.id !== creatorId) return creator;
+        const assigned = Array.isArray(creator.personas) ? creator.personas : [];
+        return assigned.some(item => item.id === persona.id)
+          ? creator
+          : { ...creator, personas: [...assigned, assignedPersona] };
+      }));
+      setPersonas(current => current.map(item => item.id === persona.id ? assignedPersona : item));
+      setSelectedCreator(current => {
+        if (current?.id !== creatorId) return current;
+        const assigned = Array.isArray(current.personas) ? current.personas : [];
+        return assigned.some(item => item.id === persona.id)
+          ? current
+          : { ...current, personas: [...assigned, assignedPersona] };
+      });
       toast.success(`${persona.name || persona.display_name} assigned successfully.`);
       setShowAssignModal(false);
-      fetchDashboardData();
     } catch (error) {
-      toast.error("Failed to bind persona to operator");
+      toast.error(error.response?.data?.error || "Failed to assign profile to creator.");
+      if (error.response?.status === 409) await fetchDashboardData();
+    } finally {
+      setBusyPersonaId('');
     }
   };
 
   const handleUnbindPersona = async (creatorId, personaId) => {
+    if (!creatorId || !personaId || busyPersonaId) return;
+    setBusyPersonaId(personaId);
     try {
       await adminService.unbindPersona(creatorId, personaId);
-      setCreators(prev => prev.map(c => {
-        if (c.id === creatorId) {
-          return { ...c, personas: (c.personas || []).filter(p => p.id !== personaId) };
-        }
-        return c;
-      }));
-      
-      if (selectedCreator?.id === creatorId) {
-        setSelectedCreator(prev => ({ ...prev, personas: (prev.personas || []).filter(p => p.id !== personaId) }));
-      }
-      toast.success('Persona unbound from operator.');
-      fetchDashboardData();
+      setCreators(current => current.map(creator => creator.id === creatorId
+        ? { ...creator, personas: (creator.personas || []).filter(persona => persona.id !== personaId) }
+        : creator));
+      setPersonas(current => current.map(persona => persona.id === personaId
+        ? { ...persona, manager_id: '' }
+        : persona));
+      setSelectedCreator(current => current?.id === creatorId
+        ? { ...current, personas: (current.personas || []).filter(persona => persona.id !== personaId) }
+        : current);
+      toast.success('Profile unassigned from creator.');
     } catch (error) {
-      toast.error("Failed to unbind persona");
+      toast.error(error.response?.data?.error || "Failed to unassign profile.");
+    } finally {
+      setBusyPersonaId('');
+    }
+  };
+
+  const handleNotifyPendingReplies = async (creatorId) => {
+    if (!creatorId || notifyingCreatorId) return;
+    setNotifyingCreatorId(creatorId);
+    try {
+      const result = await adminService.notifyOperatorPendingReplies(creatorId);
+      toast.success(`Reply reminder sent for ${result.pendingReplies} pending conversation(s).`);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to send reply reminder.');
+    } finally {
+      setNotifyingCreatorId('');
     }
   };
 
@@ -273,10 +403,11 @@ export default function AdminCreators() {
     setUploadFiles([]);
     try {
       setIsLoadingGallery(true);
-      const galleryData = await adminService.getMediaVault(persona.id);
-      setVaultMedia(galleryData || []);
+      const galleryData = await adminService.getVaultGallery(persona.id);
+      if (!Array.isArray(galleryData)) throw new Error('The server returned an invalid media list.');
+      setVaultMedia(galleryData);
     } catch (error) {
-      toast.error("Failed to load vault assets");
+      toast.error(error.response?.data?.error || error.message || "Failed to load vault assets");
     } finally {
       setIsLoadingGallery(false);
     }
@@ -391,17 +522,25 @@ export default function AdminCreators() {
                         c.id.toLowerCase().includes(searchQuery.toLowerCase());
     return matchStatus && matchSearch;
   });
+  const creatorBirthDateLimit = new Date();
+  creatorBirthDateLimit.setFullYear(creatorBirthDateLimit.getFullYear() - 18);
+  const maxCreatorBirthDate = [
+    creatorBirthDateLimit.getFullYear(),
+    String(creatorBirthDateLimit.getMonth() + 1).padStart(2, '0'),
+    String(creatorBirthDateLimit.getDate()).padStart(2, '0'),
+  ].join('-');
 
   return (
-    <div className="flex-1 bg-black min-h-screen text-zinc-300 font-mono flex flex-col rounded-none overflow-hidden relative" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
           ========================================= */}
       <div className="border-b-2 border-zinc-800 bg-zinc-950 p-4 flex flex-wrap justify-between items-center text-[10px] uppercase font-black tracking-widest shrink-0 gap-4 z-10 relative">
         <div className="flex items-center gap-6">
-          <span className="flex items-center gap-2 text-green-500">
-            <Activity className="w-4 h-4 animate-pulse" /> OPERATOR ENGINE: ONLINE
+          <span className={`flex items-center gap-2 ${loadError ? 'text-red-500' : 'text-green-500'}`}>
+            <Activity className={`w-4 h-4 ${isLoading ? 'animate-pulse' : ''}`} />
+            {loadError ? 'OPERATOR ENGINE: SYNC ERROR' : isLoading ? 'OPERATOR ENGINE: SYNCING' : 'OPERATOR ENGINE: ONLINE'}
           </span>
           <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500">
             STAFF ACTIVE: <span className="text-white">{activeOperators} / {creators.length}</span>
@@ -412,10 +551,24 @@ export default function AdminCreators() {
         </div>
       </div>
 
+      {loadError && (
+        <div role="alert" className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 border-2 border-red-500/40 bg-red-500/10 p-4 text-xs text-red-300">
+          <span>{loadError}</span>
+          <button
+            type="button"
+            onClick={fetchDashboardData}
+            disabled={isLoading}
+            className="border border-red-400 px-3 py-2 font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            {isLoading ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
+
       {/* =========================================
           MAIN HEADER & TABS
           ========================================= */}
-      <div className="p-6 md:p-8 border-b-2 border-zinc-800 bg-black shrink-0 flex flex-col gap-6 z-10 relative">
+      <div className="shrink-0 border-b-2 border-zinc-800 bg-black p-3 sm:p-4 flex flex-col gap-4 z-10 relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
@@ -459,7 +612,7 @@ export default function AdminCreators() {
       {/* =========================================
           TAB CONTENT AREA
           ========================================= */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-black">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar relative bg-black">
         
         {isLoading ? (
           <div className="flex items-center justify-center h-full w-full p-20">
@@ -471,7 +624,7 @@ export default function AdminCreators() {
                 TAB: ROSTER (THE MAIN TABLE)
                 ========================================= */}
             {activeTab === 'ROSTER' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 
                 {/* Filters & Search */}
                 <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-zinc-950 p-4 border-2 border-zinc-800">
@@ -482,7 +635,7 @@ export default function AdminCreators() {
                       placeholder="SEARCH NAME, EMAIL, OR ID..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-transparent border-none outline-none text-xs font-bold text-white uppercase tracking-widest w-full md:w-80 placeholder:text-zinc-600"
+                      className="w-full border-none bg-transparent text-xs font-bold uppercase tracking-widest text-white outline-none placeholder:text-zinc-600 md:w-[clamp(16rem,26vw,20rem)]"
                     />
                   </div>
 
@@ -601,7 +754,7 @@ export default function AdminCreators() {
                 TAB: PERFORMANCE & SPEEDS (OPERATOR FOCUSED)
                 ========================================= */}
             {activeTab === 'PERFORMANCE' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="mb-6">
                   <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
                     <BarChart3 className="w-5 h-5 text-blue-400" /> Operator Telemetry (Human Layer)
@@ -654,7 +807,7 @@ export default function AdminCreators() {
                 TAB: QUEUE ROUTING & LOAD BALANCING (PERSONA FOCUSED)
                 ========================================= */}
             {activeTab === 'QUEUE_ROUTING' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="flex justify-between items-start mb-6">
                   <div>
                     <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
@@ -703,8 +856,13 @@ export default function AdminCreators() {
                         </div>
 
                         <div className="flex items-center justify-between text-xs font-mono border-b border-zinc-900 pb-2">
-                          <span className="text-zinc-500 uppercase flex items-center gap-2"><Clock className="w-3 h-3"/> Pending Queue (Unread):</span>
-                          <span className={`font-black ${(p.unread || 0) > 0 ? 'text-yellow-400' : 'text-zinc-400'}`}>{p.unread || 0} REQUESTS</span>
+                          <span className="text-zinc-500 uppercase flex items-center gap-2"><Clock className="w-3 h-3"/> Open Chat Requests:</span>
+                          <span className={`font-black ${(p.unread || 0) > 0 ? 'text-yellow-400' : 'text-zinc-400'}`}>{p.unread || 0}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs font-mono border-b border-zinc-900 pb-2">
+                          <span className="text-zinc-500 uppercase flex items-center gap-2"><MessageSquare className="w-3 h-3"/> Unanswered Chats:</span>
+                          <span className={`font-black ${(p.pendingReplies || 0) > 0 ? 'text-red-400' : 'text-zinc-400'}`}>{p.pendingReplies || 0}</span>
                         </div>
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1">
@@ -718,10 +876,11 @@ export default function AdminCreators() {
                       {/* Actions */}
                       <div className="pt-2 flex gap-2 relative z-10">
                         <button 
-                          onClick={() => toast.success(`Re-routing task dispatch for ${p.name || p.display_name}...`)}
-                          className="flex-1 py-2 bg-black border-2 border-zinc-700 text-xs font-black uppercase text-white hover:border-white transition-colors"
+                          onClick={() => handleNotifyPendingReplies(p.manager_id)}
+                          disabled={!p.manager_id || !p.pendingReplies || Boolean(notifyingCreatorId)}
+                          className="flex-1 py-2 bg-black border-2 border-zinc-700 text-xs font-black uppercase text-white hover:border-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          Re-Route
+                          {notifyingCreatorId === p.manager_id ? 'Sending…' : p.pendingReplies ? 'Notify Creator' : 'No Pending Replies'}
                         </button>
                         <button 
                           onClick={() => openVaultGallery(p)}
@@ -802,7 +961,10 @@ export default function AdminCreators() {
                       <p className="text-[9px] text-zinc-500 font-bold mt-1">Personas this operator controls.</p>
                     </div>
                     <button 
-                      onClick={() => setShowAssignModal(true)}
+                      onClick={() => {
+                        setShowAssignModal(true);
+                        void refreshPersonas();
+                      }}
                       className="px-4 py-2 bg-white text-black font-black text-[9px] uppercase tracking-widest border-2 border-white hover:bg-black hover:text-white transition-colors flex items-center gap-2"
                     >
                       <Link2 className="w-3 h-3" /> Assign Persona
@@ -828,12 +990,23 @@ export default function AdminCreators() {
                                 <span className="text-green-400">${(p.earnings || 0).toLocaleString()}</span>
                                 <span>|</span>
                                 <span className="text-blue-400">{p.mediaVault || 0} Media</span>
+                                <span>|</span>
+                                <span className={(p.pendingReplies || 0) > 0 ? 'text-red-400' : ''}>{p.pendingReplies || 0} awaiting reply</span>
                               </div>
                             </div>
                           </div>
                           
                           {/* Vault & Unbind Actions */}
                           <div className="flex gap-2">
+                            {(p.pendingReplies || 0) > 0 && (
+                              <button
+                                onClick={() => handleNotifyPendingReplies(selectedCreator.id)}
+                                disabled={Boolean(notifyingCreatorId)}
+                                className="px-2 py-1 border-2 border-red-900 text-red-400 text-[9px] font-black uppercase hover:border-red-500 disabled:opacity-50"
+                              >
+                                {notifyingCreatorId === selectedCreator.id ? 'Sending…' : 'Notify'}
+                              </button>
+                            )}
                             <button 
                               onClick={() => openVaultGallery(p)}
                               className="p-2 border-2 border-zinc-800 text-blue-400 hover:bg-blue-500 hover:text-black transition-colors"
@@ -843,10 +1016,11 @@ export default function AdminCreators() {
                             </button>
                             <button 
                               onClick={() => handleUnbindPersona(selectedCreator.id, p.id)}
-                              className="p-2 border-2 border-zinc-800 text-red-500 hover:bg-red-500 hover:text-black transition-colors"
+                              disabled={Boolean(busyPersonaId)}
+                              className="p-2 border-2 border-zinc-800 text-red-500 hover:bg-red-500 hover:text-black transition-colors disabled:opacity-50"
                               title="Unbind Persona"
                             >
-                              <Unlink className="w-4 h-4" />
+                              {busyPersonaId === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlink className="w-4 h-4" />}
                             </button>
                           </div>
                         </div>
@@ -993,17 +1167,46 @@ export default function AdminCreators() {
               </h2>
               <button onClick={() => setShowAddModal(false)} className="text-zinc-500 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 space-y-4 font-mono max-h-[70vh] overflow-y-auto custom-scrollbar">
+            <div className="max-h-[70dvh] overflow-y-auto p-6 space-y-4 font-mono custom-scrollbar">
               
               <div>
                 <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Display Name</label>
                 <input 
                   type="text" 
                   placeholder="Elena NYC"
+                  required
                   value={newOperatorForm.displayName}
                   onChange={(e) => setNewOperatorForm({...newOperatorForm, displayName: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors" 
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Date of Birth *</label>
+                  <input
+                    type="date"
+                    required
+                    max={maxCreatorBirthDate}
+                    value={newOperatorForm.dateOfBirth}
+                    onChange={(e) => setNewOperatorForm({ ...newOperatorForm, dateOfBirth: e.target.value })}
+                    className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Gender *</label>
+                  <select
+                    required
+                    value={newOperatorForm.gender}
+                    onChange={(e) => setNewOperatorForm({ ...newOperatorForm, gender: e.target.value })}
+                    className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white transition-colors"
+                  >
+                    <option value="">Select gender</option>
+                    <option value="female">Female</option>
+                    <option value="male">Male</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -1042,9 +1245,10 @@ export default function AdminCreators() {
               <div className="pt-4">
                 <button 
                   onClick={handleProvisionOperator}
-                  className="w-full py-4 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.2)]"
+                  disabled={isProvisioningCreator}
+                  className="w-full py-4 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.2)] disabled:opacity-50"
                 >
-                  Create Creator Account
+                  {isProvisioningCreator ? <Loader2 className="inline w-4 h-4 animate-spin" /> : 'Create Creator Account'}
                 </button>
               </div>
             </div>
@@ -1073,9 +1277,27 @@ export default function AdminCreators() {
               </button>
             </div>
 
-            <div className="p-4 max-h-[50vh] overflow-y-auto space-y-2 custom-scrollbar">
-              {personas.filter(p => !p.manager_id || p.manager_id === selectedCreator.id).length === 0 ? (
-                <p className="text-xs text-zinc-500 text-center py-4 font-mono">No unassigned personas available in system.</p>
+            <div className="max-h-[50dvh] overflow-y-auto p-4 space-y-2 custom-scrollbar">
+              {isLoadingPersonas ? (
+                <div className="flex items-center justify-center gap-2 py-6 text-xs text-zinc-500">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading persona accounts…
+                </div>
+              ) : personaLoadError ? (
+                <div className="space-y-3 py-4 text-center">
+                  <p className="text-xs text-red-400">{personaLoadError}</p>
+                  <button
+                    onClick={() => void refreshPersonas()}
+                    className="px-3 py-1 border border-zinc-700 text-[9px] font-black uppercase text-zinc-300 hover:border-white"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : personas.filter(p => !p.manager_id || p.manager_id === selectedCreator.id).length === 0 ? (
+                <p className="text-xs text-zinc-500 text-center py-4 font-mono">
+                  {personas.length === 0
+                    ? 'No persona accounts found. Create a persona profile to get started.'
+                    : 'All persona accounts are assigned to other creators.'}
+                </p>
               ) : personas
                   .filter(p => !p.manager_id || p.manager_id === selectedCreator.id)
                   .map(p => {
@@ -1095,9 +1317,10 @@ export default function AdminCreators() {
                     ) : (
                       <button 
                         onClick={() => handleBindPersona(selectedCreator.id, p)}
-                        className="px-3 py-1 bg-blue-500 text-black text-[9px] font-black uppercase border-2 border-blue-500 hover:bg-black hover:text-blue-500 transition-colors"
+                        disabled={Boolean(busyPersonaId)}
+                        className="px-3 py-1 bg-blue-500 text-black text-[9px] font-black uppercase border-2 border-blue-500 hover:bg-black hover:text-blue-500 transition-colors disabled:opacity-50"
                       >
-                        Bind
+                        {busyPersonaId === p.id ? 'Assigning…' : 'Assign'}
                       </button>
                     )}
                   </div>
@@ -1114,7 +1337,7 @@ export default function AdminCreators() {
       {showCreatePersonaModal && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowCreatePersonaModal(false)} />
-          <div className="relative w-full max-w-lg bg-black border-2 border-white shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col z-10 max-h-[90vh]">
+          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-white bg-black shadow-[8px_8px_0px_rgba(255,255,255,1)]">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Provision Virtual Persona
@@ -1181,14 +1404,14 @@ export default function AdminCreators() {
                     type="number" 
                     placeholder="165"
                     value={newPersonaForm.height}
-                    onChange={(e) => setNewPersonaForm({...newPersonaForm, height: parseInt(e.target.value) || ''})}
+                    onChange={(e) => setNewPersonaForm({...newPersonaForm, height: Number(e.target.value) || 0})}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors" 
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Initial Avatar URL</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Primary Avatar URL *</label>
                 <input 
                   type="text" 
                   placeholder="https://..."
@@ -1196,15 +1419,85 @@ export default function AdminCreators() {
                   onChange={(e) => setNewPersonaForm({...newPersonaForm, avatarUrl: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-zinc-300 outline-none focus:border-white transition-colors" 
                 />
+                <p className="mt-1 text-[9px] text-zinc-600">Use a public image URL or the canonical Backblaze object URL configured on the server.</p>
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Biography / Description</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Biography / Description *</label>
                 <textarea 
-                  placeholder="Write the persona's grid bio..."
+                  placeholder="At least 10 characters. This appears on the discovery profile."
                   value={newPersonaForm.bio}
                   onChange={(e) => setNewPersonaForm({...newPersonaForm, bio: e.target.value})}
-                  className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors min-h-[80px] resize-none" 
+                  className="min-h-[clamp(5rem,12vh,8rem)] w-full resize-none border-2 border-zinc-800 bg-black p-3 text-xs uppercase text-white transition-colors outline-none focus:border-white"
+                />
+              </div>
+
+              <div className="space-y-3 border-t-2 border-zinc-800 pt-4">
+                <h3 className="text-[10px] font-black text-white uppercase tracking-widest">Discovery Location *</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    maxLength={100}
+                    placeholder="City"
+                    value={newPersonaForm.city}
+                    onChange={(e) => setNewPersonaForm({ ...newPersonaForm, city: e.target.value })}
+                    aria-label="Persona city"
+                    className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
+                  />
+                  <input
+                    type="text"
+                    maxLength={100}
+                    placeholder="Country"
+                    value={newPersonaForm.country}
+                    onChange={(e) => setNewPersonaForm({ ...newPersonaForm, country: e.target.value })}
+                    aria-label="Persona country"
+                    className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
+                  />
+                  <input
+                    type="text"
+                    maxLength={2}
+                    placeholder="Country code (KE)"
+                    value={newPersonaForm.countryCode}
+                    onChange={(e) => setNewPersonaForm({ ...newPersonaForm, countryCode: e.target.value.toUpperCase() })}
+                    aria-label="Persona two-letter country code"
+                    className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="number"
+                    min="-90"
+                    max="90"
+                    step="any"
+                    placeholder="Latitude"
+                    value={newPersonaForm.latitude}
+                    onChange={(e) => setNewPersonaForm({ ...newPersonaForm, latitude: e.target.value })}
+                    aria-label="Persona latitude"
+                    className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
+                  />
+                  <input
+                    type="number"
+                    min="-180"
+                    max="180"
+                    step="any"
+                    placeholder="Longitude"
+                    value={newPersonaForm.longitude}
+                    onChange={(e) => setNewPersonaForm({ ...newPersonaForm, longitude: e.target.value })}
+                    aria-label="Persona longitude"
+                    className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
+                  />
+                </div>
+                <p className="text-[9px] text-zinc-600">Use the persona’s actual discovery location. Coordinates 0,0 are not accepted.</p>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Interests * (3–7, comma-separated)</label>
+                <input
+                  type="text"
+                  placeholder="Music, hiking, cooking"
+                  value={newPersonaForm.interests}
+                  onChange={(e) => setNewPersonaForm({ ...newPersonaForm, interests: e.target.value })}
+                  className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
                 />
               </div>
 
@@ -1371,7 +1664,7 @@ export default function AdminCreators() {
 
               {/* Right Sidebar: Image Inspector */}
               {previewImage && (
-                <div className="w-80 bg-zinc-950 border-l-2 border-zinc-800 flex flex-col shrink-0 animate-in slide-in-from-right-8 duration-200">
+                <div className="flex w-[clamp(14rem,22vw,20rem)] shrink-0 flex-col border-l-2 border-zinc-800 bg-zinc-950 animate-in slide-in-from-right-8 duration-200">
                   <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center">
                     <span className="text-[10px] font-black text-white uppercase tracking-widest">Asset Inspector</span>
                     <button onClick={() => setPreviewImage(null)} className="text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>

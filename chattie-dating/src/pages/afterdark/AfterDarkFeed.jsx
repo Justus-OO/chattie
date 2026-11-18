@@ -11,6 +11,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import LockedPostCard from '../../components/afterdark/LockedPostCard';
 import MpesaPaystackModal from '../../components/afterdark/MpesaPaystackModal';
 import AfterDarkLiveViewingModal from '../../components/afterdark/AfterDarkLiveViewingModal';
+import { normalizeMediaType } from '../../utils/mediaType';
 import AfterDarkChatHub from './AfterDarkChatHub';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
@@ -29,17 +30,19 @@ const normalizeLiveSession = (rawSession, creatorId) => rawSession ? {
   hostId: rawSession.hostId || rawSession.host_id,
 } : null;
 
-const normalizeCreator = creator => {
+const normalizeCreator = (creator = {}) => {
   const liveSession = normalizeLiveSession(
     creator.liveSession || creator.live_session,
     creator.id || creator.creator_id
   );
   const subscriptionPriceCents = Number(creator.subscription_price_cents);
   const livePassPriceCents = Number(creator.live_pass_price_cents ?? creator.price_cents);
+  const creatorName = [creator.name, creator.display_name, creator.displayName, creator.username, creator.alias]
+    .find(value => typeof value === 'string' && value.trim());
   return {
     ...creator,
     id: creator.id || creator.creator_id,
-    name: creator.name || creator.display_name || creator.username || 'Unknown',
+    name: creatorName?.trim() || 'Creator',
     avatar: creator.avatar || creator.avatar_url || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&q=80',
     cover: creator.cover || creator.cover_url || '',
     isVerified: Boolean(creator.isVerified ?? creator.is_verified),
@@ -60,7 +63,7 @@ const normalizeFeedPost = post => {
     id: post.id || post.post_id,
     creator,
     mediaUrl: post.mediaUrl || post.media_url || post.preview_url || '',
-    mediaType: post.mediaType || post.media_type || 'image',
+    mediaType: normalizeMediaType(post.mediaType || post.media_type),
     pricingStrategy: post.pricingStrategy || post.pricing_strategy || 'ppv',
     price: Number(post.price ?? post.price_cents ?? 0) / (post.price_cents !== undefined ? 100 : 1),
     timestamp: post.timestamp || post.created_at || 'Just now',
@@ -69,6 +72,8 @@ const normalizeFeedPost = post => {
     isUnlocked: Boolean(post.isUnlocked ?? post.is_unlocked),
     isLiked: Boolean(post.isLiked ?? post.is_liked),
     likesCount: Number(post.likesCount ?? post.like_count ?? 0),
+    commentsCount: Number(post.commentsCount ?? post.comment_count ?? post.comments_count ?? 0),
+    isFollowing: Boolean(post.isFollowing ?? post.is_following),
     comments: Array.isArray(post.comments) ? post.comments : [],
     tags: Array.isArray(post.tags) ? post.tags : [],
   };
@@ -112,7 +117,7 @@ const FeedSkeleton = () => (
     <div className="flex gap-4 border-t-2 border-zinc-800 pt-4 rounded-none">
       <div className="h-6 bg-zinc-900 w-16 rounded-none" />
       <div className="h-6 bg-zinc-900 w-16 rounded-none" />
-      <div className="h-6 bg-zinc-900 w-24 ml-auto rounded-none" />
+      <div className="ml-auto h-[clamp(1.25rem,3vh,1.5rem)] w-[clamp(4rem,9vw,6rem)] bg-zinc-900 rounded-none" />
     </div>
   </div>
 );
@@ -189,7 +194,7 @@ const LiveKitGuestTile = ({ track, name }) => {
   }, [track]);
 
   return (
-    <div className="relative w-36 overflow-hidden border-2 border-zinc-700 bg-black rounded-none">
+    <div className="relative w-[clamp(7rem,18vw,10rem)] overflow-hidden border-2 border-zinc-700 bg-black rounded-none">
       <video ref={videoRef} autoPlay playsInline className="aspect-video w-full object-cover rounded-none" />
       <div className="bg-zinc-950 border-t-2 border-zinc-800 px-2 py-1 flex justify-between items-center rounded-none">
         <span className="text-[9px] font-bold text-white uppercase tracking-widest truncate">{name}</span>
@@ -1221,7 +1226,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                         step="1"
                         value={livePassPrice}
                         onChange={event => setLivePassPrice(event.target.value)}
-                        className="w-24 border border-zinc-700 bg-black px-2 py-2 text-white"
+                        className="w-[clamp(5rem,10vw,7rem)] border border-zinc-700 bg-black px-2 py-2 text-white"
                       />
                     </label>
                   )}
@@ -1273,8 +1278,8 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
             )}
           </div>
 
-          <div className="w-full md:w-72 flex flex-col gap-4">
-            <div className="flex-1 flex flex-col border-2 border-zinc-800 bg-zinc-950 p-4 rounded-none h-56 md:h-auto overflow-hidden">
+          <div className="flex w-full min-h-0 flex-col gap-4 md:w-[clamp(14rem,22vw,18rem)]">
+            <div className="flex h-[35dvh] min-h-0 flex-col overflow-hidden border-2 border-zinc-800 bg-zinc-950 p-4 rounded-none md:h-auto md:flex-1">
               <div className="mb-3 flex items-center justify-between border-b-2 border-zinc-800 pb-2">
                 <h3 className="text-[10px] font-bold text-white uppercase tracking-widest">Live Chat</h3>
                 <span className="text-[9px] font-bold text-zinc-500 uppercase flex items-center gap-1">
@@ -1451,7 +1456,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
 // ============================================================================
 export default function AfterDarkFeed() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isPageFocused = usePageFocus();
   
   const currentUser = useAppStore(state => state.user) || { name: 'You', avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&q=80' };
@@ -1487,6 +1492,7 @@ export default function AfterDarkFeed() {
   const [feedError, setFeedError] = useState('');
   
   const [activeFilter, setActiveFilter] = useState('all');
+  const [feedScope, setFeedScope] = useState('discover');
   const [mediaTypeFilter, setMediaTypeFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -1499,6 +1505,60 @@ export default function AfterDarkFeed() {
   const [ownLiveSession, setOwnLiveSession] = useState(null);
 
   const observerTarget = useRef(null);
+  const feedRequestVersion = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const searchInitialized = useRef(false);
+  const lastSearchQuery = useRef(searchQuery);
+
+  useEffect(() => {
+    const intentId = searchParams.get('ad_payment_intent');
+    if (!intentId) return undefined;
+
+    let active = true;
+    let attempts = 0;
+    let retryTimer;
+    const clearPaymentReturnParams = () => {
+      setSearchParams(params => {
+        const nextParams = new URLSearchParams(params);
+        nextParams.delete('ad_payment_intent');
+        nextParams.delete('session_id');
+        return nextParams;
+      }, { replace: true });
+    };
+    const checkPayment = async () => {
+      attempts += 1;
+      try {
+        const result = await afterDarkService.getPaymentStatus(intentId);
+        if (!active) return;
+        const status = String(result?.status || '').toLowerCase();
+        if (status === 'completed') {
+          toast.success('After Dark payment confirmed.');
+          clearPaymentReturnParams();
+        } else if (status === 'failed') {
+          toast.error('After Dark payment failed. You can try again.');
+          clearPaymentReturnParams();
+        } else if (attempts < 10) {
+          retryTimer = window.setTimeout(checkPayment, 3000);
+        } else {
+          toast.info('Payment is still processing. Check your After Dark wallet or retry later.');
+          clearPaymentReturnParams();
+        }
+      } catch (error) {
+        if (!active) return;
+        if (attempts < 10) {
+          retryTimer = window.setTimeout(checkPayment, 3000);
+        } else {
+          toast.error(error?.response?.data?.error || 'Could not confirm the After Dark payment.');
+          clearPaymentReturnParams();
+        }
+      }
+    };
+    checkPayment();
+    return () => {
+      active = false;
+      window.clearTimeout(retryTimer);
+    };
+  }, [searchParams, setSearchParams]);
 
   // ==========================================
   // INITIAL DISCOVERY FETCH
@@ -1598,11 +1658,18 @@ export default function AfterDarkFeed() {
   // ==========================================
   // DATA FETCHING & PAGINATION ENGINE
   // ==========================================
-  const loadPosts = useCallback(async (pageNumber, reset = false, filter = activeFilter, query = searchQuery, mediaType = mediaTypeFilter) => {
+  const loadPosts = useCallback(async (pageNumber, reset = false, filter = activeFilter, query = searchQuery, mediaType = mediaTypeFilter, scope = feedScope) => {
+    if (!reset && loadingMoreRef.current) return;
+    const requestVersion = reset ? ++feedRequestVersion.current : feedRequestVersion.current;
+
     if (reset) {
+      loadingMoreRef.current = false;
       setLoading(true);
+      setLoadingMore(false);
       setPosts([]);
+      setHasMore(true);
     } else {
+      loadingMoreRef.current = true;
       setLoadingMore(true);
     }
 
@@ -1610,11 +1677,13 @@ export default function AfterDarkFeed() {
       setFeedError('');
       const response = await afterDarkService.getFeed({
         access: filter,
+        feed_scope: scope,
         media_type: mediaType === 'all' ? undefined : mediaType,
         q: query.trim() || undefined,
         page: pageNumber,
         limit: 8,
       });
+      if (requestVersion !== feedRequestVersion.current) return;
       
       const records = Array.isArray(response) ? response : response?.posts || response?.items || [];
       if (!Array.isArray(records)) throw new Error('The feed service returned an invalid response.');
@@ -1631,45 +1700,51 @@ export default function AfterDarkFeed() {
           return post;
         }
       }));
+      if (requestVersion !== feedRequestVersion.current) return;
       setPosts(prev => reset ? newPosts : [...prev, ...newPosts]);
       setHasMore(Boolean(response?.has_more ?? response?.hasMore ?? newPosts.length === 8));
 
     } catch (error) {
+      if (requestVersion !== feedRequestVersion.current) return;
       const message = error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load the feed.');
       setFeedError(message);
       if (reset) toast.error(message);
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      setIsSearching(false);
+      if (requestVersion === feedRequestVersion.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        setIsSearching(false);
+        loadingMoreRef.current = false;
+      }
     }
-  }, [activeFilter, searchQuery, mediaTypeFilter]);
+  }, [activeFilter, searchQuery, mediaTypeFilter, feedScope]);
 
   useEffect(() => {
     setPage(0);
-    loadPosts(0, true, activeFilter, searchQuery, mediaTypeFilter);
+    loadPosts(0, true, activeFilter, searchQuery, mediaTypeFilter, feedScope);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, mediaTypeFilter]);
+  }, [activeFilter, feedScope, mediaTypeFilter]);
 
   useEffect(() => {
+    if (!searchInitialized.current) {
+      searchInitialized.current = true;
+      lastSearchQuery.current = searchQuery;
+      return undefined;
+    }
+    if (lastSearchQuery.current === searchQuery) return undefined;
+    lastSearchQuery.current = searchQuery;
     const timeoutId = setTimeout(() => {
-      if (searchQuery !== '') {
-        setIsSearching(true);
-        setPage(0);
-        loadPosts(0, true, activeFilter, searchQuery, mediaTypeFilter);
-      } else if (searchQuery === '' && posts.length < 8) {
-        setPage(0);
-        loadPosts(0, true, activeFilter, '', mediaTypeFilter);
-      }
+      setIsSearching(Boolean(searchQuery));
+      setPage(0);
+      loadPosts(0, true, activeFilter, searchQuery, mediaTypeFilter, feedScope);
     }, 600);
     return () => clearTimeout(timeoutId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
+  }, [searchQuery, activeFilter, mediaTypeFilter, feedScope, loadPosts]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       entries => {
-        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore && !feedError) {
           const nextPage = page + 1;
           setPage(nextPage);
           loadPosts(nextPage, false);
@@ -1680,7 +1755,7 @@ export default function AfterDarkFeed() {
 
     if (observerTarget.current) observer.observe(observerTarget.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, page, loadPosts]);
+  }, [hasMore, loading, loadingMore, feedError, page, loadPosts]);
 
   // ==========================================
   // HANDLERS
@@ -1843,7 +1918,7 @@ export default function AfterDarkFeed() {
   // RENDER - MAIN UI (USERSETTINGS BLUEPRINT)
   // ==========================================
   return (
-    <div className="flex-1 flex bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 bg-black w-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
       
       {/* LEFT/MAIN COLUMN: FEED */}
       <div className="flex-1 flex flex-col min-w-0 h-full relative z-10 lg:border-r-2 border-zinc-800 rounded-none">
@@ -1858,16 +1933,16 @@ export default function AfterDarkFeed() {
               </div>
               <div>
                 <h1 className="text-xl md:text-2xl font-bold uppercase tracking-widest text-white leading-none">
-                  Global Feed
+                  Creator Feed
                 </h1>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1 flex items-center gap-1.5">
-                  <span className="w-2 h-2 bg-red-500 inline-block rounded-none" /> Live & Uncensored
+                  <span className="w-2 h-2 bg-green-500 inline-block rounded-none" /> Moderated creator posts
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-64">
+              <div className="relative min-w-0 flex-1 sm:w-[clamp(12rem,26vw,20rem)]">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   {isSearching ? <Loader2 className="w-4 h-4 text-white animate-spin" /> : <Search className="w-4 h-4 text-zinc-500" />}
                 </div>
@@ -1922,7 +1997,7 @@ export default function AfterDarkFeed() {
               </div>
               <button 
                 type="button"
-                onClick={() => { setActiveFilter('all'); setSearchQuery(''); setMediaTypeFilter('all'); }} 
+                onClick={() => { setActiveFilter('all'); setFeedScope('discover'); setSearchQuery(''); setMediaTypeFilter('all'); }}
                 className="px-3 py-1.5 bg-black border-2 border-zinc-700 text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors rounded-none"
               >
                 Reset Filters
@@ -1956,6 +2031,7 @@ export default function AfterDarkFeed() {
           <div className="flex border-t-2 border-zinc-800 bg-black rounded-none">
             {[
               { id: 'all', label: 'All Content', icon: Filter },
+              { id: 'subscriber', label: 'Subscriber', icon: Crown },
               { id: 'ppv', label: 'One-Time Unlocks', icon: Lock },
               { id: 'free', label: 'Free Teasers', icon: Unlock },
             ].map(tab => {
@@ -1978,11 +2054,29 @@ export default function AfterDarkFeed() {
               );
             })}
           </div>
+          <div className="flex border-t-2 border-zinc-800 bg-zinc-950">
+            {[
+              { id: 'discover', label: 'For You' },
+              { id: 'following', label: 'Following' },
+            ].map(scope => (
+              <button
+                key={scope.id}
+                type="button"
+                onClick={() => setFeedScope(scope.id)}
+                aria-pressed={feedScope === scope.id}
+                className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                  feedScope === scope.id ? 'text-white' : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                {scope.label}
+              </button>
+            ))}
+          </div>
         </header>
 
         {/* SCROLLABLE FEED BODY */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar bg-black">
-          <div className="max-w-3xl mx-auto w-full p-4 md:p-8 space-y-6 pb-24">
+        <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar bg-black">
+          <div className="flex min-h-full w-full flex-col p-2 pb-4 sm:p-3 lg:p-4 space-y-4">
             
             {/* Info Notice Box */}
             <section className="bg-black border-2 border-zinc-800 p-4 flex items-center justify-between rounded-none">
@@ -1990,6 +2084,20 @@ export default function AfterDarkFeed() {
                 <span className="text-yellow-400">One-Time Post Unlocks</span> are separate purchases for individual feed posts. To get ongoing subscriber access, open a creator profile and subscribe there.
               </p>
             </section>
+            {!showExplicitContent && (
+              <section role="note" className="flex flex-col items-start justify-between gap-3 border-2 border-yellow-900 bg-zinc-950 p-4 sm:flex-row sm:items-center">
+                <p className="text-[10px] font-bold uppercase leading-relaxed tracking-widest text-zinc-300">
+                  Explicit posts are hidden by your current viewing preference. If expected posts are missing, enable explicit content in After Dark Settings. Posts awaiting moderation remain hidden.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/afterdark/settings?tab=viewing')}
+                  className="shrink-0 border-2 border-yellow-700 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-yellow-300 hover:border-yellow-400 hover:text-white"
+                >
+                  Viewing settings
+                </button>
+              </section>
+            )}
 
             {/* Encryption Status Box */}
             <section className="bg-zinc-950 border-2 border-zinc-800 p-4 flex items-center gap-4 rounded-none">
@@ -2021,16 +2129,30 @@ export default function AfterDarkFeed() {
                   {feedError ? 'Feed Unavailable' : 'No Content Found'}
                 </h3>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 max-w-sm mb-6 leading-relaxed">
-                  {feedError || (posts.length > 0
-                    ? 'Explicit posts are hidden by your viewing preference. Change the preference in After Dark settings to show them.'
-                    : 'Adjust your filters or search query to locate different creator content.')}
+                  {feedError || (!showExplicitContent
+                    ? 'Explicit posts are hidden by your viewing preference. Enable them in After Dark Settings if you want to see them. Posts awaiting moderation and region-restricted posts remain hidden.'
+                    : feedScope === 'following' && !searchQuery && activeFilter === 'all' && mediaTypeFilter === 'all'
+                      ? 'No posts from followed creators are available right now. Follow creators or switch to For You. Posts awaiting moderation and region-restricted posts remain hidden.'
+                      : 'No posts match these filters. Clear your search or filters. Posts awaiting moderation, region restrictions, and creator visibility settings can also keep posts out of the feed.')}
                 </p>
                 <button 
                   type="button"
-                  onClick={() => { setActiveFilter('all'); setSearchQuery(''); setMediaTypeFilter('all'); }} 
+                  onClick={() => {
+                    if (feedError) {
+                      setFeedError('');
+                      loadPosts(0, true, activeFilter, searchQuery, mediaTypeFilter, feedScope);
+                    } else if (!showExplicitContent) {
+                      navigate('/afterdark/settings?tab=viewing');
+                    } else {
+                      setActiveFilter('all');
+                      setFeedScope('discover');
+                      setSearchQuery('');
+                      setMediaTypeFilter('all');
+                    }
+                  }}
                   className="px-6 py-3 bg-white text-black border-2 border-white text-xs font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors rounded-none"
                 >
-                  Clear All Filters
+                  {feedError ? 'Retry Feed' : !showExplicitContent ? 'Viewing Settings' : 'Clear All Filters'}
                 </button>
               </div>
             ) : (
@@ -2047,7 +2169,21 @@ export default function AfterDarkFeed() {
                 
                 {/* Infinite Scroll Footer */}
                 <div ref={observerTarget} className="pt-4 flex justify-center">
-                  {loadingMore ? (
+                  {feedError ? (
+                    <div className="flex w-full flex-col items-center gap-3 border-2 border-red-900 bg-zinc-950 p-4 text-center">
+                      <p role="status" className="text-[10px] font-bold uppercase tracking-widest text-red-300">{feedError}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFeedError('');
+                          loadPosts(page, false);
+                        }}
+                        className="border-2 border-zinc-600 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white hover:border-white"
+                      >
+                        Retry loading posts
+                      </button>
+                    </div>
+                  ) : loadingMore ? (
                     <div className="w-full py-4 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center gap-3 text-xs font-bold uppercase tracking-widest text-white rounded-none">
                       <Loader2 className="w-4 h-4 animate-spin" /> Loading More Content...
                     </div>
@@ -2069,7 +2205,7 @@ export default function AfterDarkFeed() {
       </div>
 
       {/* RIGHT COLUMN: STICKY SIDEBAR (Desktop Only) */}
-      <aside className="hidden xl:flex flex-col w-[340px] bg-black shrink-0 relative z-10 overflow-y-auto custom-scrollbar rounded-none">
+      <aside className="relative z-10 hidden w-[clamp(17rem,24vw,22rem)] shrink-0 flex-col overflow-y-auto bg-black custom-scrollbar rounded-none xl:flex">
         
         <div className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 flex items-center justify-between sticky top-0 z-20 rounded-none">
           <div className="flex items-center gap-2">

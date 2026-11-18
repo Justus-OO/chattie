@@ -12,6 +12,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,20 +26,24 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+	"github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v76/webhook"
 )
 
 type ADPaymentsHandler struct {
 	Finance    *repository.ADFinanceRepository
 	Users      *repository.Repository
 	Events     *services.EventHandler
+	Stripe     *services.StripeGateway
 	Paystack   *services.PaystackGateway
 	Mpesa      *services.MpesaGateway
 	RoomClient *lksdk.RoomServiceClient
 }
 
-func NewADPaymentsHandler(finance *repository.ADFinanceRepository, users *repository.Repository, events *services.EventHandler, paystack *services.PaystackGateway, mpesa *services.MpesaGateway, roomClient *lksdk.RoomServiceClient) *ADPaymentsHandler {
+func NewADPaymentsHandler(finance *repository.ADFinanceRepository, users *repository.Repository, events *services.EventHandler, stripe *services.StripeGateway, paystack *services.PaystackGateway, mpesa *services.MpesaGateway, roomClient *lksdk.RoomServiceClient) *ADPaymentsHandler {
 	return &ADPaymentsHandler{
-		Finance: finance, Users: users, Events: events, Paystack: paystack, Mpesa: mpesa, RoomClient: roomClient,
+		Finance: finance, Users: users, Events: events, Stripe: stripe,
+		Paystack: paystack, Mpesa: mpesa, RoomClient: roomClient,
 	}
 }
 
@@ -71,8 +77,46 @@ func (h *ADPaymentsHandler) CreateCheckout(w http.ResponseWriter, r *http.Reques
 		req.PaymentType = "ppv"
 	}
 
+	countryCode := strings.ToUpper(strings.TrimSpace(middlewares.CountryCodeFromContext(r.Context())))
+	if countryCode == "" {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "Could not determine your country for checkout. Configure trusted country detection or your account location, then retry.")
+		return
+	}
+
+	currency := "USD"
+	provider := "stripe"
+	exchangeRate := 0.0
+	if h.Mpesa != nil {
+		exchangeRate = h.Mpesa.USDToKESRate
+	}
+	if countryCode == "KE" {
+		currency = "KES"
+		provider = strings.ToLower(strings.TrimSpace(req.Provider))
+		if provider == "" {
+			provider = "mpesa"
+		}
+		if provider != "mpesa" && provider != "paystack" {
+			writeADPaymentError(w, http.StatusBadRequest, "Choose M-Pesa or Paystack for Kenyan checkout")
+			return
+		}
+	}
+	if currency == "USD" && exchangeRate <= 0 {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "USD checkout conversion is not configured correctly")
+		return
+	}
+	if currency == "USD" {
+		if h.Stripe == nil || strings.TrimSpace(h.Stripe.PublishableKey) == "" {
+			writeADPaymentError(w, http.StatusServiceUnavailable, "Stripe checkout is not configured")
+			return
+		}
+		if _, err := afterDarkStripeReturnURL("checkout-config-check"); err != nil {
+			writeADPaymentError(w, http.StatusServiceUnavailable, "After Dark Stripe return URL is not configured correctly")
+			return
+		}
+	}
 	intent, err := h.Finance.CreateADPaymentIntent(
-		r.Context(), userID, req.PaymentType, req.TargetID, req.Provider, req.AmountCents, req.Message,
+		r.Context(), userID, req.PaymentType, req.TargetID, provider,
+		req.AmountCents, req.Message, currency, exchangeRate,
 	)
 	if err != nil {
 		switch {
@@ -90,6 +134,8 @@ func (h *ADPaymentsHandler) CreateCheckout(w http.ResponseWriter, r *http.Reques
 	}
 
 	switch intent.Provider {
+	case "stripe":
+		h.startStripe(w, r, intent)
 	case "paystack":
 		h.startPaystack(w, r, intent)
 	case "mpesa":
@@ -97,6 +143,102 @@ func (h *ADPaymentsHandler) CreateCheckout(w http.ResponseWriter, r *http.Reques
 	default:
 		writeADPaymentError(w, http.StatusBadRequest, "Unsupported payment provider")
 	}
+}
+
+func (h *ADPaymentsHandler) GetCheckoutConfig(w http.ResponseWriter, r *http.Request) {
+	countryCode := strings.ToUpper(strings.TrimSpace(middlewares.CountryCodeFromContext(r.Context())))
+	if countryCode == "" {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "Could not determine your country for checkout. Configure trusted country detection or your account location, then retry.")
+		return
+	}
+	if countryCode == "KE" {
+		writeADCheckout(w, map[string]interface{}{
+			"country_code":        countryCode,
+			"currency":            "KES",
+			"default_provider":    "mpesa",
+			"supported_providers": []string{"mpesa", "paystack"},
+		})
+		return
+	}
+	if h.Mpesa == nil || h.Mpesa.USDToKESRate <= 0 {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "USD checkout conversion is not configured correctly")
+		return
+	}
+	if h.Stripe == nil || strings.TrimSpace(h.Stripe.PublishableKey) == "" {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "Stripe checkout is not configured")
+		return
+	}
+	if _, err := afterDarkStripeReturnURL("checkout-config-check"); err != nil {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "After Dark Stripe return URL is not configured correctly")
+		return
+	}
+	writeADCheckout(w, map[string]interface{}{
+		"country_code":        countryCode,
+		"currency":            "USD",
+		"default_provider":    "stripe",
+		"supported_providers": []string{"stripe"},
+		"kes_per_usd":         h.Mpesa.USDToKESRate,
+	})
+}
+
+func (h *ADPaymentsHandler) startStripe(w http.ResponseWriter, r *http.Request, intent *repository.ADPaymentIntent) {
+	if h.Stripe == nil || strings.TrimSpace(h.Stripe.PublishableKey) == "" {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "Stripe is not configured")
+		return
+	}
+	user, err := h.Users.GetUserByID(r.Context(), intent.UserID)
+	if err != nil {
+		writeADPaymentError(w, http.StatusInternalServerError, "Could not load checkout user")
+		return
+	}
+	returnURL, err := afterDarkStripeReturnURL(intent.ID)
+	if err != nil {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "After Dark Stripe return URL is not configured correctly")
+		return
+	}
+	checkout, err := h.Stripe.CreateADCheckout(
+		r.Context(), user.Email, intent.UserID, intent.ID, intent.AmountCents,
+		intent.PaymentType, returnURL,
+	)
+	if err != nil {
+		log.Printf("[AFTER DARK PAYMENT] Stripe initialization failed for %s: %v", intent.UserID, err)
+		newlyFailed, updateErr := h.Finance.MarkADPaymentFailed(r.Context(), intent.ID)
+		if updateErr != nil {
+			log.Printf("[AFTER DARK PAYMENT] Could not mark Stripe intent failed: %v", updateErr)
+		} else if newlyFailed {
+			h.notifyADActionRequired(r.Context(), intent, "Stripe checkout could not be started. Please try again.")
+		}
+		writeADPaymentError(w, http.StatusBadGateway, "Could not start Stripe checkout")
+		return
+	}
+	if err := h.Finance.SetADPaymentProviderSession(r.Context(), intent.ID, checkout.SessionID, ""); err != nil {
+		log.Printf("[AFTER DARK PAYMENT] Could not track Stripe session for %s: %v", intent.UserID, err)
+		writeADPaymentError(w, http.StatusInternalServerError, "Payment was initialized but could not be tracked; contact support before retrying")
+		return
+	}
+	writeADCheckout(w, map[string]interface{}{
+		"id": intent.ID, "provider": "stripe", "session_id": checkout.SessionID,
+		"client_secret": checkout.ClientSecret, "public_key": checkout.PublicKey,
+		"payment_url":  checkout.PaymentURL,
+		"amount_cents": intent.AmountCents, "currency": intent.Currency,
+		"settlement_amount_cents": intent.SettlementAmountCents,
+		"settlement_currency":     intent.SettlementCurrency,
+		"exchange_rate":           intent.ExchangeRate,
+		"payment_type":            intent.PaymentType, "status": "pending",
+	})
+}
+
+func afterDarkStripeReturnURL(intentID string) (string, error) {
+	base := strings.TrimSpace(os.Getenv("AFTERDARK_RETURN_URL"))
+	parsed, err := url.Parse(base)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return "", fmt.Errorf("AFTERDARK_RETURN_URL must be an absolute HTTP(S) URL")
+	}
+	query := parsed.Query()
+	query.Set("ad_payment_intent", intentID)
+	query.Set("session_id", "{CHECKOUT_SESSION_ID}")
+	parsed.RawQuery = query.Encode()
+	return strings.ReplaceAll(parsed.String(), "%7BCHECKOUT_SESSION_ID%7D", "{CHECKOUT_SESSION_ID}"), nil
 }
 
 func (h *ADPaymentsHandler) startPaystack(w http.ResponseWriter, r *http.Request, intent *repository.ADPaymentIntent) {
@@ -131,7 +273,10 @@ func (h *ADPaymentsHandler) startPaystack(w http.ResponseWriter, r *http.Request
 		"client_secret": checkout.ClientSecret, "public_key": checkout.PublicKey,
 		"email":        user.Email,
 		"amount_cents": intent.AmountCents, "currency": intent.Currency,
-		"payment_type": intent.PaymentType, "status": "pending",
+		"settlement_amount_cents": intent.SettlementAmountCents,
+		"settlement_currency":     intent.SettlementCurrency,
+		"exchange_rate":           intent.ExchangeRate,
+		"payment_type":            intent.PaymentType, "status": "pending",
 	})
 }
 
@@ -166,8 +311,10 @@ func (h *ADPaymentsHandler) startMpesa(w http.ResponseWriter, r *http.Request, i
 	writeADCheckout(w, map[string]interface{}{
 		"id": intent.ID, "provider": "mpesa", "session_id": checkout.CheckoutRequestID,
 		"amount_cents": intent.AmountCents, "amount_kes": checkout.AmountKES,
-		"currency": intent.Currency, "payment_type": intent.PaymentType,
-		"status": "pending", "message": checkout.CustomerMessage,
+		"currency": intent.Currency, "settlement_amount_cents": intent.SettlementAmountCents,
+		"settlement_currency": intent.SettlementCurrency, "exchange_rate": intent.ExchangeRate,
+		"payment_type": intent.PaymentType,
+		"status":       "pending", "message": checkout.CustomerMessage,
 	})
 }
 
@@ -334,10 +481,67 @@ func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusOK)
 }
 
+func (h *ADPaymentsHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
+	secret := strings.TrimSpace(os.Getenv("STRIPE_AFTERDARK_WEBHOOK_SECRET"))
+	if secret == "" {
+		http.Error(w, "Stripe After Dark webhook is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Invalid webhook body", http.StatusBadRequest)
+		return
+	}
+	event, err := webhook.ConstructEvent(body, r.Header.Get("Stripe-Signature"), secret)
+	if err != nil {
+		http.Error(w, "Invalid Stripe webhook signature", http.StatusUnauthorized)
+		return
+	}
+	if event.Type != stripe.EventTypeCheckoutSessionCompleted &&
+		event.Type != stripe.EventTypeCheckoutSessionAsyncPaymentSucceeded &&
+		event.Type != stripe.EventTypeCheckoutSessionAsyncPaymentFailed &&
+		event.Type != stripe.EventTypeCheckoutSessionExpired {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var checkout stripe.CheckoutSession
+	if err := json.Unmarshal(event.Data.Raw, &checkout); err != nil || checkout.ID == "" {
+		http.Error(w, "Invalid Stripe checkout event", http.StatusBadRequest)
+		return
+	}
+	intent, err := h.Finance.GetADPaymentByProviderSession(r.Context(), "stripe", checkout.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if err != nil {
+		log.Printf("[AFTER DARK PAYMENT] Failed to load Stripe webhook intent: %v", err)
+		http.Error(w, "Could not process Stripe webhook", http.StatusInternalServerError)
+		return
+	}
+	if event.Type == stripe.EventTypeCheckoutSessionExpired || event.Type == stripe.EventTypeCheckoutSessionAsyncPaymentFailed {
+		if _, err := h.Finance.MarkADPaymentFailed(r.Context(), intent.ID); err != nil {
+			log.Printf("[AFTER DARK PAYMENT] Could not mark expired Stripe intent failed: %v", err)
+			http.Error(w, "Could not update Stripe checkout status", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if _, err := h.reconcile(r.Context(), intent, nil); err != nil {
+		log.Printf("[AFTER DARK PAYMENT] Stripe webhook reconciliation failed for %s: %v", intent.ID, err)
+		http.Error(w, "Could not reconcile Stripe payment", http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 type providerPayment struct {
-	AmountMinor  int64
-	Currency     string
-	Receipt      string
+	AmountMinor   int64
+	Currency      string
+	Receipt       string
 	PaymentMethod *services.PaymentMethodInfo
 }
 
@@ -347,6 +551,25 @@ func (h *ADPaymentsHandler) reconcile(ctx context.Context, intent *repository.AD
 	}
 	var payment providerPayment
 	switch intent.Provider {
+	case "stripe":
+		if h.Stripe == nil {
+			return nil, fmt.Errorf("Stripe is not configured")
+		}
+		verified, err := h.Stripe.VerifyPaymentDetails(ctx, intent.ProviderSessionID)
+		if err != nil {
+			return nil, err
+		}
+		if !verified.Paid {
+			return intent, nil
+		}
+		payment = providerPayment{
+			AmountMinor:   verified.AmountMinor,
+			Currency:      verified.Currency,
+			PaymentMethod: verified.PaymentMethod,
+		}
+		if verified.UserID != "" && verified.UserID != intent.UserID {
+			return nil, fmt.Errorf("Stripe payer did not match intent")
+		}
 	case "paystack":
 		if h.Paystack == nil {
 			return nil, fmt.Errorf("Paystack is not configured")
@@ -359,8 +582,8 @@ func (h *ADPaymentsHandler) reconcile(ctx context.Context, intent *repository.AD
 			return intent, nil
 		}
 		payment = providerPayment{
-			AmountMinor: verified.AmountMinor,
-			Currency:    verified.Currency,
+			AmountMinor:   verified.AmountMinor,
+			Currency:      verified.Currency,
 			PaymentMethod: verified.PaymentMethod,
 		}
 		if verified.UserID != "" && verified.UserID != intent.UserID {
@@ -436,12 +659,15 @@ func (h *ADPaymentsHandler) notifyADPaymentCompleted(ctx context.Context, intent
 		return
 	}
 	receiptData := map[string]interface{}{
-		"Amount":        fmt.Sprintf("%.2f", float64(intent.AmountCents)/100),
-		"Currency":      intent.Currency,
-		"PaymentType":   strings.ReplaceAll(intent.PaymentType, "_", " "),
-		"Reference":     intent.ID,
-		"ReceiptNumber": intent.ReceiptNumber,
-		"PaidAt":        time.Now().Format("January 2, 2006 15:04 MST"),
+		"Amount":             fmt.Sprintf("%.2f", float64(intent.AmountCents)/100),
+		"Currency":           intent.Currency,
+		"SettlementAmount":   fmt.Sprintf("%.2f", float64(intent.SettlementAmountCents)/100),
+		"SettlementCurrency": intent.SettlementCurrency,
+		"ExchangeRate":       intent.ExchangeRate,
+		"PaymentType":        strings.ReplaceAll(intent.PaymentType, "_", " "),
+		"Reference":          intent.ID,
+		"ReceiptNumber":      intent.ReceiptNumber,
+		"PaidAt":             time.Now().Format("January 2, 2006 15:04 MST"),
 	}
 	detachedCtx := context.WithoutCancel(ctx)
 	go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
@@ -510,7 +736,7 @@ func (h *ADPaymentsHandler) publishLiveTip(ctx context.Context, intent *reposito
 	}
 	payload, err := json.Marshal(models.ADLiveTipNotification{
 		Type: "tip", ID: intent.ID, SenderID: intent.UserID,
-		SenderName: senderName, AmountCents: intent.AmountCents, Message: intent.Message,
+		SenderName: senderName, AmountCents: intent.SettlementAmountCents, Message: intent.Message,
 	})
 	if err != nil {
 		log.Printf("[AFTER DARK TIP] Could not encode live tip %s: %v", intent.ID, err)
@@ -528,7 +754,10 @@ func paymentStatusResponse(intent *repository.ADPaymentIntent) map[string]interf
 	return map[string]interface{}{
 		"id": intent.ID, "status": intent.Status, "payment_type": intent.PaymentType,
 		"amount_cents": intent.AmountCents, "currency": intent.Currency,
-		"tip_id": intent.ID, "target_id": intent.TargetID, "creator_id": intent.CreatorID,
+		"settlement_amount_cents": intent.SettlementAmountCents,
+		"settlement_currency":     intent.SettlementCurrency,
+		"exchange_rate":           intent.ExchangeRate,
+		"tip_id":                  intent.ID, "target_id": intent.TargetID, "creator_id": intent.CreatorID,
 		"receipt_number": intent.ReceiptNumber,
 	}
 }

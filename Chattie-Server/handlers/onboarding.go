@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
+	"math"
 	"net/http"
+	"strings"
 
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
@@ -47,6 +50,16 @@ func (h *OnboardingHandler) SetupProfile(w http.ResponseWriter, r *http.Request)
 
 	if err := h.Repo.CreateUserProfile(&profile); err != nil {
 		log.Printf("[ONBOARDING ERROR] Failed to save profile for user %s: %v", userID, err)
+		if errors.Is(err, repository.ErrInvalidOnboardingProfile) {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "A valid display name, adult date of birth, bio, and height are required."})
+			return
+		}
+		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid gender"})
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -72,6 +85,16 @@ func (h *OnboardingHandler) SetupLocation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	loc.UserID = userID
+	loc.City = strings.TrimSpace(loc.City)
+	loc.Country = strings.TrimSpace(loc.Country)
+	loc.CountryCode, _ = r.Context().Value(middlewares.CountryCodeKey).(string)
+	if strings.TrimSpace(loc.City) == "" ||
+		math.IsNaN(loc.Latitude) || math.IsInf(loc.Latitude, 0) || loc.Latitude < -90 || loc.Latitude > 90 ||
+		math.IsNaN(loc.Longitude) || math.IsInf(loc.Longitude, 0) || loc.Longitude < -180 || loc.Longitude > 180 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "A city and valid location coordinates are required."})
+		return
+	}
 
 	if err := h.Repo.CreateUserLocation(&loc); err != nil {
 		log.Printf("[ONBOARDING ERROR] Failed to save location for user %s: %v", userID, err)
@@ -103,6 +126,11 @@ func (h *OnboardingHandler) SetupPreferences(w http.ResponseWriter, r *http.Requ
 
 	if err := h.Repo.CreateUserPreference(&pref); err != nil {
 		log.Printf("[ONBOARDING ERROR] Failed to save preferences for user %s: %v", userID, err)
+		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Choose valid discovery preferences and between 3 and 7 interests."})
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -184,7 +212,7 @@ func (h *OnboardingHandler) SetupInitialMedia(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// ActivateAccount handles the Final Step with Hardened Security
+// ActivateAccount activates only accounts with complete discovery profiles.
 func (h *OnboardingHandler) ActivateAccount(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
@@ -193,24 +221,24 @@ func (h *OnboardingHandler) ActivateAccount(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// SECURITY CHECK 1: Ensure user uploaded at least one photo
-	mediaCount, _ := h.Repo.GetUserMediaCount(r.Context(), userID)
-	if mediaCount == 0 {
-		w.WriteHeader(http.StatusPreconditionFailed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "At least one profile photo is required to activate account"})
-		return
-	}
-
-	// SECURITY CHECK 2: Capture Device & Consent Context
 	consentData := models.ConsentLog{
 		UserID:    userID,
 		IPAddress: r.RemoteAddr,
 		UserAgent: r.UserAgent(),
 	}
 
-	if err := h.Repo.ActivateUserSecure(r.Context(), userID, consentData); err != nil {
+	missing, err := h.Repo.ActivateUserSecure(r.Context(), userID, consentData)
+	if err != nil {
 		log.Printf("[ONBOARDING ERROR] Failed to activate account for user %s: %v", userID, err)
 		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if len(missing) > 0 {
+		w.WriteHeader(http.StatusPreconditionFailed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "Complete the required onboarding fields before activating your account.",
+			"missing": missing,
+		})
 		return
 	}
 

@@ -51,6 +51,20 @@ type PerformerApplication struct {
 	ReviewedAt         *time.Time `json:"reviewed_at,omitempty"`
 }
 
+type AdminPerformerApplication struct {
+	ID                  string    `json:"id"`
+	UserID              string    `json:"user_id"`
+	Username            string    `json:"username"`
+	Email               string    `json:"email"`
+	CreatorAlias        string    `json:"creator_alias"`
+	Status              string    `json:"status"`
+	PolicyVersion       string    `json:"policy_version"`
+	DecisionReasonCode  string    `json:"decision_reason_code,omitempty"`
+	AISummary           string    `json:"ai_triage_summary"`
+	EligibleForApproval bool      `json:"eligible_for_approval"`
+	SubmittedAt         time.Time `json:"submitted_at"`
+}
+
 type PerformerConsent struct {
 	ID            string    `json:"id"`
 	UserID        string    `json:"user_id"`

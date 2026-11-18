@@ -68,46 +68,11 @@ func firstMpesaGateway(gateways []*MpesaGateway) *MpesaGateway {
 	return gateways[0]
 }
 
-// Route determines gateway choice using Cloudflare/proxy headers or IP geolocation
-func (r *BillingRouter) Route(req *http.Request) PaymentGateway {
-	if forced := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("gateway"))); forced != "" {
-		switch forced {
-		case "stripe":
-			return r.Stripe
-		case "paystack":
-			return r.Paystack
-		case "mpesa":
-			if r.Mpesa != nil {
-				return r.Mpesa
-			}
-		}
-	}
-
-	// 1. Direct Edge Header (Cloudflare delivers ISO 3166-1 alpha-2)
-	countryCode := strings.ToUpper(strings.TrimSpace(req.Header.Get("CF-IPCountry")))
-
-	// 2. Generic Reverse Proxy Header Fallback
-	if countryCode == "" {
-		countryCode = strings.ToUpper(strings.TrimSpace(req.Header.Get("X-Country-Code")))
-	}
-
-	// African regions natively served by Paystack (Card, M-Pesa, Mobile Money, EFT)
-	paystackRegions := map[string]bool{
-		"KE": true, // Kenya (M-Pesa / Cards)
-		"NG": true, // Nigeria
-		"ZA": true, // South Africa
-		"GH": true, // Ghana
-		"UG": true, // Uganda
-		"RW": true, // Rwanda
-		"CI": true, // Côte d'Ivoire
-		"EG": true, // Egypt
-	}
-
-	if paystackRegions[countryCode] {
+// RouteCountry selects the provider from a country code established by trusted server middleware.
+func (r *BillingRouter) RouteCountry(countryCode string) PaymentGateway {
+	if strings.EqualFold(strings.TrimSpace(countryCode), "KE") {
 		return r.Paystack
 	}
-
-	// Global fallback (US, EU, UK, CA, AU, LATAM, Asia) -> Stripe
 	return r.Stripe
 }
 

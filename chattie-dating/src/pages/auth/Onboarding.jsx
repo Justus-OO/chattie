@@ -12,6 +12,7 @@ import { useAppStore } from '../../store/useAppStore';
 // IMPORT THE SMART CROPPER
 import { getCroppedImg, compressImageFile, smartFaceCrop } from '../../utils/cropImage'; 
 import { profileService } from '../../api/profile.service'; 
+import AIDraftAssistant from '../../components/AIDraftAssistant';
 import { useI18n } from '../../i18n';
 
 // ============================================================================
@@ -26,13 +27,29 @@ const AVAILABLE_INTERESTS = [
 const GENDER_OPTIONS = [
   { id: 'male', label: 'Male' },
   { id: 'female', label: 'Female' },
-  { id: 'everyone', label: 'Other' }
+  { id: 'other', label: 'Other' }
 ];
 
 const INTEREST_TRANSLATION_KEYS = {
   Nightlife: 'interestNightlife', 'Late Drives': 'interestLateDrives', 'Indie Rock': 'interestIndieRock', Sarcasm: 'interestSarcasm',
   Coffee: 'interestCoffee', Gym: 'interestGym', Startups: 'interestStartups', Thrifting: 'interestThrifting', Vinyl: 'interestVinyl',
   Gaming: 'interestGaming', Anime: 'interestAnime', Foodie: 'interestFoodie', Photography: 'interestPhotography', Art: 'interestArt',
+};
+
+const getAgeFromDate = (dateValue) => {
+  if (!dateValue) return null;
+  const birthDate = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(birthDate.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  if (
+    today.getMonth() < birthDate.getMonth()
+    || (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1;
+  }
+  return age;
 };
 
 // ============================================================================
@@ -43,11 +60,26 @@ export default function Onboarding() {
   const { t } = useI18n();
   
   const appToken = useAppStore((state) => state.token);
+
+  const resendVerificationCode = async () => {
+    if (isRequestingOtp) return;
+    setIsRequestingOtp(true);
+    try {
+      await profileService.requestEmailOTP(appToken);
+      toast.success('Verification code sent. Check your email inbox and spam folder.');
+    } catch (error) {
+      console.error('Could not resend onboarding verification code:', error);
+      toast.error(error.message || 'Could not send verification code.');
+    } finally {
+      setIsRequestingOtp(false);
+    }
+  };
   
   // --- CORE STATE ---
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
   
   // --- AI SCANNER STATE ---
   const [isAnalyzingFace, setIsAnalyzingFace] = useState(false);
@@ -67,7 +99,9 @@ export default function Onboarding() {
     interests: [],
     // Step 4: Preferences
     location: '',
+    locationCoordinates: null,
     intent: 'dating',
+    showMe: 'Everyone',
     minAge: 18,
     maxAge: 40,
     maxDistanceKm: 50
@@ -104,11 +138,6 @@ export default function Onboarding() {
           
           toast.success(t('faceDetectedCrop'));
           
-          // 2. AUTO-ADVANCE TO STEP 3
-          if (step === 2) {
-             setTimeout(() => setStep(3), 800);
-          }
-
         } catch (aiError) {
           // 3. AI FAILED: ENFORCE RULES OR FALLBACK TO MANUAL
           if (aiError.message === 'NO_FACE_DETECTED') {
@@ -151,10 +180,6 @@ export default function Onboarding() {
       setImageSrc(null);
       toast.success(t('photoSaved'));
       
-      // Auto advance on manual crop success too
-      if (step === 2) {
-        setTimeout(() => setStep(3), 500);
-      }
     } catch (e) {
       toast.error(t('cropFailed'));
     }
@@ -178,12 +203,34 @@ export default function Onboarding() {
   };
 
   const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error(t('locationUnavailable'));
+      return;
+    }
+
     setIsLocating(true);
-    setTimeout(() => {
-      setProfileData(prev => ({ ...prev, location: 'NAIROBI, KENYA' }));
-      setIsLocating(false);
-      toast.success(t('locationUpdated'));
-    }, 1500);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setProfileData(prev => ({
+          ...prev,
+          locationCoordinates: {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          },
+        }));
+        setIsLocating(false);
+        toast.success(t('locationUpdated'));
+      },
+      (error) => {
+        setIsLocating(false);
+        toast.error(error.code === error.PERMISSION_DENIED
+          ? t('locationPermissionDenied')
+          : error.code === error.TIMEOUT
+            ? t('locationTimedOut')
+            : t('locationUnavailable'));
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
   };
 
   const nextStep = async (e) => {
@@ -212,8 +259,12 @@ export default function Onboarding() {
       if (!profileData.dob) return toast.error(t('dobRequired') || 'Date of birth is required.');
       if (!profileData.gender) return toast.error(t('genderRequired') || 'Gender is required.');
       
-      const age = new Date().getFullYear() - new Date(profileData.dob).getFullYear();
-      if (age < 18) return toast.error(t('adultRequired') || 'You must be 18+ to use Chattie.');
+      const age = getAgeFromDate(profileData.dob);
+      if (age === null || age < 18) return toast.error(t('adultRequired') || 'You must be 18+ to use Chattie.');
+      const heightCm = Number(profileData.heightCm);
+      if (!Number.isInteger(heightCm) || heightCm < 100 || heightCm > 250) {
+        return toast.error(t('heightRequired'));
+      }
     }
     
     // Step 3 Validation (Vibe)
@@ -225,7 +276,16 @@ export default function Onboarding() {
     // Step 4 Validation & Backend Submission
     if (step === 4) {
       if (!profileData.location.trim()) return toast.error(t('locationRequired'));
-      if (parseInt(profileData.minAge) > parseInt(profileData.maxAge)) return toast.error(t('minAgeExceedsMax'));
+      if (!profileData.locationCoordinates) return toast.error(t('locationCoordinatesRequired'));
+      const minAge = Number(profileData.minAge);
+      const maxAge = Number(profileData.maxAge);
+      const maxDistanceKm = Number(profileData.maxDistanceKm);
+      if (!Number.isInteger(minAge) || !Number.isInteger(maxAge) || minAge < 18 || maxAge > 99 || minAge > maxAge) {
+        return toast.error(t('minAgeExceedsMax'));
+      }
+      if (!Number.isInteger(maxDistanceKm) || maxDistanceKm < 1 || maxDistanceKm > 500) {
+        return toast.error(t('invalidDistance'));
+      }
 
       setIsSubmitting(true);
       
@@ -236,7 +296,7 @@ export default function Onboarding() {
           date_of_birth: profileData.dob,
           gender: profileData.gender,
           bio: profileData.bio,
-          height_cm: parseInt(profileData.heightCm),
+          height_cm: Number(profileData.heightCm),
           verified: false
         }, appToken);
 
@@ -247,18 +307,20 @@ export default function Onboarding() {
 
         // 3. Submit Location
         await profileService.updateLocation({
-          latitude: 0.0,
-          longitude: 0.0,
+          latitude: profileData.locationCoordinates.latitude,
+          longitude: profileData.locationCoordinates.longitude,
           city: profileData.location,
-          country: 'Unspecified' 
+          country: ''
         }, appToken);
 
         // 4. Submit Preferences
         await profileService.updatePreferences({
           interested_in: profileData.intent,
-          min_age: parseInt(profileData.minAge),
-          max_age: parseInt(profileData.maxAge),
-          max_distance_km: parseInt(profileData.maxDistanceKm)
+          show_me: profileData.showMe,
+          min_age: minAge,
+          max_age: maxAge,
+          max_distance_km: maxDistanceKm,
+          tags: profileData.interests
         }, appToken);
 
         // 5. Activate Account
@@ -289,7 +351,7 @@ export default function Onboarding() {
           ===================================================================== */}
       {isAnalyzingFace && (
         <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300">
-          <div className="relative w-40 h-40 border-2 border-zinc-800 mb-6 flex items-center justify-center overflow-hidden">
+          <div className="relative mb-6 flex size-[clamp(8rem,24vw,10rem)] items-center justify-center overflow-hidden border-2 border-zinc-800">
             <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-blue-500"></div>
             <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-blue-500"></div>
             <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-blue-500"></div>
@@ -313,7 +375,7 @@ export default function Onboarding() {
           ===================================================================== */}
       {imageSrc && !isAnalyzingFace && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center animate-in fade-in duration-200">
-          <div className="relative w-full h-[60vh] bg-zinc-950 border-b-2 border-zinc-800">
+          <div className="relative h-[60dvh] w-full border-b-2 border-zinc-800 bg-zinc-950">
             <Cropper
               image={imageSrc} crop={crop} zoom={zoom} rotation={rotation}
               aspect={1} cropShape="rect" showGrid={false}
@@ -341,7 +403,7 @@ export default function Onboarding() {
       {/* =====================================================================
           MAIN ONBOARDING CARD
           ===================================================================== */}
-      <div className="w-full max-w-lg bg-black border-2 border-zinc-600 p-6 md:p-8 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] z-10 relative rounded-none flex flex-col max-h-[90vh]">
+      <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-zinc-600 bg-black p-6 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] md:p-8 rounded-none">
         
         {/* Progress Stepper */}
         <div className="flex gap-2 mb-8 shrink-0">
@@ -377,6 +439,14 @@ export default function Onboarding() {
                     maxLength={6}
                     className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-4 text-[24px] text-center font-bold text-white uppercase tracking-[0.5em] focus:outline-none focus:border-white transition-colors placeholder:text-zinc-800"
                   />
+                  <button
+                    type="button"
+                    onClick={resendVerificationCode}
+                    disabled={isRequestingOtp || isSubmitting}
+                    className="mt-3 w-full border border-zinc-700 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 transition-colors hover:border-white hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isRequestingOtp ? 'Sending code...' : 'Resend verification code'}
+                  </button>
                 </div>
               </div>
             )}
@@ -395,7 +465,7 @@ export default function Onboarding() {
                   <input type="file" ref={fileInputRef} onChange={onFileChange} accept="image/jpeg, image/png, image/webp" className="hidden" />
                   <div 
                     onClick={() => fileInputRef.current?.click()}
-                    className={`w-32 h-32 flex flex-col items-center justify-center cursor-pointer transition-colors group overflow-hidden relative border-2 rounded-none ${profileData.avatarUrl ? 'bg-black border-zinc-500 hover:border-white' : 'bg-zinc-950 border-dashed border-zinc-700 hover:border-white'}`}
+                    className={`relative flex size-[clamp(6rem,16vw,8rem)] cursor-pointer flex-col items-center justify-center overflow-hidden border-2 transition-colors group rounded-none ${profileData.avatarUrl ? 'bg-black border-zinc-500 hover:border-white' : 'bg-zinc-950 border-dashed border-zinc-700 hover:border-white'}`}
                   >
                     {profileData.avatarUrl ? (
                       <>
@@ -457,7 +527,7 @@ export default function Onboarding() {
 
                   <div>
                     <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">{t('identifyAs')}</label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                       {GENDER_OPTIONS.map(g => (
                         <button
                           key={g.id} type="button"
@@ -515,6 +585,13 @@ export default function Onboarding() {
                     className="w-full bg-black border-2 border-zinc-800 rounded-none p-4 text-[10px] text-white uppercase tracking-widest font-bold focus:outline-none focus:border-white resize-none transition-colors placeholder:text-zinc-700" 
                     placeholder={t('bioPlaceholder')}
                   ></textarea>
+                  <AIDraftAssistant
+                    type="profile-bio"
+                    draft={profileData.bio}
+                    interests={profileData.interests}
+                    disabled={isSubmitting}
+                    onSelect={(bio) => setProfileData((current) => ({ ...current, bio }))}
+                  />
                 </div>
               </div>
             )}
@@ -547,6 +624,11 @@ export default function Onboarding() {
                       {t('locate')}
                     </button>
                   </div>
+                  <p className="mt-2 text-[9px] font-bold uppercase tracking-widest text-zinc-500" aria-live="polite">
+                    {profileData.locationCoordinates
+                      ? t('locationCoordinatesCaptured')
+                      : t('locationCoordinatesHelp')}
+                  </p>
                 </div>
 
                 <div>
@@ -571,6 +653,22 @@ export default function Onboarding() {
                         </button>
                       )
                     })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3 block">{t('genderPreference')}</label>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {['Men', 'Women', 'Other', 'Everyone'].map(option => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setProfileData({ ...profileData, showMe: option })}
+                        className={`border-2 px-3 py-3 text-[9px] font-bold uppercase tracking-widest transition-colors ${profileData.showMe === option ? 'border-white bg-white text-black' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-500 hover:text-white'}`}
+                      >
+                        {option === 'Men' ? t('male') : option === 'Women' ? t('female') : option === 'Other' ? t('other') : t('everyone')}
+                      </button>
+                    ))}
                   </div>
                 </div>
 

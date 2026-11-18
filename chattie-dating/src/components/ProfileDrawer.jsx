@@ -58,12 +58,12 @@ export default function ProfileDrawer({ selectedProfile, onClose }) {
       />
 
       {/* Drawer Container */}
-      <aside className="fixed inset-y-0 right-0 z-50 w-full md:w-[400px] xl:w-[450px] bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col animate-in slide-in-from-right-full duration-300 ease-out">
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-slate-800 bg-slate-900 shadow-2xl animate-in slide-in-from-right-full duration-300 ease-out md:w-[clamp(22rem,36vw,30rem)]">
         
         {/* =====================================================================
             HERO HEADER & PHOTO GALLERY
             ===================================================================== */}
-        <div className="relative h-72 md:h-80 shrink-0 bg-slate-950 group">
+        <div className="relative aspect-[4/3] max-h-[45dvh] shrink-0 bg-slate-950 group">
           <img 
             src={profileDetails.photos[activePhotoIdx]} 
             alt={profileDetails.name} 

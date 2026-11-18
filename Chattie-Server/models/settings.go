@@ -14,6 +14,10 @@ type SettingsPayload struct {
 	Tags             []string `json:"tags"`
 	Avatar           string   `json:"avatar"`
 	Cover            string   `json:"cover"`
+	AvatarStorageURL string   `json:"avatar_storage_url"`
+	CoverStorageURL  string   `json:"cover_storage_url"`
+	PreserveAvatar   bool     `json:"-"`
+	PreserveCover    bool     `json:"-"`
 	Photos           []string `json:"photos"`
 	Verified         bool     `json:"verified"`
 	TwoFactorEnabled bool     `json:"two_factor_enabled"`

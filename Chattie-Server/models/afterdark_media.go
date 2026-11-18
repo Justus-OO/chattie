@@ -27,6 +27,10 @@ type ADPost struct {
 	PricingStrategy string           `json:"pricing_strategy"`
 	PriceCents      int64            `json:"price_cents"`
 	IsUnlocked      bool             `json:"is_unlocked"`
+	IsLiked         bool             `json:"is_liked"`
+	LikeCount       int64            `json:"like_count"`
+	CommentCount    int64            `json:"comment_count"`
+	IsFollowing     bool             `json:"is_following"`
 	IsExplicit      bool             `json:"is_explicit"`
 	Status          string           `json:"status"`
 	PublishAt       *time.Time       `json:"publish_at,omitempty"`

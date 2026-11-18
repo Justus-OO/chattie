@@ -3,17 +3,26 @@ package models
 import "time"
 
 type Message struct {
-	ID          string    `json:"id"`
-	SenderID    string    `json:"sender_id"`
-	SenderName  string    `json:"sender_name,omitempty"` // Hydrated from DB for frontend display
-	AvatarURL   string    `json:"avatar_url,omitempty"`  // Hydrated from DB for frontend display
-	RecipientID string    `json:"recipient_id,omitempty"`
-	RoomID      string    `json:"room_id,omitempty"`
-	Content     string    `json:"content"`
-	Text        string    `json:"text,omitempty"`  // Fallback alias sent by React
-	Media       string    `json:"media,omitempty"` // The new media attachment URL
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                string                `json:"id"`
+	SenderID          string                `json:"sender_id"`
+	SenderName        string                `json:"sender_name,omitempty"` // Hydrated from DB for frontend display
+	AvatarURL         string                `json:"avatar_url,omitempty"`  // Hydrated from DB for frontend display
+	RecipientID       string                `json:"recipient_id,omitempty"`
+	RoomID            string                `json:"room_id,omitempty"`
+	Content           string                `json:"content"`
+	Text              string                `json:"text,omitempty"`  // Fallback alias sent by React
+	Media             string                `json:"media,omitempty"` // The new media attachment URL
+	Status            string                `json:"status"`
+	CreatedAt         time.Time             `json:"created_at"`
+	IsPinned          bool                  `json:"is_pinned,omitempty"`
+	PinnedBy          string                `json:"pinned_by,omitempty"`
+	PinnedAt          *time.Time            `json:"pinned_at,omitempty"`
+	MessageKind       string                `json:"message_kind,omitempty"`
+	IsAIGenerated    bool                  `json:"is_ai_generated,omitempty"`
+	CallMode          string                `json:"call_mode,omitempty"`
+	Reactions         []RoomMessageReaction `json:"reactions,omitempty"`
+	ClientMessageID   string                `json:"client_message_id,omitempty"`
+	EarnedByCreatorID string                `json:"-"`
 
 	Type     string `json:"type,omitempty"`      // 'chat', 'notification', 'incoming_call', 'call_answered', 'reaction'
 	Mode     string `json:"mode,omitempty"`      // 'video' or 'audio'

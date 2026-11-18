@@ -48,16 +48,7 @@ func (h *ExtrasHandler) GetSecretAdmirers(w http.ResponseWriter, r *http.Request
 	}
 
 	if !isPremium {
-		for i := range profiles {
-			profiles[i].DisplayName = "Hidden Identity"
-			profiles[i].Bio = ""
-			profiles[i].City = "Nearby"
-			profiles[i].Tags = []string{}
-
-			if len(profiles[i].Images) > 0 {
-				profiles[i].Images = []string{profiles[i].Images[0]}
-			}
-		}
+		redactSecretAdmirers(profiles)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -67,13 +58,26 @@ func (h *ExtrasHandler) GetSecretAdmirers(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// Keep only the number of admirers visible to users without the entitlement.
+func redactSecretAdmirers(profiles []models.DiscoverProfile) {
+	for i := range profiles {
+		profiles[i] = models.DiscoverProfile{
+			DisplayName: "Hidden Identity",
+			City:        "Nearby",
+			Distance:    9999,
+			Tags:        []string{},
+			Images:      []string{},
+		}
+	}
+}
+
 // =====================================================================
 // 2. UNDO SWIPE HANDLER (No notifications needed here)
 // =====================================================================
 func (h *ExtrasHandler) UndoAction(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok {
-			http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -120,10 +124,20 @@ func (h *ExtrasHandler) ReportUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.Repo.ReportUser(r.Context(), userID, payload.ReportedID, strings.ToUpper(payload.Reason))
+	restricted, err := h.Repo.ReportUser(r.Context(), userID, payload.ReportedID, strings.ToUpper(payload.Reason))
 	if err != nil {
 		http.Error(w, localized(r.Context(), "ErrFailedSubmitReport", "Failed to submit report"), http.StatusInternalServerError)
 		return
+	}
+	if restricted && h.Events != nil && h.Events.NotifService != nil {
+		h.Events.NotifService.DisconnectUser(payload.ReportedID)
+	}
+	if restricted && h.Events != nil {
+		detachedCtx := context.WithoutCancel(r.Context())
+		go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
+			RecipientID:   payload.ReportedID,
+			EmailTemplate: "account_banned",
+		})
 	}
 
 	// --- NOTIFICATION TRIGGER ---

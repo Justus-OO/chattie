@@ -5,6 +5,7 @@ type BillingPlan struct {
 	Duration  string  `json:"duration"`
 	Price     float64 `json:"price"`
 	Monthly   float64 `json:"monthly"`
+	Currency  string  `json:"currency"`
 	Save      int     `json:"save"`
 	IsPopular bool    `json:"isPopular"`
 }

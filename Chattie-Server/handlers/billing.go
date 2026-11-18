@@ -34,7 +34,7 @@ func NewBillingHandler(repo *repository.Repository, router *services.BillingRout
 	}
 }
 
-// UpgradeTier initializes the selected provider using the active plan price.
+// UpgradeTier initializes the payment provider and currency selected for the user's region.
 func (h *BillingHandler) UpgradeTier(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -70,23 +70,31 @@ func (h *BillingHandler) UpgradeTier(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerName := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("gateway")))
-	if providerName == "mpesa" {
-		writeBillingError(w, http.StatusServiceUnavailable, "M-Pesa checkout is temporarily unavailable for Chattie Gold. Use Paystack or Stripe.")
-		return
-	}
-
-	gateway := h.Router.Route(r)
+	countryCode := middlewares.CountryCodeFromContext(r.Context())
+	gateway := h.Router.RouteCountry(countryCode)
 	if gateway == nil {
 		writeBillingError(w, http.StatusServiceUnavailable, "Selected payment provider is unavailable")
 		return
 	}
-	providerName = gatewayName(gateway)
 	currency := "USD"
-	if currencyProvider, ok := gateway.(interface{ CurrencyCode() string }); ok {
-		currency = currencyProvider.CurrencyCode()
+	priceForGateway := price
+	amountMinor := int64(math.Round(price * 100))
+	if countryCode == "KE" {
+		if h.Router.Mpesa == nil {
+			writeBillingError(w, http.StatusServiceUnavailable, "Kenyan currency conversion is not configured")
+			return
+		}
+		amountKES, conversionErr := h.Router.Mpesa.KESAmount(price)
+		if conversionErr != nil {
+			writeBillingError(w, http.StatusServiceUnavailable, "Kenyan currency conversion is not configured correctly")
+			return
+		}
+		currency = "KES"
+		priceForGateway = float64(amountKES)
+		amountMinor = amountKES * 100
 	}
-	reference, err := h.Repo.CreateBillingPaymentIntent(r.Context(), userID, providerName, months, int64(math.Round(price*100)), currency)
+	providerName := gatewayName(gateway)
+	reference, err := h.Repo.CreateBillingPaymentIntent(r.Context(), userID, providerName, months, amountMinor, currency)
 	if err != nil {
 		log.Printf("[BILLING DB ERROR] Failed to create payment intent for %s: %v", userID, err)
 		writeBillingError(w, http.StatusInternalServerError, "Could not create payment record")
@@ -102,8 +110,11 @@ func (h *BillingHandler) UpgradeTier(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		checkout, err = stripeGateway.CreateSubscriptionForCustomer(r.Context(), user.Email, userID, customerID, price, months)
+	} else if paystackGateway, ok := gateway.(*services.PaystackGateway); ok {
+		checkout, err = paystackGateway.CreateSubscriptionWithCurrency(r.Context(), user.Email, userID, priceForGateway, months, currency)
 	} else {
-		checkout, err = gateway.CreateSubscription(r.Context(), user.Email, userID, price, months)
+		writeBillingError(w, http.StatusServiceUnavailable, "Selected payment provider is unavailable")
+		return
 	}
 	if err != nil {
 		log.Printf("[BILLING ERROR] Failed to create checkout for %s: %v", userID, err)
@@ -131,6 +142,7 @@ func (h *BillingHandler) UpgradeTier(w http.ResponseWriter, r *http.Request) {
 		"billing_reference": reference,
 		"months":            months,
 		"email":             user.Email,
+		"currency":          currency,
 	})
 }
 
@@ -556,6 +568,32 @@ func (h *BillingHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 			{ID: 1, Duration: "1 Month", Price: 14.99, Monthly: 14.99, Save: 0, IsPopular: false},
 			{ID: 6, Duration: "6 Months", Price: 53.94, Monthly: 8.99, Save: 40, IsPopular: true},
 		}
+	}
+
+	currency := "USD"
+	if middlewares.CountryCodeFromContext(r.Context()) == "KE" {
+		if h.Router.Mpesa == nil {
+			writeBillingError(w, http.StatusServiceUnavailable, "Kenyan currency conversion is not configured")
+			return
+		}
+		currency = "KES"
+		for i := range plans {
+			priceKES, conversionErr := h.Router.Mpesa.KESAmount(plans[i].Price)
+			if conversionErr != nil {
+				writeBillingError(w, http.StatusServiceUnavailable, "Kenyan currency conversion is not configured correctly")
+				return
+			}
+			monthlyKES, conversionErr := h.Router.Mpesa.KESAmount(plans[i].Monthly)
+			if conversionErr != nil {
+				writeBillingError(w, http.StatusServiceUnavailable, "Kenyan currency conversion is not configured correctly")
+				return
+			}
+			plans[i].Price = float64(priceKES)
+			plans[i].Monthly = float64(monthlyKES)
+		}
+	}
+	for i := range plans {
+		plans[i].Currency = currency
 	}
 
 	json.NewEncoder(w).Encode(plans)

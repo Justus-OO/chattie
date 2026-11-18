@@ -7,14 +7,16 @@ import (
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
 	"chattie-backend/repository"
+	"chattie-backend/services"
 )
 
 type ADProfileHandler struct {
-	Repo *repository.ADProfileRepository
+	Repo          *repository.ADProfileRepository
+	UploadService *services.UploadService
 }
 
-func NewADProfileHandler(repo *repository.ADProfileRepository) *ADProfileHandler {
-	return &ADProfileHandler{Repo: repo}
+func NewADProfileHandler(repo *repository.ADProfileRepository, uploadService *services.UploadService) *ADProfileHandler {
+	return &ADProfileHandler{Repo: repo, UploadService: uploadService}
 }
 
 // GET /api/afterdark/me/creator-profile
@@ -38,8 +40,13 @@ func (h *ADProfileHandler) GetMyPerformerProfile(w http.ResponseWriter, r *http.
 		http.Error(w, localized(r.Context(), "ErrProfileNotFound", "Performer profile not found"), http.StatusNotFound)
 		return
 	}
+	if err := presignPerformerProfileMedia(r.Context(), h.UploadService, profile); err != nil {
+		http.Error(w, localized(r.Context(), "ErrFetchProfile", "Failed to fetch profile images"), http.StatusBadGateway)
+		return
+	}
 
 	// 4. Return JSON
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(profile)
 }

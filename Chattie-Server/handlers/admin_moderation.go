@@ -2,8 +2,9 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 
 	"chattie-backend/middlewares"
@@ -43,50 +44,52 @@ func (h *AdminHandler) GetQueue(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/admin/moderation/action
 func (h *AdminHandler) ResolveIncident(w http.ResponseWriter, r *http.Request) {
-	// Read the raw body once
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, localized(r.Context(), "ErrFailedReadBody", "Failed to read body"), http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	// 1. Decode into your strict model for the repository
 	var req models.ResolveIncidentRequest
-	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
-
-	// 2. Decode into a dynamic map to safely extract notification fields (Bypasses struct compilation errors)
-	var dynamicPayload map[string]interface{}
-	json.Unmarshal(bodyBytes, &dynamicPayload)
+	if req.IncidentID == "" {
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Incident is required"), http.StatusBadRequest)
+		return
+	}
+	switch req.ActionType {
+	case "DISMISS", "FORMAL WARNING", "SHADOWBAN", "DEVICE/IP BAN":
+	default:
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Unsupported moderation action"), http.StatusBadRequest)
+		return
+	}
+	if req.ActionType != "DISMISS" && req.TargetID == "" {
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Target is required for punitive actions"), http.StatusBadRequest)
+		return
+	}
 
 	adminID, _ := r.Context().Value(middlewares.UserIDKey).(string)
 
 	if err := h.Repo.ResolveIncident(r.Context(), adminID, req); err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, repository.ErrModerationTargetMismatch) {
+			http.Error(w, localized(r.Context(), "ErrModerationIncidentChanged", "Incident is no longer pending or its target does not match"), http.StatusConflict)
+			return
+		}
 		http.Error(w, localizedMessage(r.Context(), "ErrFailedResolveIncident", "Failed to resolve incident: %s", map[string]interface{}{"Error": err.Error()}), http.StatusInternalServerError)
 		return
 	}
 
-	// Safely extract fields for the notification
-	targetID, _ := dynamicPayload["target_id"].(string) // or "target_user_id"
-	action, _ := dynamicPayload["action"].(string)      // or "resolution"
-	reason, _ := dynamicPayload["reason"].(string)
-
-	// Notify affected user if action was taken
-	if targetID != "" && action != "" {
+	if req.TargetID != "" && req.ActionType != "DISMISS" && h.Events != nil {
+		if req.ActionType == "DEVICE/IP BAN" && h.Events.NotifService != nil {
+			h.Events.NotifService.DisconnectUser(req.TargetID)
+		}
 		eventType := "MODERATION_ACTION"
-		if action == "BANNED" {
+		if req.ActionType == "DEVICE/IP BAN" {
 			eventType = "USER_BANNED"
-		} else if action == "SUSPENDED" {
+		} else if req.ActionType == "SHADOWBAN" {
 			eventType = "USER_SUSPENDED"
 		}
 		detachedCtx := context.WithoutCancel(r.Context())
 		go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
-			RecipientID:   targetID,
+			RecipientID:   req.TargetID,
 			WSEventType:   eventType,
-			WSPayload:     map[string]interface{}{"reason": reason},
+			WSPayload:     map[string]interface{}{"reason": req.Note, "action": req.ActionType},
 			EmailTemplate: "moderation_action",
 		})
 	}
@@ -135,7 +138,16 @@ func (h *AdminHandler) ToggleFirewallRule(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := h.Repo.ToggleFirewallRule(r.Context(), req.RuleID); err != nil {
+	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || adminID == "" {
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
+		return
+	}
+	if err := h.Repo.ToggleFirewallRule(r.Context(), adminID, req.RuleID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Firewall rule not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, localized(r.Context(), "ErrFailedToggleRule", "Failed to toggle rule"), http.StatusInternalServerError)
 		return
 	}
@@ -160,4 +172,109 @@ func (h *AdminHandler) GetClientTelemetry(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+func (h *AdminHandler) GetMyAccountReview(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	review, err := h.Repo.GetAccountReview(r.Context(), userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"review": nil})
+		return
+	}
+	if err != nil {
+		http.Error(w, localized(r.Context(), "ErrFailedFetchReview", "Failed to fetch account review"), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"review": review})
+}
+
+func (h *AdminHandler) CreateMyAccountReview(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
+		return
+	}
+	review, err := h.Repo.CreateAccountReview(r.Context(), userID, req.Reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrAccountNotRestricted):
+			http.Error(w, localized(r.Context(), "ErrAccountNotRestricted", "Account is not restricted"), http.StatusConflict)
+		case errors.Is(err, repository.ErrReviewAlreadyPending):
+			http.Error(w, localized(r.Context(), "ErrReviewAlreadyPending", "An account review is already pending"), http.StatusConflict)
+		case errors.Is(err, repository.ErrInvalidReviewReason):
+			http.Error(w, localized(r.Context(), "ErrInvalidReviewReason", "Review reason must contain 20 to 2000 characters"), http.StatusBadRequest)
+		default:
+			http.Error(w, localized(r.Context(), "ErrFailedCreateReview", "Failed to submit account review"), http.StatusInternalServerError)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{"review": review})
+}
+
+func (h *AdminHandler) GetAccountReviewQueue(w http.ResponseWriter, r *http.Request) {
+	reviews, err := h.Repo.GetPendingAccountReviews(r.Context())
+	if err != nil {
+		http.Error(w, localized(r.Context(), "ErrFailedFetchReviewQueue", "Failed to fetch account review queue"), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(reviews)
+}
+
+func (h *AdminHandler) ResolveAccountReview(w http.ResponseWriter, r *http.Request) {
+	var req models.ResolveAccountReviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
+		return
+	}
+	if req.Decision != "reinstate" && req.Decision != "uphold" {
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Decision must be reinstate or uphold"), http.StatusBadRequest)
+		return
+	}
+	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || adminID == "" {
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := h.Repo.ResolveAccountReview(r.Context(), adminID, chi.URLParam(r, "id"), req.Decision, req.Note)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, localized(r.Context(), "ErrAccountReviewNotFound", "Account review not found or already resolved"), http.StatusNotFound)
+		return
+	}
+	if errors.Is(err, repository.ErrAccountNotRestricted) {
+		http.Error(w, localized(r.Context(), "ErrAccountNotRestricted", "Account is no longer restricted"), http.StatusConflict)
+		return
+	}
+	if err != nil {
+		http.Error(w, localized(r.Context(), "ErrFailedResolveReview", "Failed to resolve account review"), http.StatusInternalServerError)
+		return
+	}
+	if req.Decision == "reinstate" && h.Events != nil {
+		ctx := context.WithoutCancel(r.Context())
+		go h.Events.ProcessEvent(ctx, services.AppEvent{
+			RecipientID: userID,
+			WSEventType: "ACCOUNT_REINSTATED",
+			WSPayload:   map[string]string{"message": "Your account appeal was approved."},
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "resolved", "decision": req.Decision})
 }

@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Sliders, Globe, Mail, Smartphone, Crown, EyeOff,
+  Sliders, Globe, Mail, Smartphone, Crown, EyeOff, Camera,
   ChevronRight, Trash2, X, BadgeCheck, Download, MonitorSmartphone,
   Loader2, Shield, AlertTriangle, MapPin,
   LogOut
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MediaVaultModal } from '../../components/chat/ChatModals';
-import IdentityVerificationModal from '../../components/modals/IdentityVerificationModal';
+import DocuPassVerificationModal from '../../components/modals/DocuPassVerificationModal';
 
 // Services
 import { settingsService } from '../../api/settings.service';
@@ -66,9 +66,15 @@ export default function UserSettings() {
   const setIdentityVerificationStatus = useAppStore(state => state.setIdentityVerificationStatus);
   const currentUser = useAppStore(state => state.user);
   const updateSession = useAppStore(state => state.login);
-  const hasPremium = ['PREMIUM', 'GOLD', 'VIP'].includes(
-    String(fullSettings.plan || currentUser?.tier || '').toUpperCase()
-  );
+  const membershipPlan = String(fullSettings.plan || 'NONE').toUpperCase();
+  const membershipStatus = String(fullSettings.sub_status || '').toUpperCase();
+  const membershipExpiry = fullSettings.expires_at ? new Date(fullSettings.expires_at) : null;
+  const hasPremium = ['PREMIUM', 'GOLD', 'VIP'].includes(membershipPlan)
+    && ['ACTIVE', 'TRIALING'].includes(membershipStatus)
+    && (!membershipExpiry || membershipExpiry.getTime() > Date.now());
+  const membershipExpiryLabel = membershipExpiry && !Number.isNaN(membershipExpiry.getTime())
+    ? membershipExpiry.toLocaleDateString()
+    : '';
   const [twoFactor, setTwoFactor] = useState({ enabled: false, channel: 'email', email_available: true, sms_available: false });
   const [twoFactorChannel, setTwoFactorChannel] = useState('email');
   const [twoFactorChallenge, setTwoFactorChallenge] = useState(null);
@@ -364,15 +370,16 @@ export default function UserSettings() {
     }
   };
 
-  const handleSelectVaultImage = async (url) => {
+  const handleSelectVaultImage = async (_url, media) => {
     try {
-      const updated = { ...fullSettings, avatar: url };
-      setFullSettings(updated);
-      await settingsService.updateSettings(updated);
+      if (!media?.id) throw new Error('The selected media has no saved media ID.');
+      await settingsService.setPrimaryMedia(media.id);
+      const updated = await settingsService.getSettings();
+      setFullSettings(prev => ({ ...prev, ...updated }));
       toast.success('Profile avatar updated.');
       setShowMediaVault(false);
-    } catch (e) {
-      toast.error('Failed to update avatar');
+    } catch (error) {
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Failed to update avatar'));
     }
   };
 
@@ -381,7 +388,7 @@ export default function UserSettings() {
   // ============================================================================
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center text-zinc-300 w-full h-full font-mono">
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-6 text-center text-zinc-300 font-mono">
         <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
         <h2 className="text-sm text-white uppercase tracking-widest">{t('loading')}</h2>
       </div>
@@ -392,7 +399,7 @@ export default function UserSettings() {
   // RENDER - MAIN UI
   // ============================================================================
   return (
-    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
       
       <header className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 flex items-center justify-between shrink-0 z-20">
         <div className="flex items-center gap-3">
@@ -409,8 +416,8 @@ export default function UserSettings() {
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-black">
-        <div className="max-w-4xl mx-auto w-full p-4 md:p-8 space-y-8 pb-24">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar bg-black">
+        <div className="flex min-h-full w-full flex-col space-y-4 p-2 pb-4 sm:p-3 lg:p-4">
           
           {/* VIP BANNER */}
           <section 
@@ -423,9 +430,13 @@ export default function UserSettings() {
               </div>
               <div>
                 <h2 className="text-base font-bold uppercase tracking-widest text-yellow-400 mb-1">
-                  CHATTIE GOLD
+                  {hasPremium ? `${membershipPlan} MEMBERSHIP ACTIVE` : 'MEMBERSHIP & PLANS'}
                 </h2>
-                <p className="text-[10px] uppercase font-bold text-zinc-400">Unlock see who likes you & more.</p>
+                <p className="text-[10px] uppercase font-bold text-zinc-400">
+                  {hasPremium
+                    ? `Your ${membershipPlan} plan is active${membershipExpiryLabel ? ` until ${membershipExpiryLabel}` : ''}.`
+                    : `Current plan: ${membershipPlan}${membershipStatus ? ` · ${membershipStatus.toLowerCase()}` : ' · no active subscription'}.`}
+                </p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-yellow-400 group-hover:text-yellow-300 transition-colors" />
@@ -455,7 +466,7 @@ export default function UserSettings() {
                   <Mail className="w-4 h-4 text-zinc-400" />
                   <span className="text-sm font-bold uppercase tracking-widest text-white">Email</span>
                 </div>
-                <div className="flex-1 ml-4 max-w-[200px] md:max-w-xs">
+                <div className="ml-4 max-w-[clamp(10rem,24vw,20rem)] flex-1">
                   <input
                     type="email"
                     value={fullSettings.email}
@@ -470,7 +481,7 @@ export default function UserSettings() {
                   <Smartphone className="w-4 h-4 text-zinc-400" />
                   <span className="text-sm font-bold uppercase tracking-widest text-white">Phone</span>
                 </div>
-                <div className="flex-1 ml-4 max-w-[200px] md:max-w-xs">
+                <div className="ml-4 max-w-[clamp(10rem,24vw,20rem)] flex-1">
                   <input
                     type="text"
                     value={fullSettings.phone_number}
@@ -489,7 +500,13 @@ export default function UserSettings() {
             <div className="bg-black border-2 border-zinc-800 p-4 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-none overflow-hidden border-2 border-zinc-700">
-                  <img src={fullSettings.avatar || 'https://via.placeholder.com/150'} alt="avatar" className="w-full h-full object-cover" />
+                  {fullSettings.avatar ? (
+                    <img src={fullSettings.avatar} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-600" aria-label="No profile photo">
+                      <Camera className="h-6 w-6" />
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="text-sm font-bold uppercase tracking-widest text-white">Primary Photo</div>
@@ -498,7 +515,7 @@ export default function UserSettings() {
               </div>
               <div className="flex flex-col md:flex-row items-end md:items-center gap-2">
                 {(!fullSettings.avatar) && (
-                  <span className="text-[9px] font-bold text-yellow-300 border-2 border-yellow-400 px-2 py-1 uppercase tracking-widest">Mocked</span>
+                  <span className="text-[9px] font-bold text-yellow-300 border-2 border-yellow-400 px-2 py-1 uppercase tracking-widest">No image uploaded</span>
                 )}
                 <button onClick={openMediaVault} className="px-3 py-2 bg-white text-black border-2 border-white text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors">
                   Change
@@ -550,7 +567,7 @@ export default function UserSettings() {
                   value={fullSettings.bio}
                   onChange={(e) => setFullSettings(prev => ({ ...prev, bio: e.target.value }))}
                   placeholder="Tell people a little about yourself"
-                  className="w-full min-h-[100px] bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm text-white focus:outline-none focus:border-white transition-colors"
+                  className="min-h-[clamp(6rem,15vh,9rem)] w-full border-2 border-zinc-800 bg-black px-4 py-3 text-sm text-white transition-colors focus:outline-none focus:border-white rounded-none"
                 />
               </div>
             </div>
@@ -630,7 +647,7 @@ export default function UserSettings() {
               <div className="pt-6 border-t-2 border-zinc-800">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-3 block">Show Me</label>
                 <div className="flex border-2 border-zinc-800 bg-black">
-                  {['Men', 'Women', 'Everyone'].map(opt => (
+                  {['Men', 'Women', 'Other', 'Everyone'].map(opt => (
                     <button
                       key={opt}
                       onClick={() => setShowMe(opt)}
@@ -698,7 +715,7 @@ export default function UserSettings() {
                   enabled={privacy.incognito} 
                   onChange={() => {
                     if (!hasPremium) {
-                      toast.error('Chattie Gold is required for Incognito Mode.');
+                      toast.error('An active Premium membership is required for Incognito Mode.');
                       navigate('/upgrade');
                       return;
                     }
@@ -829,7 +846,7 @@ export default function UserSettings() {
       {/* =====================================================================
           MULTI-STEP MODAL: HIGH SECURITY KYC VERIFICATION (ID + LIVENESS)
           ===================================================================== */}
-      <IdentityVerificationModal
+      <DocuPassVerificationModal
         isOpen={showVerifyModal}
         onClose={() => setShowVerifyModal(false)}
         onVerified={() => setIdentityVerificationStatus(true)}
@@ -860,7 +877,7 @@ export default function UserSettings() {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="max-h-[65vh] overflow-y-auto p-4 bg-black space-y-3">
+            <div className="max-h-[65dvh] overflow-y-auto p-4 bg-black space-y-3">
               {isLoadingSessions ? (
                 <div className="py-8 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-500">Loading active sessions…</div>
               ) : activeSessions.length === 0 ? (
@@ -948,7 +965,7 @@ export default function UserSettings() {
       {showBlockedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowBlockedModal(false)} />
-          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 max-h-[80vh] rounded-none">
+          <div className="relative flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200 rounded-none">
             <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
                 <Shield className="w-4 h-4 text-white" /> Blocked Users

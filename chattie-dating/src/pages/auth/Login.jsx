@@ -115,7 +115,7 @@ export default function Login() {
   });
 
   return (
-    <div className="min-h-dvh flex bg-black font-mono text-zinc-300 overflow-hidden rounded-none">
+    <div className="min-h-dvh flex bg-black font-mono text-zinc-300 overflow-x-hidden rounded-none">
       
       <div className="hidden lg:flex lg:w-1/2 relative items-center justify-center overflow-hidden bg-black border-r-2 border-zinc-800">
         <img 

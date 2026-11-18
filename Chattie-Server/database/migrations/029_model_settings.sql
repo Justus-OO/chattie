@@ -1,0 +1,5 @@
+ALTER TABLE managed_profiles
+    ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE operator_profiles
+    ADD COLUMN IF NOT EXISTS ai_drafts_enabled BOOLEAN NOT NULL DEFAULT FALSE;

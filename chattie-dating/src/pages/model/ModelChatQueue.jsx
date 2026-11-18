@@ -1,12 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { 
-  Clock, DollarSign, X, Check, Filter, ShieldAlert, 
-  ChevronDown, Search, History, Star, ShieldCheck, Zap, 
-  Volume2, VolumeX, MessageSquare, Activity, ArrowLeft, 
-  Send, Image as ImageIcon, Gift, Video, File, XSquare,
-  Bot, Sparkles, Loader2, RefreshCw, Smile, Paperclip, Upload,
-  Phone, PhoneOff, Headphones, BellOff, Trash2, CheckCircle2, Flame, Heart, MicOff
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Link, useOutletContext } from 'react-router-dom';
+import {
+  X, MessageSquare, Activity, ArrowLeft, Send, Image as ImageIcon, Video,
+  Sparkles, Loader2, RefreshCw, Smile, Phone, PhoneOff, Pin, PinOff, Ban, Flag
 } from 'lucide-react';
 import { toast } from 'sonner';
 import EmojiPicker from 'emoji-picker-react';
@@ -28,145 +24,120 @@ import { creatorService } from '../../api/creator.service';
 import { chatService } from '../../api/chat.service'; 
 import { apiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
+import { useAppDialogs } from '../../components/modals/useAppDialogs';
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880";
 
-const CANNED_REPLIES = [
-  "Hey there! Thanks for the tip ❤️ Let's chat.",
-  "Welcome to my private chat! How's your day going?",
-  "Just saw your request, skipping the line for you! 😘",
-  "Hey VIP! Let's take this to a private video call?"
-];
-
-const getUserTier = (spend, flagged) => {
-  if (flagged) return { label: 'FLAGGED', color: 'border-red-500', text: 'text-red-500', bg: 'bg-red-500/10' };
-  if (spend >= 1000) return { label: 'WHALE', color: 'border-yellow-400', text: 'text-yellow-400', bg: 'bg-yellow-400/10' };
-  if (spend >= 100) return { label: 'PREMIUM', color: 'border-blue-400', text: 'text-blue-400', bg: 'bg-blue-400/10' };
-  return { label: 'STANDARD', color: 'border-zinc-500', text: 'text-zinc-400', bg: 'bg-zinc-900' };
+const getWsUrl = (query) => {
+  if (import.meta.env.VITE_WS_URL) return `${import.meta.env.VITE_WS_URL}${query}`;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    ? 'localhost:8080'
+    : window.location.host;
+  return `${protocol}//${host}/ws${query}`;
 };
 
 // ============================================================================
 // COMPONENT: MODEL CHAT QUEUE
 // ============================================================================
 export default function ModelChatQueue() {
-  const { activeProfileId, activeProfile = { id: '', name: 'Select Profile' } } = useOutletContext();
+  const {
+    activeProfileId,
+    activeProfile = { id: '', name: 'Select Profile' },
+    modelSettings = { ai_drafts_enabled: false },
+  } = useOutletContext();
   const { t } = useI18n();
-  const theme = useAppStore((state) => state.userPreferences.theme);
+  const translateRef = useRef(t);
+  translateRef.current = t;
 
   const [masterQueue, setMasterQueue] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('ALL');
-  const [sortBy, setSortBy] = useState('TIP_DESC');
-  const [expandedId, setExpandedId] = useState(null);
-  const [now, setNow] = useState(Date.now());
-  const [selectedReply, setSelectedReply] = useState(CANNED_REPLIES[0]);
+  const queueRequestRef = useRef(0);
 
   const [activeChatRoom, setActiveChatRoom] = useState(null);
 
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const fetchQueue = async (isManual = false) => {
+  const fetchQueue = useCallback(async (isManual = false) => {
     if (!activeProfileId) {
+      setMasterQueue([]);
       setIsLoading(false);
       return;
     }
+    const requestId = ++queueRequestRef.current;
 
     if (isManual) setIsRefreshing(true);
     
     try {
-      const data = await creatorService.getChatQueue(activeProfileId);
-      const queueList = Array.isArray(data) ? data : [];
-      setMasterQueue(queueList);
+      const data = await creatorService.getProfileConversations(activeProfileId);
+      if (requestId !== queueRequestRef.current) return;
+      const queueList = (Array.isArray(data) ? data : []).map((conversation) => ({
+        id: conversation.partner_id,
+        client_id: conversation.partner_id,
+        user: conversation.partner_name || 'Unknown user',
+        avatar: conversation.avatar_url || '',
+        status: 'ACTIVE',
+        unreadCount: Number(conversation.unread_count || 0),
+        lastMessage: conversation.last_message || '',
+        lastMessageTime: conversation.last_message_time,
+        timeAdded: conversation.last_message_time,
+      }));
+      setMasterQueue((current) => {
+        if (current.length !== queueList.length) return queueList;
+        const currentById = new Map(current.map((item) => [item.id, item]));
+        const unchanged = queueList.every((item) => {
+          const previous = currentById.get(item.id);
+          return previous &&
+            previous.user === item.user &&
+            previous.avatar === item.avatar &&
+            previous.unreadCount === item.unreadCount &&
+            previous.lastMessage === item.lastMessage &&
+            previous.lastMessageTime === item.lastMessageTime;
+        });
+        return unchanged ? current : queueList;
+      });
       
-      if (isManual) toast.success(t('queueRefreshed'));
+      if (isManual) toast.success(translateRef.current('queueRefreshed'));
     } catch (error) {
+      if (requestId !== queueRequestRef.current) return;
       console.error("Queue fetch error:", error);
-      if (isManual) toast.error(t('queueRefreshFailed'));
+      toast.error(isManual ? translateRef.current('queueRefreshFailed') : 'Could not load this profile inbox.');
     } finally {
-      setIsLoading(false);
-      if (isManual) setIsRefreshing(false);
+      if (requestId === queueRequestRef.current) {
+        setIsLoading(false);
+        if (isManual) setIsRefreshing(false);
+      }
     }
-  };
+  }, [activeProfileId]);
 
   useEffect(() => {
-    if (!activeProfileId) return;
+    if (!activeProfileId) {
+      setMasterQueue([]);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     fetchQueue(); 
     
     const pollTimer = setInterval(() => {
       fetchQueue(false);
-    }, 5000);
+    }, 15000);
     
-    return () => clearInterval(pollTimer);
-  }, [activeProfileId]);
-
-  const getWaitTime = (timeAdded) => {
-    const addedTime = new Date(timeAdded).getTime();
-    const diff = Math.max(0, Math.floor((now - addedTime) / 1000));
-    const m = Math.floor(diff / 60);
-    const s = diff % 60;
-    return `${m}m ${s.toString().padStart(2, '0')}s`;
-  };
-
-  const handleAction = async (id, action, withReply = false) => {
-    try {
-      await creatorService.processQueueAction(id, action, activeProfileId);
-      
-      const targetReq = masterQueue.find(q => q.id === id);
-      if (!targetReq) return;
-
-      if (action === 'accept') {
-        setMasterQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'ACTIVE' } : q));
-        
-        // STANDARDIZE THE CHAT OBJECT FOR PRIVATE INBOX / DM ROUTING
-        setActiveChatRoom({
-          queueId: targetReq.id,
-          id: targetReq.client_id || targetReq.clientId || targetReq.id, // Ensure we use the client's UUID for DM routing
-          user_id: targetReq.client_id || targetReq.clientId || targetReq.id, // Fallback property
-          type: 'dm',
-          name: targetReq.user,
-          user: targetReq.user, // For backward compatibility with LiveChatInterface headers
-          avatar: targetReq.avatar,
-          lifetimeSpend: targetReq.lifetimeSpend || 0,
-          flagged: targetReq.flagged || false,
-          bio: targetReq.bio || '',
-          initialReply: withReply ? selectedReply : ''
-        });
-
-        toast.success(t('requestAccepted'));
-      } else if (action === 'reject') {
-        setMasterQueue(prev => prev.filter(q => q.id !== id));
-        toast.info(t('requestRejected'));
-      }
-    } catch (err) {
-      console.error("Action failed:", err);
-      toast.error(t('actionFailed'));
-    }
-  };
+    return () => {
+      queueRequestRef.current += 1;
+      clearInterval(pollTimer);
+    };
+  }, [activeProfileId, fetchQueue]);
 
   const filteredQueue = useMemo(() => {
     let q = [...masterQueue];
-    if (activeFilter === 'VIP') q = q.filter(req => req.lifetimeSpend >= 1000);
-    if (activeFilter === 'HIGH_TIPPERS') q = q.filter(req => req.tip >= 100);
-    if (activeFilter === 'FLAGGED') q = q.filter(req => req.flagged);
-
-    return q.sort((a, b) => {
-      if (a.status === 'ACTIVE' && b.status !== 'ACTIVE') return -1;
-      if (b.status === 'ACTIVE' && a.status !== 'ACTIVE') return 1;
-      if (sortBy === 'TIP_DESC') return b.tip - a.tip;
-      if (sortBy === 'WAIT_DESC') return new Date(a.timeAdded) - new Date(b.timeAdded);
-      return 0;
-    });
-  }, [masterQueue, activeFilter, sortBy]);
-
-  const totalValue = filteredQueue.reduce((acc, curr) => acc + (curr.status === 'PENDING' ? curr.tip : 0), 0);
+    if (activeFilter === 'UNREAD') q = q.filter((conversation) => conversation.unreadCount > 0);
+    return q.sort((a, b) => new Date(b.lastMessageTime || 0) - new Date(a.lastMessageTime || 0));
+  }, [masterQueue, activeFilter]);
   
   useEffect(() => {
-    setExpandedId(null);
+    setActiveChatRoom(null);
+    setActiveFilter('ALL');
   }, [activeProfileId]);
 
   if (activeChatRoom) {
@@ -175,33 +146,36 @@ export default function ModelChatQueue() {
         chatData={activeChatRoom} 
         activeProfileId={activeProfileId}
         onBack={() => setActiveChatRoom(null)} 
-        onEnd={() => { 
-          setMasterQueue(prev => prev.filter(q => q.id !== activeChatRoom.queueId)); 
-          setActiveChatRoom(null); 
+        onEnd={() => setActiveChatRoom(null)}
+        onBlocked={() => {
+          setMasterQueue((previous) => previous.filter((item) => item.id !== activeChatRoom.id));
+          setActiveChatRoom(null);
         }}
         modelName={activeProfile.name}
+        profileChatUserId={activeProfile.chat_user_id || activeProfileId}
+        aiDraftsEnabled={modelSettings.ai_drafts_enabled === true}
       />
     );
   }
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-black h-full flex items-center justify-center text-zinc-300">
+      <div className="chat-theme-sharp flex h-full min-h-0 min-w-0 flex-1 items-center justify-center bg-black text-zinc-300">
         <Loader2 className="w-8 h-8 text-white animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full text-zinc-300 font-sans rounded-none" style={{ background: 'radial-gradient(circle at top, rgba(210,79,116,0.12), transparent 24%), #0b0c0f' }}>
-      <div className="border-b border-white/10 p-3 md:p-4 shrink-0" style={{ background: 'rgba(17,18,22,0.96)' }}>
+    <div className="chat-theme-sharp flex h-full min-h-0 min-w-0 flex-col text-zinc-300 font-mono" style={{ backgroundColor: 'var(--app-bg)', color: 'var(--text-primary)', fontFamily: 'Roboto, sans-serif' }}>
+      <div className="border-b p-3 md:p-4 shrink-0" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))', color: '#fff' }}>
               <MessageSquare className="w-4 h-4" />
             </div>
             <div>
-              <p className="text-[9px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>Live queue</p>
+              <p className="text-[9px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>Profile inbox</p>
               <h1 className="text-xl md:text-2xl font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>{activeProfile.name}</h1>
             </div>
           </div>
@@ -224,176 +198,97 @@ export default function ModelChatQueue() {
         </div>
       </div>
 
-      <div className="p-4 md:p-6 border-b border-white/10 shrink-0" style={{ background: 'rgba(17,18,22,0.75)' }}>
+      <div className="shrink-0 border-b p-2 sm:p-3 lg:p-4" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="rounded-2xl border p-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)' }}>
-            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Pending</p>
-            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{filteredQueue.filter(q => q.status === 'PENDING').length}</p>
+          <div className="border p-3" style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Conversations</p>
+            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{masterQueue.length}</p>
           </div>
-          <div className="rounded-2xl border p-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)' }}>
-            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Queue value</p>
-            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>${totalValue}</p>
+          <div className="border p-3" style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Unread messages</p>
+            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{masterQueue.reduce((count, item) => count + item.unreadCount, 0)}</p>
           </div>
-          <div className="rounded-2xl border p-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)' }}>
-            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>VIP queue</p>
-            <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{filteredQueue.filter(q => q.lifetimeSpend >= 1000).length}</p>
+          <div className="border p-3" style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Selected profile</p>
+            <p className="mt-2 text-lg font-black truncate" style={{ color: 'var(--text-primary)' }}>{activeProfile.name}</p>
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {['ALL', 'VIP', 'HIGH_TIPPERS', 'FLAGGED'].map(f => (
+          {['ALL', 'UNREAD'].map(f => (
             <button
               key={f}
               onClick={() => setActiveFilter(f)}
               className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.18em] border transition-all"
               style={{
-                background: activeFilter === f ? 'linear-gradient(135deg, #ffffff, #e7e5e4)' : 'rgba(255,255,255,0.02)',
-                color: activeFilter === f ? '#111111' : 'var(--text-primary)',
-                borderColor: activeFilter === f ? '#ffffff' : 'var(--border)'
+                backgroundColor: activeFilter === f ? 'var(--accent)' : 'var(--surface-strong)',
+                color: activeFilter === f ? '#ffffff' : 'var(--text-primary)',
+                borderColor: activeFilter === f ? 'var(--accent)' : 'var(--border)'
               }}
             >
-              {f === 'FLAGGED' && <ShieldAlert className="w-3 h-3 inline mr-1 -mt-0.5 text-red-500" />}
-              {f.replace('_', ' ')}
+              {f === 'UNREAD' ? `Unread (${masterQueue.reduce((count, item) => count + (item.unreadCount > 0 ? 1 : 0), 0)})` : 'All conversations'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6">
-        <div className="max-w-6xl mx-auto space-y-3">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 lg:p-4">
+        <div className="w-full space-y-3">
           {filteredQueue.length === 0 ? (
             <div className="p-16 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center text-center" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)' }}>
               <Activity className="w-12 h-12 mb-4" style={{ color: 'var(--text-muted)' }} />
-              <h3 className="text-xl font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>Queue empty</h3>
-              <p className="mt-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>No requests for {activeProfile.name}</p>
+              <h3 className="text-xl font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>
+                {activeFilter === 'UNREAD' ? 'You are all caught up' : 'No conversations yet'}
+              </h3>
+              <p className="mt-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>
+                {activeFilter === 'UNREAD' ? 'Unread messages will appear here' : `Messages sent to ${activeProfile.name} will appear here`}
+              </p>
             </div>
           ) : (
             filteredQueue.map((req) => {
-              const isExpanded = expandedId === req.id;
-              const isActive = req.status === 'ACTIVE';
-              const tier = getUserTier(req.lifetimeSpend, req.flagged);
-
               return (
                 <div
                   key={req.id}
-                  className="rounded-3xl border overflow-hidden transition-all"
-                  style={{
-                    background: isActive ? 'linear-gradient(180deg, rgba(42,156,107,0.08), rgba(17,18,22,0.92))' : 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(17,18,22,0.9))',
-                    borderColor: isActive ? 'rgba(42,156,107,0.4)' : isExpanded ? 'rgba(255,255,255,0.2)' : 'var(--border)',
-                    boxShadow: isActive ? '0 18px 36px rgba(42,156,107,0.12)' : 'none'
-                  }}
+                  className="border overflow-hidden transition-colors hover:border-white/30"
+                  style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}
                 >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between p-3 gap-4">
-                    <div className="flex items-center gap-4 cursor-pointer flex-1 min-w-0" onClick={() => {
-                      if (isActive) {
-                        setActiveChatRoom({
-                          id: req.client_id || req.clientId || req.id,
-                          user_id: req.client_id || req.clientId || req.id,
-                          type: 'dm',
-                          name: req.user,
-                          user: req.user,
-                          avatar: req.avatar,
-                          lifetimeSpend: req.lifetimeSpend || 0,
-                          flagged: req.flagged || false,
-                          bio: req.bio || ''
-                        });
-                      } else {
-                        setExpandedId(isExpanded ? null : req.id);
-                      }
-                    }}>
-                      <div className="relative shrink-0">
-                        {req.avatar ? (
-                          <img src={req.avatar} alt={req.user} className="w-16 h-16 rounded-2xl object-cover border" style={{ borderColor: req.flagged ? '#ef4444' : 'var(--border)' }} />
-                        ) : (
-                          <div className="w-16 h-16 rounded-2xl flex items-center justify-center border text-lg font-black" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-                            {req.user.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] border ${tier.bg} ${tier.text}`}>
-                          {tier.label}
-                        </div>
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-black uppercase tracking-[0.14em] truncate" style={{ color: 'var(--text-primary)' }}>{req.user}</h3>
-                          {isActive && (
-                            <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] border" style={{ background: 'rgba(42,156,107,0.14)', color: 'var(--success)', borderColor: 'rgba(42,156,107,0.3)' }}>
-                              Active
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] font-black uppercase tracking-[0.14em]">
-                          <span className="inline-flex items-center gap-1" style={{ color: req.tip >= 100 ? 'var(--success)' : 'var(--text-primary)' }}>
-                            <DollarSign className="w-3 h-3" /> {req.tip}.00
+                  <button
+                    onClick={() => setActiveChatRoom({
+                      id: req.client_id,
+                      user_id: req.client_id,
+                      type: 'dm',
+                      name: req.user,
+                      user: req.user,
+                      avatar: req.avatar,
+                      unreadCount: req.unreadCount,
+                    })}
+                    className="w-full p-4 flex items-center gap-4 text-left"
+                  >
+                    {req.avatar ? (
+                      <img src={req.avatar} alt="" className="w-14 h-14 object-cover border" style={{ borderColor: 'var(--border)' }} />
+                    ) : (
+                      <span className="w-14 h-14 flex items-center justify-center border text-lg font-black" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                        {req.user.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="flex-1 min-w-0">
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="font-black uppercase tracking-[0.12em] truncate" style={{ color: 'var(--text-primary)' }}>{req.user}</span>
+                        <span className="text-[9px] shrink-0" style={{ color: 'var(--text-muted)' }}>
+                          {req.lastMessageTime ? new Date(req.lastMessageTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                        </span>
+                      </span>
+                      <span className="mt-1 flex items-center justify-between gap-3">
+                        <span className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{req.lastMessage || 'Open conversation'}</span>
+                        {req.unreadCount > 0 && (
+                          <span className="min-w-5 h-5 px-1 flex items-center justify-center text-[10px] font-black" style={{ background: 'var(--accent)', color: '#fff' }}>
+                            {req.unreadCount > 99 ? '99+' : req.unreadCount}
                           </span>
-                          {!isActive && (
-                            <span className="inline-flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
-                              <Clock className="w-3 h-3" /> Wait {getWaitTime(req.timeAdded)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 w-full md:w-auto">
-                      {isActive ? (
-                        <button
-                          onClick={() => setActiveChatRoom({
-                            id: req.client_id || req.clientId || req.id,
-                            user_id: req.client_id || req.clientId || req.id,
-                            type: 'dm',
-                            name: req.user,
-                            user: req.user,
-                            avatar: req.avatar,
-                            lifetimeSpend: req.lifetimeSpend || 0,
-                            flagged: req.flagged || false,
-                            bio: req.bio || ''
-                          })}
-                          className="flex-1 md:flex-none px-5 h-12 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] border"
-                          style={{ background: 'linear-gradient(135deg, #2dd4bf, #22c55e)', color: '#0b1220', borderColor: '#22c55e' }}
-                        >
-                          <MessageSquare className="w-4 h-4" /> Open chat
-                        </button>
-                      ) : (
-                        <>
-                          <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'reject'); }} className="h-12 w-12 flex items-center justify-center border transition-colors" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-                            <X className="w-5 h-5" />
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'accept'); }} className="px-5 h-12 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] border transition-all" style={{ background: 'linear-gradient(135deg, #ffffff, #f3f4f6)', color: '#111111', borderColor: '#ffffff' }}>
-                            <Check className="w-4 h-4" /> Accept
-                          </button>
-                          <button onClick={() => setExpandedId(isExpanded ? null : req.id)} className="h-12 w-12 flex items-center justify-center border transition-colors" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-                            <ChevronDown className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {isExpanded && !isActive && (
-                    <div className="border-t p-4 grid grid-cols-1 md:grid-cols-2 gap-4" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)' }}>
-                      <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'rgba(17,18,22,0.9)' }}>
-                        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-3" style={{ color: 'var(--text-muted)' }}>User data</h4>
-                        <div className="flex items-end justify-between mb-3">
-                          <span className="text-[9px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>Lifetime spent</span>
-                          <span className={`text-sm font-black ${tier.text}`}>${req.lifetimeSpend}</span>
-                        </div>
-                        <p className="text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>"{req.bio || 'No bio provided.'}"</p>
-                      </div>
-
-                      <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)' }}>
-                        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] mb-3" style={{ color: 'var(--text-muted)' }}>Quick connect</h4>
-                        <select value={selectedReply} onChange={(e) => setSelectedReply(e.target.value)} className="w-full border p-2 mb-3 text-[9px] font-bold uppercase tracking-[0.1em] outline-none" style={{ background: 'rgba(17,18,22,0.9)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-                          {CANNED_REPLIES.map(reply => <option key={reply} value={reply}>{reply}</option>)}
-                        </select>
-                        <button onClick={(e) => { e.stopPropagation(); handleAction(req.id, 'accept', true); }} className="w-full py-3 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] border" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#0b1220', borderColor: '#22c55e' }}>
-                          <Check className="w-4 h-4" /> Send reply & enter chat
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                        )}
+                      </span>
+                    </span>
+                    <MessageSquare className="w-4 h-4 shrink-0" style={{ color: 'var(--text-muted)' }} />
+                  </button>
                 </div>
               );
             })
@@ -407,15 +302,31 @@ export default function ModelChatQueue() {
 // ==========================================
 // SUB-COMPONENT: FULL FEATURED LIVE CHAT INTERFACE WITH WEBRTC CALLS
 // ==========================================
-function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName }) {
+function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBack, onEnd, onBlocked, modelName, aiDraftsEnabled }) {
+  const { confirm, prompt } = useAppDialogs();
   const [messages, setMessages] = useState([]);
-  const [inputText, setInputText] = useState(chatData.initialReply || '');
-  const [autoPilot, setAutoPilot] = useState(false);
+  const [inputText, setInputText] = useState('');
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [isGeneratingAISuggestions, setIsGeneratingAISuggestions] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isChatConnected, setIsChatConnected] = useState(false);
-  const initialReplySentRef = useRef(false);
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+  const [outgoingCallData, setOutgoingCallData] = useState(null);
+  const [pinningMessageId, setPinningMessageId] = useState(null);
+  const [isModerating, setIsModerating] = useState(false);
   const reconnectTimerRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  const typingTimeoutRef = useRef(null);
+  const stopTypingTimeoutRef = useRef(null);
+  const lastTypingSentAtRef = useRef(0);
+  const outgoingCallRef = useRef(null);
+  const callTimeoutRef = useRef(null);
+  const callActionRef = useRef(false);
+  const callHistoryEventsRef = useRef(new Set());
+  const processedCallSignalsRef = useRef(new Set());
+  const callSignalHandlerRef = useRef(null);
+  const activeCallRoomRef = useRef('');
+  const activeCallPeerRef = useRef('');
   
   // TEXTING & MEDIA VAULT STATES
   const [showMediaVault, setShowMediaVault] = useState(false);
@@ -435,11 +346,12 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
   const [localStream, setLocalStream] = useState(null); // <-- Added Local Stream State
   
   const notificationSocketRef = useRef(null);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const ringtoneCtxRef = useRef(null);
   const ringtonePlayingRef = useRef(false);
   const audioCtxRef = useRef(null);
-  const [ringtoneProfile, setRingtoneProfile] = useState('sweet');
-  const [micGain, setMicGain] = useState(1.0);
+  const ringtoneProfile = 'sweet';
+  const micGain = 1.0;
   const [micEnabled, setMicEnabled] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const micGainRef = useRef(micGain);
@@ -449,18 +361,41 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  const currentUser = useAppStore((s) => s.user) || { id: activeProfileId, name: modelName };
+  const theme = useAppStore((state) => state.userPreferences.theme);
   const appToken = useAppStore((state) => state.token);
-  const tier = getUserTier(chatData.lifetimeSpend, chatData.flagged);
   
   // CRITICAL FIX: Ensure we use target client id, not queue item id
-  const roomId = chatData.user_id || chatData.id || "default";
+  const roomId = chatData.user_id || chatData.id || "";
+  const chatPartnerName = chatData.user || chatData.name || 'Member';
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [chatData.avatar]);
 
   const smartSuggestions = [
-    "I'm here! What's on your mind?",
-    "Thanks for the tip, VIP! 😘",
-    "Want to move this to a video call?"
+    "Hi, how is your day going?",
+    "What would you like to chat about?",
+    "Would you like to have a quick call?"
   ];
+
+  const generateAISuggestions = async () => {
+    if (!aiDraftsEnabled || isGeneratingAISuggestions) return;
+    setIsGeneratingAISuggestions(true);
+    setAiSuggestions([]);
+    try {
+      const result = await creatorService.generateModelReplySuggestions(activeProfileId, roomId);
+      if (!Array.isArray(result?.suggestions) || result.suggestions.length !== 3) {
+        throw new Error('The AI assistant returned invalid reply drafts.');
+      }
+      setAiSuggestions(result.suggestions);
+    } catch (error) {
+      console.error('Failed to generate model chat reply drafts:', error);
+      const detail = error.response?.data?.error || error.response?.data;
+      toast.error(typeof detail === 'string' ? detail : 'Could not generate AI reply drafts.');
+    } finally {
+      setIsGeneratingAISuggestions(false);
+    }
+  };
 
   // Auto-publish microphone helper component
   function AutoPublishMic() {
@@ -468,7 +403,6 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
     const publishedRef = useRef(null);
     const srcStreamRef = useRef(null);
     const gainNodeRef = useRef(null);
-    useEffect(() => { micGainRef.current = micGain; }, [micGain]);
 
     useEffect(() => {
       if (!localParticipant) return;
@@ -560,27 +494,33 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       };
     }, [localParticipant]);
 
-    useEffect(() => {
-      if (gainNodeRef.current) gainNodeRef.current.gain.value = micGain;
-    }, [micGain]);
-
     return null;
   }
 
   // --- FETCH CHAT HISTORY ---
   useEffect(() => {
     const loadHistory = async () => {
+      if (!roomId || !activeProfileId) {
+        setMessages([]);
+        setIsLoadingHistory(false);
+        return;
+      }
       setIsLoadingHistory(true);
       setMessages([]);
-      initialReplySentRef.current = false;
       try {
-        const history = await chatService.getChatHistory(roomId, 'dm');
+        const history = await creatorService.getProfileChatHistory(activeProfileId, roomId);
         if (Array.isArray(history) && history.length > 0) {
-          const formatted = history.map(msg => ({
+          const formatted = history
+            .filter(msg => msg.message_kind !== 'typing' && msg.message_kind !== 'stop_typing')
+            .map(msg => ({
             id: msg.id || msg.message_id || `history-${Date.now()}-${Math.random()}`,
-            sender: String(msg.sender_id || msg.senderId) === String(roomId) ? 'user' : 'model',
+            sender: msg.message_kind === 'call_event' ? 'system' :
+              String(msg.sender_id || msg.senderId) === String(profileChatUserId) ? 'model' : 'user',
             text: msg.content || msg.text || '',
             media: msg.media || null,
+            isPinned: Boolean(msg.is_pinned || msg.isPinned),
+            flagged: Boolean(msg.is_flagged || msg.isFlagged),
+            messageKind: msg.message_kind || msg.messageKind || 'chat',
             time: msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'
           }));
           setMessages(formatted);
@@ -592,7 +532,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       }
     };
     loadHistory();
-  }, [roomId]);
+  }, [roomId, activeProfileId, profileChatUserId]);
 
   // --- FETCH PROFILE-SPECIFIC MEDIA VAULT ---
   useEffect(() => {
@@ -624,8 +564,11 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
     if (!token) token = localStorage.getItem('token') || '';
     const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//localhost:8080/ws?target_id=${roomId}&token=${encodeURIComponent(cleanToken)}`;
+    if (!roomId || !activeProfileId) return undefined;
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    setIsPartnerTyping(false);
+    const query = `?target_id=${encodeURIComponent(roomId)}&profile_id=${encodeURIComponent(activeProfileId)}&token=${encodeURIComponent(cleanToken)}`;
+    const wsUrl = getWsUrl(query);
     
     let manuallyClosed = false;
     const connect = () => {
@@ -641,54 +584,66 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
         try {
           const incomingMsg = JSON.parse(event.data);
 
-        if (incomingMsg.type === 'incoming_call') {
-          if (isInCall) {
-            stopRingtone();
-            return;
-          }
-          if (incomingMsg.from === currentUser?.id || incomingMsg.sender_id === currentUser?.id) return;
-          setIncomingCallData({
-            fromId: incomingMsg.from || incomingMsg.sender_id,
-            fromName: incomingMsg.from_name || incomingMsg.sender_name || chatData.user || 'Caller',
-            roomId: incomingMsg.room_id || roomId,
-            mode: incomingMsg.mode || 'video'
-          });
-          return;
-        }
-
-        if (incomingMsg.type === 'call_answered') {
-          stopRingtone();
-          setIncomingCallData(null);
-          if (!isInCall) {
-            setIsInCall(true);
-            setCallStartedAt(Date.now());
+        if (incomingMsg.type === 'typing' || incomingMsg.type === 'stop_typing'
+          || incomingMsg.message_kind === 'typing' || incomingMsg.message_kind === 'stop_typing') {
+          if (String(incomingMsg.sender_id || incomingMsg.from) === String(roomId)) {
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            if (incomingMsg.type === 'stop_typing') {
+              typingTimeoutRef.current = null;
+              setIsPartnerTyping(false);
+            } else {
+              setIsPartnerTyping(true);
+              typingTimeoutRef.current = window.setTimeout(() => {
+                typingTimeoutRef.current = null;
+                setIsPartnerTyping(false);
+              }, 3000);
+            }
           }
           return;
         }
 
-        if (incomingMsg.type === 'call_rejected') {
-          stopRingtone();
-          setIncomingCallData(null);
-          toast.error(t('callRejected'));
-          setIsInCall(false);
-          setCallToken('');
-          setCallStartedAt(null);
-          setCallElapsedSec(0);
+        if (['incoming_call', 'call_answered', 'call_rejected', 'call_cancelled', 'call_ended'].includes(incomingMsg.type)) {
+          callSignalHandlerRef.current?.(incomingMsg);
           return;
         }
+
+        if (incomingMsg.type === 'pin_update') {
+          setMessages((previous) => previous.map((message) => message.id === incomingMsg.message_id
+            ? { ...message, isPinned: Boolean(incomingMsg.is_pinned) }
+            : message));
+          return;
+        }
+
+        if (incomingMsg.type && incomingMsg.type !== 'chat') return;
+        if (incomingMsg.message_kind && !['chat', 'call_event'].includes(incomingMsg.message_kind)) return;
+        if (!incomingMsg.content && !incomingMsg.text && !incomingMsg.media && !incomingMsg.media_url) return;
 
         const msgId = incomingMsg.id || incomingMsg.message_id || `msg-${Date.now()}-${Math.random()}`;
+        const clientMessageId = incomingMsg.client_message_id;
         setMessages(prev => {
           if (prev.some(m => m.id === msgId)) return prev;
+          const optimisticIndex = clientMessageId
+            ? prev.findIndex((message) => message.id === clientMessageId)
+            : -1;
+          const message = {
+            id: msgId,
+            sender: incomingMsg.message_kind === 'call_event' ? 'system' :
+              String(incomingMsg.sender_id || incomingMsg.senderId) === String(profileChatUserId) ? 'model' : 'user',
+            text: incomingMsg.text || incomingMsg.content || '',
+            media: incomingMsg.media || incomingMsg.media_url || null,
+            isPinned: Boolean(incomingMsg.is_pinned || incomingMsg.isPinned),
+            flagged: Boolean(incomingMsg.is_flagged || incomingMsg.isFlagged),
+            messageKind: incomingMsg.message_kind || incomingMsg.messageKind || 'chat',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          };
+          if (optimisticIndex >= 0) {
+            const next = [...prev];
+            next[optimisticIndex] = { ...next[optimisticIndex], ...message };
+            return next;
+          }
           return [
-            ...prev, 
-            {
-              id: msgId,
-              sender: String(incomingMsg.sender_id || incomingMsg.senderId) === String(roomId) ? 'user' : 'model',
-              text: incomingMsg.text || incomingMsg.content || '',
-              media: incomingMsg.media || null,
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }
+            ...prev,
+            message
           ];
         });
         } catch (err) {}
@@ -709,11 +664,18 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
     return () => {
       manuallyClosed = true;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (stopTypingTimeoutRef.current) clearTimeout(stopTypingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+      stopTypingTimeoutRef.current = null;
+      setIsPartnerTyping(false);
       setIsChatConnected(false);
       if (wsRef.current) wsRef.current.close();
       wsRef.current = null;
     };
-  }, [roomId]);
+  }, [roomId, activeProfileId, profileChatUserId]);
 
   // Global notification socket for calls
   useEffect(() => {
@@ -727,8 +689,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
     if (!activeToken) return;
 
     const cleanToken = activeToken.startsWith('Bearer ') ? activeToken.slice(7) : activeToken;
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const notifyUrl = `${wsProtocol}//localhost:8080/ws?token=${encodeURIComponent(cleanToken)}`;
+    const notifyUrl = getWsUrl(`?token=${encodeURIComponent(cleanToken)}`);
 
     try {
       const nws = new WebSocket(notifyUrl);
@@ -737,37 +698,8 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       nws.onmessage = (ev) => {
         try {
           const incoming = JSON.parse(ev.data);
-          if (incoming.type === 'incoming_call') {
-            if (isInCall) {
-              stopRingtone();
-              return;
-            }
-            if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
-            setIncomingCallData({
-              fromId: incoming.from || incoming.sender_id,
-              fromName: incoming.from_name || incoming.sender_name || 'Caller',
-              roomId: incoming.room_id || roomId,
-              mode: incoming.mode || 'video'
-            });
-            return;
-          }
-          if (incoming.type === 'call_answered') {
-            stopRingtone();
-            setIncomingCallData(null);
-            if (!isInCall) {
-              setIsInCall(true);
-              setCallStartedAt(Date.now());
-            }
-            return;
-          }
-          if (incoming.type === 'call_rejected') {
-            stopRingtone();
-            setIncomingCallData(null);
-            toast.error(t('callRejected'));
-            setIsInCall(false);
-            setCallToken('');
-            setCallStartedAt(null);
-            setCallElapsedSec(0);
+          if (['incoming_call', 'call_answered', 'call_rejected', 'call_cancelled', 'call_ended'].includes(incoming.type)) {
+            callSignalHandlerRef.current?.(incoming);
             return;
           }
         } catch (e) {}
@@ -781,14 +713,6 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       }
     };
   }, [appToken]);
-
-  useEffect(() => {
-    if (chatData.initialReply && !isLoadingHistory && isChatConnected && !initialReplySentRef.current) {
-      initialReplySentRef.current = true;
-      handleSend(chatData.initialReply);
-      setInputText('');
-    }
-  }, [isLoadingHistory, isChatConnected]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -822,12 +746,32 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
   }, [isInCall]);
 
   // --- CALL HANDLERS ---
+  const sendCallSignal = (payload) => {
+    const socket = [wsRef.current, notificationSocketRef.current]
+      .find(candidate => candidate?.readyState === WebSocket.OPEN);
+    if (!socket) throw new Error('Call signaling is not connected');
+    socket.send(JSON.stringify(payload));
+  };
+
+  const clearCallTimeout = () => {
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+  };
+
+  const clearLocalStream = () => {
+    if (localStream) localStream.getTracks().forEach(track => track.stop());
+    setLocalStream(null);
+  };
+
   const startCall = async (mode = 'video') => {
-    appendSystemMessage(`Calling ${chatData.user}...`, 'call_started', { mode });
+    if (callActionRef.current || isInCall || outgoingCallRef.current || incomingCallData) return;
+    callActionRef.current = true;
+    callHistoryEventsRef.current.clear();
     setCallMode(mode);
     setIsConnectingCall(true);
     try {
-      // Capture local stream for preview before LiveKit hooks in
       if (mode === 'video' && navigator?.mediaDevices?.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -837,56 +781,102 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
         }
       }
 
-      const res = await apiClient.post('/rooms/voice-token', {
-        room_id: `dm_call_${roomId}`,
+      const res = await apiClient.post(`/chats/${encodeURIComponent(roomId)}/voice-token`, {
         participant_name: modelName || 'Model'
+      }, {
+        params: { profile_id: activeProfileId }
       });
-      setCallToken(res.data.token);
-      setIsInCall(true);
-      setCallStartedAt(Date.now());
-      await ensureAudioPlayback();
+      if (!res?.data?.token || !res.data.room_id) throw new Error('No direct call token was returned');
 
-      const notify = {
-        type: 'incoming_call',
-        from: currentUser?.id,
-        from_name: modelName,
-        target_id: roomId,
-        room_id: `dm_call_${roomId}`,
+      const pendingCall = {
+        token: res.data.token,
+        roomId: res.data.room_id,
+        targetId: roomId,
+        targetName: chatPartnerName,
         mode
       };
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify(notify));
-      }
+      outgoingCallRef.current = pendingCall;
+      activeCallPeerRef.current = roomId;
+      setOutgoingCallData(pendingCall);
+      sendCallSignal({
+        type: 'incoming_call',
+        from: profileChatUserId,
+        from_name: modelName,
+        target_id: roomId,
+        room_id: pendingCall.roomId,
+        mode
+      });
+      appendSystemMessage(`Calling ${chatPartnerName}...`, 'call_started', { mode });
+
+      clearCallTimeout();
+      callTimeoutRef.current = window.setTimeout(() => {
+        if (outgoingCallRef.current?.roomId !== pendingCall.roomId) return;
+        outgoingCallRef.current = null;
+        setOutgoingCallData(null);
+        activeCallPeerRef.current = '';
+        try {
+          sendCallSignal({
+            type: 'call_cancelled',
+            from: profileChatUserId,
+            target_id: roomId,
+            room_id: pendingCall.roomId
+          });
+        } catch (error) {
+          console.warn('Could not send the unanswered call cancellation:', error);
+        }
+        appendSystemMessage(`${chatPartnerName} did not answer`, 'call_no_answer', { mode });
+        clearLocalStream();
+        toast.info(`${chatPartnerName} did not answer.`);
+        clearCallTimeout();
+      }, 45000);
     } catch (err) {
-      toast.error("Failed to start secure call.");
+      outgoingCallRef.current = null;
+      setOutgoingCallData(null);
+      clearCallTimeout();
+      clearLocalStream();
+      console.error('Failed to start profile call:', err);
       toast.error(t('secureCallFailed'));
     } finally {
+      callActionRef.current = false;
       setIsConnectingCall(false);
     }
   };
 
   const endCall = () => {
+    const activeRoomId = activeCallRoomRef.current;
+    const peerId = activeCallPeerRef.current || roomId;
+    clearCallTimeout();
+    if (activeRoomId) {
+      try {
+        sendCallSignal({
+          type: 'call_ended',
+          from: profileChatUserId,
+          target_id: peerId,
+          room_id: activeRoomId
+        });
+      } catch (error) {
+        console.warn('Could not notify the other participant that the call ended:', error);
+      }
+    }
     appendSystemMessage('Call ended', 'call_ended');
+    activeCallRoomRef.current = '';
+    activeCallPeerRef.current = '';
     setIsInCall(false);
     setCallToken("");
     setCallStartedAt(null);
     setCallElapsedSec(0);
-    // Cleanup WebRTC stream
-    if (localStream) {
-      localStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
-    }
-    setLocalStream(null);
+    clearLocalStream();
   };
 
   const acceptCall = async () => {
-    if (!incomingCallData) return;
-    setCallMode(incomingCallData.mode || 'video');
-    setIncomingCallData(null);
-    stopRingtone();
+    if (!incomingCallData || callActionRef.current || isInCall || outgoingCallRef.current) return;
+    const call = incomingCallData;
+    callActionRef.current = true;
+    callHistoryEventsRef.current.clear();
+    setCallMode(call.mode || 'video');
     setIsConnectingCall(true);
     try {
-      // Capture local stream for preview
-      if ((incomingCallData.mode || 'video') === 'video' && navigator?.mediaDevices?.getUserMedia) {
+      if ((call.mode || 'video') === 'video' && navigator?.mediaDevices?.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
           setLocalStream(stream);
@@ -895,34 +885,175 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
         }
       }
 
-      const res = await apiClient.post('/rooms/voice-token', {
-        room_id: incomingCallData.roomId,
+      const res = await apiClient.post(`/chats/${encodeURIComponent(call.fromId)}/voice-token`, {
         participant_name: modelName || 'Model'
+      }, {
+        params: { profile_id: activeProfileId }
+      });
+      if (!res?.data?.token || res.data.room_id !== call.roomId) {
+        throw new Error('The caller token did not match the call room');
+      }
+      activeCallRoomRef.current = call.roomId;
+      activeCallPeerRef.current = call.fromId;
+      sendCallSignal({
+        type: 'call_answered',
+        room_id: call.roomId,
+        from: profileChatUserId,
+        target_id: call.fromId
       });
       setCallToken(res.data.token);
       setIsInCall(true);
       setCallStartedAt(Date.now());
+      setIncomingCallData(null);
+      stopRingtone();
       appendSystemMessage('Call connected', 'call_connected');
       await ensureAudioPlayback();
-
-      const ack = { type: 'call_answered', room_id: incomingCallData.roomId, from: currentUser?.id, to: incomingCallData.fromId };
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify(ack));
     } catch (err) {
-      toast.error('Failed to join call.');
+      activeCallRoomRef.current = '';
+      activeCallPeerRef.current = '';
+      clearLocalStream();
+      console.error('Failed to join profile call:', err);
       toast.error(t('joinCallFailed'));
     } finally {
+      callActionRef.current = false;
       setIsConnectingCall(false);
     }
   };
 
   const rejectCall = () => {
     if (!incomingCallData) return;
-    appendSystemMessage(`Missed call from ${incomingCallData.fromName}`, 'missed_call', { mode: incomingCallData.mode || 'audio' });
-    const rej = { type: 'call_rejected', room_id: incomingCallData.roomId, from: currentUser?.id, to: incomingCallData.fromId };
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify(rej));
+    const call = incomingCallData;
+    appendSystemMessage(`Call declined`, 'call_declined', { mode: call.mode || 'audio' });
+    try {
+      sendCallSignal({
+        type: 'call_rejected',
+        room_id: call.roomId,
+        from: profileChatUserId,
+        target_id: call.fromId
+      });
+    } catch (error) {
+      console.warn('Could not notify the caller that the call was declined:', error);
+    }
     setIncomingCallData(null);
     stopRingtone();
   };
+
+  const cancelOutgoingCall = () => {
+    const pending = outgoingCallRef.current;
+    if (!pending) return;
+    clearCallTimeout();
+    outgoingCallRef.current = null;
+    setOutgoingCallData(null);
+    activeCallPeerRef.current = '';
+    try {
+      sendCallSignal({
+        type: 'call_cancelled',
+        from: profileChatUserId,
+        target_id: pending.targetId,
+        room_id: pending.roomId
+      });
+    } catch (error) {
+      console.warn('Could not cancel the outgoing call:', error);
+    }
+    clearLocalStream();
+  };
+
+  const handleCallSignal = (incoming) => {
+    const type = incoming.type;
+    const signalRoomId = incoming.room_id;
+    const senderId = incoming.from || incoming.sender_id || '';
+    const signalKey = `${type}:${signalRoomId}:${senderId}`;
+    if (processedCallSignalsRef.current.has(signalKey)) return;
+    processedCallSignalsRef.current.add(signalKey);
+    if (processedCallSignalsRef.current.size > 100) {
+      processedCallSignalsRef.current.delete(processedCallSignalsRef.current.values().next().value);
+    }
+
+    if (type === 'incoming_call') {
+      if (!senderId || senderId === profileChatUserId || !signalRoomId) return;
+      if (isInCall || isConnectingCall || outgoingCallRef.current || callActionRef.current) {
+        try {
+          sendCallSignal({
+            type: 'call_rejected',
+            from: profileChatUserId,
+            target_id: senderId,
+            room_id: signalRoomId,
+            reason: 'busy'
+          });
+        } catch (error) {
+          console.warn('Could not decline a call while busy:', error);
+        }
+        return;
+      }
+      if (incomingCallData?.roomId === signalRoomId) return;
+      callHistoryEventsRef.current.clear();
+      setIncomingCallData({
+        fromId: senderId,
+        fromName: incoming.from_name || incoming.sender_name || chatPartnerName,
+        roomId: signalRoomId,
+        mode: incoming.mode === 'audio' ? 'audio' : 'video'
+      });
+      return;
+    }
+
+    if (type === 'call_answered') {
+      const pending = outgoingCallRef.current;
+      if (!pending || pending.roomId !== signalRoomId) return;
+      clearCallTimeout();
+      outgoingCallRef.current = null;
+      setOutgoingCallData(null);
+      setCallToken(pending.token);
+      setCallMode(pending.mode);
+      activeCallRoomRef.current = pending.roomId;
+      activeCallPeerRef.current = pending.targetId;
+      setIsInCall(true);
+      setCallStartedAt(Date.now());
+      appendSystemMessage('Call connected', 'call_connected', { mode: pending.mode });
+      ensureAudioPlayback();
+      return;
+    }
+
+    if (type === 'call_rejected' || type === 'call_cancelled') {
+      const pending = outgoingCallRef.current;
+      if (pending?.roomId === signalRoomId) {
+        clearCallTimeout();
+        outgoingCallRef.current = null;
+        setOutgoingCallData(null);
+        activeCallPeerRef.current = '';
+        clearLocalStream();
+        if (type === 'call_rejected') {
+          appendSystemMessage('Call declined', 'call_declined', { mode: pending.mode });
+          toast.error(incoming.reason === 'busy' ? 'This person is already on another call.' : t('callRejected'));
+        }
+      }
+      if (incomingCallData?.roomId === signalRoomId) {
+        setIncomingCallData(null);
+        stopRingtone();
+      }
+      return;
+    }
+
+    if (type === 'call_ended' && activeCallRoomRef.current === signalRoomId) {
+      appendSystemMessage('Call ended', 'call_ended', { mode: callMode });
+      activeCallRoomRef.current = '';
+      activeCallPeerRef.current = '';
+      setIsInCall(false);
+      setCallToken('');
+      setCallStartedAt(null);
+      setCallElapsedSec(0);
+      clearLocalStream();
+    }
+  };
+  callSignalHandlerRef.current = handleCallSignal;
+
+  useEffect(() => () => {
+    if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
+    callTimeoutRef.current = null;
+  }, [roomId, activeProfileId]);
+
+  useEffect(() => () => {
+    if (localStream) localStream.getTracks().forEach(track => track.stop());
+  }, [localStream]);
 
   const playRingtone = (profile = 'sweet') => {
     if (ringtonePlayingRef.current) return;
@@ -987,6 +1118,21 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
   };
 
   const appendSystemMessage = (text, type = 'system', meta = {}) => {
+    const callEvents = {
+      call_started: 'started',
+      call_connected: 'connected',
+      call_ended: 'ended',
+      missed_call: 'missed',
+      call_no_answer: 'no_answer',
+      call_declined: 'declined',
+    };
+    const event = callEvents[type];
+    const callRoomId = activeCallRoomRef.current || outgoingCallRef.current?.roomId
+      || incomingCallData?.roomId || roomId;
+    const eventKey = event ? `${callRoomId}:${event}` : '';
+    if (event && callHistoryEventsRef.current.has(eventKey)) return;
+    if (event) callHistoryEventsRef.current.add(eventKey);
+
     const systemMsg = {
       id: `system-${Date.now()}-${Math.random()}`,
       sender: 'system',
@@ -996,6 +1142,44 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setMessages(prev => [...prev, systemMsg]);
+    if (event) {
+      chatService.recordDirectCallEvent(roomId, event, meta.mode || callMode, activeProfileId)
+        .catch((error) => {
+          console.error('Failed to save profile call history:', error);
+          toast.error('Call history could not be saved.');
+        });
+    }
+  };
+
+  const sendTypingStatus = (type) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    try {
+      wsRef.current.send(JSON.stringify({ type, target_id: roomId }));
+    } catch (error) {
+      console.warn('Could not send creator chat typing status:', error);
+    }
+  };
+
+  const handleTypingInput = (event) => {
+    const value = event.target.value;
+    setInputText(value);
+    if (stopTypingTimeoutRef.current) clearTimeout(stopTypingTimeoutRef.current);
+    if (!value.trim()) {
+      if (lastTypingSentAtRef.current) sendTypingStatus('stop_typing');
+      lastTypingSentAtRef.current = 0;
+      stopTypingTimeoutRef.current = null;
+      return;
+    }
+    const now = Date.now();
+    if (!lastTypingSentAtRef.current || now - lastTypingSentAtRef.current >= 1500) {
+      sendTypingStatus('typing');
+      lastTypingSentAtRef.current = now;
+    }
+    stopTypingTimeoutRef.current = window.setTimeout(() => {
+      sendTypingStatus('stop_typing');
+      lastTypingSentAtRef.current = 0;
+      stopTypingTimeoutRef.current = null;
+    }, 2000);
   };
 
   const handleSend = (overrideText = null) => {
@@ -1004,7 +1188,8 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
 
     const uniqueMsgId = `model-${Date.now()}-${Math.random()}`;
     const messagePayload = {
-      id: uniqueMsgId,
+      type: 'chat',
+      client_message_id: uniqueMsgId,
       target_id: roomId, // Send to specific user_id
       content: textToSend, 
       text: textToSend,    
@@ -1013,11 +1198,20 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
 
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       toast.error("Chat is reconnecting. Your message was not sent.");
-        toast.error(t('reconnecting'));
       return;
     }
 
-    wsRef.current.send(JSON.stringify(messagePayload));
+    try {
+      wsRef.current.send(JSON.stringify(messagePayload));
+      sendTypingStatus('stop_typing');
+      lastTypingSentAtRef.current = 0;
+      if (stopTypingTimeoutRef.current) clearTimeout(stopTypingTimeoutRef.current);
+      stopTypingTimeoutRef.current = null;
+    } catch (error) {
+      console.error('Failed to send creator chat message:', error);
+      toast.error(t('sendMessageFailed'));
+      return;
+    }
 
     setMessages(prev => [...prev, {
       id: uniqueMsgId,
@@ -1032,34 +1226,92 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
     setShowEmojiPicker(false);
   };
 
+  const handlePinMessage = async (message) => {
+    if (!message?.id || pinningMessageId) return;
+    const pinned = !message.isPinned;
+    setPinningMessageId(message.id);
+    try {
+      await chatService.pinDirectMessage(roomId, message.id, pinned, activeProfileId);
+      setMessages((previous) => previous.map((item) => item.id === message.id
+        ? { ...item, isPinned: pinned }
+        : item));
+    } catch (error) {
+      console.error('Failed to update profile message pin:', error);
+      toast.error('Could not update the message pin.');
+    } finally {
+      setPinningMessageId(null);
+    }
+  };
+
+  const handleBlockUser = async () => {
+    if (!await confirm(`Block ${chatData.user}? They will no longer be able to contact this profile.`, {
+      title: 'Block user',
+      confirmLabel: 'Block',
+      tone: 'danger',
+    })) return;
+    setIsModerating(true);
+    try {
+      await creatorService.blockProfileConversationUser(activeProfileId, roomId);
+      toast.success(`${chatData.user} has been blocked.`);
+      onBlocked?.();
+    } catch (error) {
+      console.error('Failed to block profile conversation user:', error);
+      toast.error(error.response?.data?.error || 'Failed to block user.');
+    } finally {
+      setIsModerating(false);
+    }
+  };
+
+  const handleReportUser = async () => {
+    const reason = await prompt(`Why are you reporting ${chatData.user}?`, {
+      title: 'Report user',
+      inputLabel: 'Reason',
+      placeholder: 'Enter the reason for this report',
+    });
+    if (!reason?.trim()) return;
+    setIsModerating(true);
+    try {
+      await creatorService.reportProfileConversationUser(activeProfileId, roomId, reason.trim());
+      toast.success('Report submitted to moderation.');
+    } catch (error) {
+      console.error('Failed to report profile conversation user:', error);
+      toast.error(error.response?.data?.error || 'Failed to submit report.');
+    } finally {
+      setIsModerating(false);
+    }
+  };
+
   const handleEmojiSelect = (emojiData) => {
     setInputText(prev => prev + emojiData.emoji);
     setShowEmojiPicker(false);
   };
 
+  const latestPinnedMessage = [...messages].reverse().find((message) => message.isPinned);
+
   return (
-    <div className="flex flex-col h-full bg-black text-zinc-300 font-mono rounded-none absolute inset-0 z-50 animate-in slide-in-from-right-10">
+    <div className="chat-theme-sharp flex flex-col h-full bg-black text-zinc-300 font-mono absolute inset-0 z-50 animate-in slide-in-from-right-10" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* Chat Header */}
       <div className="flex items-center justify-between p-4 border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(0,0,0,0.5)] z-20">
         <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 border-2 border-zinc-800 hover:border-white hover:text-white transition-colors bg-zinc-950">
+          <button onClick={onBack} disabled={isInCall || Boolean(outgoingCallData)} className="p-2 border-2 border-zinc-800 hover:border-white hover:text-white transition-colors bg-zinc-950 disabled:opacity-40">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
-            {chatData.avatar ? (
-              <img src={chatData.avatar} alt={chatData.user} className={`w-10 h-10 border-2 object-cover ${tier.color}`} />
+            {chatData.avatar && !avatarFailed ? (
+              <img src={chatData.avatar} alt={chatPartnerName} onError={() => setAvatarFailed(true)} className="w-10 h-10 border-2 border-zinc-800 object-cover" />
             ) : (
-              <div className={`w-10 h-10 border-2 bg-zinc-900 ${tier.color} flex items-center justify-center font-bold text-white`}>
-                {(chatData.user || chatData.name || 'U').charAt(0).toUpperCase()}
+              <div className="w-10 h-10 border-2 border-zinc-800 bg-zinc-900 flex items-center justify-center font-bold text-white">
+                {chatPartnerName.charAt(0).toUpperCase()}
               </div>
             )}
             <div>
-              <h2 className={`text-lg font-black uppercase tracking-widest flex items-center gap-2 ${tier.text}`}>
-                {chatData.user || chatData.name} <span className={`px-2 py-0.5 text-[8px] font-black border-2 ${tier.color} ${tier.bg}`}>{tier.label}</span>
+              <h2 className="text-lg font-black uppercase tracking-widest flex items-center gap-2 text-white">
+                {chatData.user || chatData.name}
               </h2>
               <span className={`text-[9px] font-bold uppercase tracking-widest flex items-center gap-1 ${isChatConnected ? 'text-green-400' : 'text-yellow-400'}`}>
                 <span className={`w-1.5 h-1.5 animate-pulse rounded-full ${isChatConnected ? 'bg-green-500' : 'bg-yellow-500'}`} /> {isChatConnected ? 'Connected' : 'Reconnecting'} [{modelName}]
+                {isPartnerTyping && <span className="text-white">· {chatData.user || chatData.name} is typing…</span>}
               </span>
             </div>
           </div>
@@ -1067,17 +1319,52 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
 
         {/* Call Trigger Buttons */}
         <div className="flex items-center gap-2">
-          <button onClick={() => startCall('audio')} disabled={isConnectingCall} className="px-3 py-2 bg-zinc-950 border-2 border-zinc-800 text-zinc-200 hover:border-white text-xs font-black uppercase flex items-center gap-2">
-            <Phone className="w-4 h-4 text-emerald-400" /> Audio
+          <button onClick={() => startCall('audio')} disabled={isConnectingCall || isInCall || Boolean(outgoingCallData) || Boolean(incomingCallData)} className="px-3 py-2 bg-zinc-950 border-2 border-zinc-800 text-zinc-200 hover:border-white text-xs font-black uppercase flex items-center gap-2 disabled:opacity-40">
+            <Phone className="w-4 h-4 text-emerald-400" /> {outgoingCallData?.mode === 'audio' ? 'Calling…' : 'Audio'}
           </button>
-          <button onClick={() => startCall('video')} disabled={isConnectingCall} className="px-3 py-2 bg-zinc-950 border-2 border-zinc-800 text-zinc-200 hover:border-white text-xs font-black uppercase flex items-center gap-2">
-            <Video className="w-4 h-4 text-blue-400" /> Video
+          <button onClick={() => startCall('video')} disabled={isConnectingCall || isInCall || Boolean(outgoingCallData) || Boolean(incomingCallData)} className="px-3 py-2 bg-zinc-950 border-2 border-zinc-800 text-zinc-200 hover:border-white text-xs font-black uppercase flex items-center gap-2 disabled:opacity-40">
+            <Video className="w-4 h-4 text-blue-400" /> {outgoingCallData?.mode === 'video' ? 'Calling…' : 'Video'}
           </button>
-          <button onClick={onEnd} className="px-6 py-2 border-2 border-red-500 text-red-500 hover:bg-red-500 hover:text-black font-black uppercase text-[10px] tracking-widest transition-colors ml-4">
-            End Session
+          <button onClick={handleReportUser} disabled={isModerating} title="Report user" className="p-2 border-2 border-zinc-800 text-zinc-300 hover:border-yellow-500 hover:text-yellow-400 disabled:opacity-50">
+            <Flag className="w-4 h-4" />
+          </button>
+          <button onClick={handleBlockUser} disabled={isModerating} title="Block user" className="p-2 border-2 border-zinc-800 text-red-400 hover:border-red-500 disabled:opacity-50">
+            <Ban className="w-4 h-4" />
+          </button>
+          <button onClick={onEnd} disabled={isInCall || Boolean(outgoingCallData)} className="px-4 py-2 border-2 border-zinc-700 text-zinc-300 hover:border-white hover:text-white font-black uppercase text-[10px] tracking-widest transition-colors ml-2 disabled:opacity-40">
+            Back to inbox
           </button>
         </div>
       </div>
+
+      {latestPinnedMessage && (
+        <button
+          onClick={() => document.getElementById(`creator-message-${latestPinnedMessage.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+          className="px-4 py-2 flex items-center gap-2 text-left border-b border-zinc-800 bg-zinc-900/80"
+        >
+          <Pin className="w-4 h-4 text-yellow-400 shrink-0" />
+          <span className="text-[9px] font-black uppercase tracking-widest text-yellow-400 shrink-0">Pinned</span>
+          <span className="text-xs text-zinc-300 truncate">{latestPinnedMessage.text || 'Attachment'}</span>
+        </button>
+      )}
+
+      {outgoingCallData && !isInCall && (
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+          <div className="flex items-center gap-3 text-white">
+            {outgoingCallData.mode === 'video'
+              ? <Video className="h-4 w-4 text-blue-400" />
+              : <Phone className="h-4 w-4 text-emerald-400" />}
+            <span className="text-xs font-bold">Calling {outgoingCallData.targetName}…</span>
+          </div>
+          <button
+            type="button"
+            onClick={cancelOutgoingCall}
+            className="flex items-center gap-2 border border-zinc-700 px-3 py-2 text-[10px] font-bold uppercase text-zinc-300 hover:border-red-500 hover:text-red-400"
+          >
+            <PhoneOff className="h-3.5 w-3.5" /> Cancel
+          </button>
+        </div>
+      )}
 
       {/* INCOMING CALL OVERLAY */}
       {incomingCallData && !isInCall && (
@@ -1087,7 +1374,9 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
             <p className="text-xs text-zinc-400 uppercase font-bold mb-6">From {incomingCallData.fromName}</p>
             <div className="flex gap-4">
               <button onClick={rejectCall} className="flex-1 py-3 bg-black border-2 border-red-500 text-red-500 font-black uppercase text-xs">Decline</button>
-              <button onClick={acceptCall} className="flex-1 py-3 bg-green-500 border-2 border-green-500 text-black font-black uppercase text-xs">Answer</button>
+              <button onClick={acceptCall} disabled={isConnectingCall} className="flex-1 py-3 bg-green-500 border-2 border-green-500 text-black font-black uppercase text-xs disabled:opacity-50">
+                {isConnectingCall ? 'Connecting…' : 'Answer'}
+              </button>
             </div>
           </div>
         </div>
@@ -1121,7 +1410,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       <div className="flex flex-1 overflow-hidden relative">
         <div className="flex-1 flex flex-col border-r-2 border-zinc-800 bg-zinc-950 relative">
           
-          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar flex flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-4 custom-scrollbar flex flex-col">
             {isLoadingHistory ? (
               <div className="flex items-center justify-center h-full text-zinc-500">
                 <Loader2 className="w-6 h-6 animate-spin" />
@@ -1134,25 +1423,39 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
               messages.map((msg) => {
                 const isSystem = msg.sender === 'system';
                 const isModel = msg.sender === 'model';
-                const bubbleStyle = isModel 
-                  ? 'bg-white border-white text-black shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]' 
-                  : `bg-black ${tier.color} text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]`;
+                const bubbleStyle = isSystem
+                  ? 'rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-2 text-center text-xs font-medium text-zinc-400'
+                  : isModel
+                    ? 'rounded-2xl rounded-br-md border border-amber-200/50 bg-gradient-to-br from-amber-200 to-amber-100 px-4 py-3 text-zinc-950 shadow-sm'
+                    : 'rounded-2xl rounded-bl-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 shadow-sm';
 
                 return (
-                  <div key={msg.id} className={`flex flex-col max-w-[85%] md:max-w-[70%] ${isSystem ? 'self-center' : isModel ? 'self-end items-end ml-auto' : 'self-start items-start'}`}>
+                  <div id={`creator-message-${msg.id}`} key={msg.id} className={`flex flex-col max-w-[min(88%,42rem)] ${isSystem ? 'self-center' : isModel ? 'self-end items-end ml-auto' : 'self-start items-start'}`}>
                     {!isSystem && (
-                      <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest mb-1">
+                      <span className="mb-1 px-1 text-[10px] font-medium text-zinc-500">
                         {isModel ? modelName : (chatData.user || chatData.name)} • {msg.time}
                       </span>
                     )}
-                    <div className={`p-3 border-2 font-bold text-sm leading-relaxed tracking-wider flex flex-col gap-2 ${bubbleStyle}`}>
+                    {msg.flagged && <span className="mb-1 text-[9px] font-black uppercase text-red-400">Flagged by moderation</span>}
+                    <div className={`flex max-w-full flex-col gap-2 text-sm leading-relaxed ${bubbleStyle}`}>
                       {msg.media && (
-                        <div className="w-full max-w-[260px] border-2 border-black/20 overflow-hidden rounded-xl">
-                          <img src={msg.media} alt="attachment" className="w-full h-auto object-cover" />
+                        <div className="w-full max-w-[min(70vw,22rem)] overflow-hidden rounded-xl border border-black/10">
+                          <img src={msg.media} alt="Chat attachment" className="max-h-80 w-full object-cover" />
                         </div>
                       )}
-                      {msg.text && <div>{msg.text}</div>}
+                      {msg.text && <div className="whitespace-pre-wrap break-words">{msg.text}</div>}
                     </div>
+                    {!isSystem && (
+                      <button
+                        onClick={() => handlePinMessage(msg)}
+                        disabled={pinningMessageId === msg.id}
+                        aria-label={msg.isPinned ? 'Unpin message' : 'Pin message'}
+                        title={msg.isPinned ? 'Unpin message' : 'Pin message'}
+                        className={`mt-1 p-1 border border-zinc-800 disabled:opacity-50 ${msg.isPinned ? 'text-yellow-400' : 'text-zinc-500 hover:text-white'}`}
+                      >
+                        {msg.isPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+                      </button>
+                    )}
                   </div>
                 );
               })
@@ -1160,24 +1463,56 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Smart Suggestions Bar */}
-          <div className="bg-black border-t-2 border-zinc-800 p-2 flex items-center gap-2 overflow-x-auto custom-scrollbar shrink-0">
-            <button 
-              onClick={() => setAutoPilot(!autoPilot)}
-              className={`flex items-center gap-1 px-3 py-1.5 border-2 text-[9px] font-black uppercase tracking-widest transition-colors shrink-0 ${autoPilot ? 'bg-blue-500/20 border-blue-500 text-blue-500' : 'border-zinc-700 text-zinc-500 hover:text-white'}`}
-            >
-              <Bot className="w-3 h-3" /> Auto-Pilot {autoPilot ? 'ON' : 'OFF'}
-            </button>
-            <div className="w-0.5 h-4 bg-zinc-700 mx-1 shrink-0" />
-            <Sparkles className="w-3 h-3 text-yellow-500 shrink-0" />
-            {smartSuggestions.map((sug, i) => (
-              <button 
-                key={i} onClick={() => setInputText(sug)}
-                className="whitespace-nowrap px-3 py-1 border border-zinc-700 bg-zinc-900 text-zinc-400 text-[10px] font-bold uppercase hover:bg-white hover:text-black transition-colors"
-              >
-                {sug}
-              </button>
-            ))}
+          {/* Suggestions only populate the composer; they never send messages. */}
+          <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-3 py-2">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+                <Sparkles className="h-3 w-3 text-amber-400" />
+                Suggestions only add text to your draft. Review before sending.
+              </div>
+              {aiDraftsEnabled ? (
+                <button
+                  type="button"
+                  onClick={generateAISuggestions}
+                  disabled={isGeneratingAISuggestions || isLoadingHistory}
+                  className="inline-flex items-center gap-1.5 border border-amber-300/60 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest text-amber-200 transition-colors hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isGeneratingAISuggestions ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  {isGeneratingAISuggestions ? 'Drafting...' : 'Generate AI drafts'}
+                </button>
+              ) : (
+                <Link to="/model/settings" className="text-[9px] font-bold uppercase tracking-widest text-amber-300 underline underline-offset-2">
+                  Enable AI drafts in settings
+                </Link>
+              )}
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar">
+              {smartSuggestions.map((sug) => (
+                <button
+                  key={sug}
+                  type="button"
+                  onClick={() => setInputText(sug)}
+                  className="whitespace-nowrap rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-amber-300/70 hover:text-amber-200"
+                >
+                  {sug}
+                </button>
+              ))}
+            </div>
+            {aiSuggestions.length > 0 && (
+              <div className="mt-2 space-y-2" aria-live="polite">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-300">AI drafts — review before sending</p>
+                {aiSuggestions.map((suggestion, index) => (
+                  <button
+                    key={`${index}-${suggestion}`}
+                    type="button"
+                    onClick={() => setInputText(suggestion)}
+                    className="block w-full border border-amber-300/20 bg-black px-3 py-2 text-left text-xs leading-relaxed text-zinc-300 transition-colors hover:border-amber-300/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Chat Input */}
@@ -1223,15 +1558,14 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
                 </div>
 
                 <textarea 
-                  value={inputText} onChange={(e) => setInputText(e.target.value)}
+                  value={inputText} onChange={handleTypingInput}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  placeholder={autoPilot ? "BOT IS MANAGING THIS CONVERSATION..." : "TYPE A MESSAGE..."}
-                  disabled={autoPilot}
+                  placeholder="TYPE A MESSAGE..."
                   className="flex-1 bg-black border-2 border-zinc-700 p-3 text-white font-bold text-sm resize-none outline-none focus:border-white transition-colors custom-scrollbar disabled:opacity-50"
                   rows="2"
                 />
                 <button 
-                  onClick={() => handleSend()} disabled={(!inputText.trim() && !attachedMedia) || autoPilot}
+                  onClick={() => handleSend()} disabled={!inputText.trim() && !attachedMedia}
                   className="w-24 bg-white border-2 border-white text-black flex flex-col items-center justify-center gap-1 font-black uppercase tracking-widest hover:bg-black hover:text-white disabled:opacity-50 transition-colors"
                 >
                   <Send className="w-5 h-5" />
@@ -1243,23 +1577,19 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
         </div>
 
         {/* Right Profile Panel */}
-        <div className="hidden lg:flex w-80 bg-black flex-col p-6 overflow-y-auto custom-scrollbar border-l-2 border-zinc-800">
+        <div className="hidden w-[clamp(14rem,22vw,20rem)] flex-col overflow-y-auto border-l-2 border-zinc-800 bg-black p-6 custom-scrollbar lg:flex">
           <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b-2 border-zinc-800 pb-2 mb-6">Target Profile</h3>
-          {chatData.avatar ? (
-            <img src={chatData.avatar} alt="User" className={`w-full h-48 object-cover border-2 ${tier.color} grayscale mb-4`} />
+          {chatData.avatar && !avatarFailed ? (
+            <img src={chatData.avatar} alt={chatPartnerName} onError={() => setAvatarFailed(true)} className="aspect-[3/2] w-full object-cover border-2 border-zinc-800 grayscale mb-4" />
           ) : (
-            <div className={`w-full h-48 border-2 bg-zinc-900 ${tier.color} flex items-center justify-center text-xl font-bold text-white mb-4`}>
+            <div className="aspect-[3/2] w-full border-2 border-zinc-800 bg-zinc-900 flex items-center justify-center text-xl font-bold text-white mb-4">
               {(chatData.user || chatData.name || 'U').charAt(0).toUpperCase()}
             </div>
           )}
           <div className="space-y-4">
             <div>
-              <label className="text-[8px] text-zinc-500 font-black uppercase block">LIFETIME SPEND</label>
-              <div className={`text-sm font-black uppercase tracking-widest ${tier.text}`}>${chatData.lifetimeSpend}</div>
-            </div>
-            <div>
-              <label className="text-[8px] text-zinc-500 font-black uppercase block">BIO</label>
-              <div className={`text-[10px] font-bold text-zinc-400 mt-1`}>{chatData.bio || 'No bio provided'}</div>
+              <label className="text-[8px] text-zinc-500 font-black uppercase block">CHAT SAFETY</label>
+              <div className="text-[10px] font-bold text-zinc-400 mt-1">Messages are screened by Chattie moderation. Use Report or Block if a user is abusive.</div>
             </div>
           </div>
         </div>
@@ -1269,7 +1599,7 @@ function LiveChatInterface({ chatData, activeProfileId, onBack, onEnd, modelName
       {showMediaVault && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowMediaVault(false)} />
-          <div className="relative w-full max-w-2xl bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col animate-in zoom-in-95 duration-200 h-[80vh]">
+          <div className="relative flex h-[80dvh] min-h-0 w-full max-w-2xl flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <ImageIcon className="w-4 h-4 text-zinc-400" /> [{modelName.toUpperCase()}] APPROVED MEDIA VAULT
@@ -1326,12 +1656,12 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
   const connectedCount = remoteParticipants.length + 1;
 
   return (
-    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 p-6 items-center justify-center max-w-6xl mx-auto w-full">
+    <div className="grid min-h-0 w-full flex-1 grid-cols-1 items-center justify-center gap-3 p-2 sm:gap-4 sm:p-3 md:grid-cols-2 lg:p-4">
       <div className="col-span-full text-center text-xs font-semibold text-zinc-400">
         {callMode === 'video' ? 'Video call' : 'Audio call'} • {connectedCount} participant{connectedCount === 1 ? '' : 's'} • {formatDuration(callElapsedSec)}
       </div>
       
-      <div className="w-full h-full max-h-[52vh] rounded-3xl flex flex-col items-center justify-center relative overflow-hidden shadow-2xl gap-4 bg-zinc-900 border border-zinc-800">
+      <div className="relative flex h-full w-full max-h-[52dvh] flex-col items-center justify-center gap-4 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900 shadow-2xl">
         {callMode === 'video' && (localCameraTrack || localStream) ? (
           <>
             {localCameraTrack ? (
@@ -1379,7 +1709,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
         </div>
       </div>
 
-      <div className="w-full h-full max-h-[52vh] rounded-3xl flex flex-col items-center justify-center relative overflow-hidden shadow-2xl gap-4 bg-zinc-900 border border-zinc-800">
+      <div className="relative flex h-full w-full max-h-[52dvh] flex-col items-center justify-center gap-4 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900 shadow-2xl">
         {callMode === 'video' && remoteCameraTrack && (
           <VideoTrack trackRef={remoteCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
         )}

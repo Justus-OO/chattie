@@ -176,7 +176,7 @@ export default function ChatArea({
 
           {/* Room Context Menu */}
           {showRoomMenu && (
-            <div className="absolute top-full right-0 mt-2 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="absolute right-0 top-full z-30 mt-2 w-[clamp(12rem,24vw,16rem)] overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
               <button onClick={() => { setShowRoomMenu(false); toast(t('roomInfoOpened')); }} className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center gap-2">
                 <Info className="w-4 h-4" /> {t('roomInfo')}
               </button>

@@ -37,6 +37,13 @@ export default function RoomDirectory() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
+  const [directoryTab, setDirectoryTab] = useState('discover');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [roomCode, setRoomCode] = useState('');
+  const [isJoiningByCode, setIsJoiningByCode] = useState(false);
+  const isInitialLoading = isLoading && rooms.length === 0;
   
   // --- UI TOGGLES ---
   const [previewRoom, setPreviewRoom] = useState(null);
@@ -49,30 +56,70 @@ export default function RoomDirectory() {
   // ============================================================================
   // EFFECTS & DATA FETCHING
   // ============================================================================
+  const translateRef = useRef(t);
+  translateRef.current = t;
+
   useEffect(() => {
-    const fetchRooms = async () => {
+    let active = true;
+    const timer = setTimeout(async () => {
       setIsLoading(true);
+      setPage(1);
       try {
-        const data = await chatService.getAllRooms();
-        
-        // Ensure tags are always an array and handle room types
-        const formattedRooms = data.map(r => ({
-          ...r,
-          tags: Array.isArray(r.tags) ? r.tags : (typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : []),
-          isVoiceRoom: r.isVoiceRoom || r.category === 'Playtime' || r.icon === '🎙️', // Identification logic
-        }));
-        
-        setRooms(formattedRooms);
+        if (directoryTab === 'joined') {
+          const joinedRooms = await chatService.getMyRooms();
+          if (active) {
+            setRooms(joinedRooms);
+            setHasMore(false);
+          }
+        } else {
+          const category = ['All', 'Trending'].includes(activeCategory) ? undefined : activeCategory;
+          const result = await chatService.getRoomDirectoryPage({
+            page: 1,
+            limit: 20,
+            search: searchQuery.trim() || undefined,
+            category,
+          });
+          if (active) {
+            setRooms(result.rooms);
+            setHasMore(result.hasMore);
+          }
+        }
       } catch (error) {
         console.error("Failed to load rooms:", error);
-        toast.error(t('unableFetchGroups'));
+        if (active) toast.error(translateRef.current('unableFetchGroups'));
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
-    };
+    }, searchQuery ? 250 : 0);
 
-    fetchRooms();
-  }, []);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [directoryTab, activeCategory, searchQuery]);
+
+  const loadMoreRooms = async () => {
+    if (directoryTab !== 'discover' || !hasMore || isLoadingMore) return;
+    setIsLoadingMore(true);
+    const nextPage = page + 1;
+    try {
+      const category = ['All', 'Trending'].includes(activeCategory) ? undefined : activeCategory;
+      const result = await chatService.getRoomDirectoryPage({
+        page: nextPage,
+        limit: 20,
+        search: searchQuery.trim() || undefined,
+        category,
+      });
+      setRooms((current) => [...current, ...result.rooms]);
+      setPage(nextPage);
+      setHasMore(result.hasMore);
+    } catch (error) {
+      console.error("Failed to load more rooms:", error);
+      toast.error(t('unableFetchGroups'));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   // ============================================================================
   // DATA PROCESSING
@@ -163,7 +210,7 @@ export default function RoomDirectory() {
   // ============================================================================
   // HANDLERS
   // ============================================================================
-  const handleJoinRoom = (room) => {
+  const handleJoinRoom = async (room) => {
     if (room.category === 'Exclusive' && !canAccessExclusive) {
       toast.error(t('vipRequired'));
       return;
@@ -173,8 +220,46 @@ export default function RoomDirectory() {
       return;
     }
 
-    setPreviewRoom(null);
-    navigate(`/rooms/${room.id}`, { state: { selectedRoom: room } });
+    try {
+      if (room.isPrivate && directoryTab !== 'joined') {
+        await chatService.requestRoomAccessByID(room.id);
+        toast.success(t('accessRequestSent'));
+        setPreviewRoom(null);
+        return;
+      }
+      await chatService.joinRoom(room.id);
+      setPreviewRoom(null);
+      navigate(`/rooms/${room.id}`, { state: { selectedRoom: room } });
+    } catch (error) {
+      toast.error(error.response?.data?.error || t('roomAccessFailed'));
+    }
+  };
+
+  const handleJoinByCode = async (event) => {
+    event.preventDefault();
+    const code = roomCode.trim();
+    if (!code) return;
+    setIsJoiningByCode(true);
+    try {
+      const room = await chatService.joinRoomByCode(code);
+      setRoomCode('');
+      navigate(`/rooms/${room.id}`, { state: { selectedRoom: room } });
+    } catch (error) {
+      const reason = String(error.response?.data || '');
+      if (reason.includes('requires approval')) {
+        try {
+          await chatService.requestRoomAccess(code);
+          setRoomCode('');
+          toast.success(t('accessRequestSent'));
+        } catch (requestError) {
+          toast.error(requestError.response?.data || t('roomAccessFailed'));
+        }
+      } else {
+        toast.error(reason || t('roomAccessFailed'));
+      }
+    } finally {
+      setIsJoiningByCode(false);
+    }
   };
 
   const handleCreateRoom = async (e) => {
@@ -198,7 +283,10 @@ export default function RoomDirectory() {
       desc: formData.get('desc'),
       tags: tagsArray,
       isPrivate: isPrivate,
-      isVoiceRoom: isVoiceRoom
+      isVoiceRoom: isVoiceRoom,
+      content_mode: 'general',
+      allow_media: true,
+      allow_links: true,
     };
 
     try {
@@ -222,22 +310,10 @@ export default function RoomDirectory() {
   };
 
   // ============================================================================
-  // LOADING STATE
-  // ============================================================================
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center font-mono text-zinc-300 w-full h-full" style={{ fontFamily: 'Roboto, sans-serif' }}>
-        <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
-        <h2 className="text-sm font-black text-white uppercase tracking-widest">{t('loading')} {t('lounges').toUpperCase()}...</h2>
-      </div>
-    );
-  }
-
-  // ============================================================================
   // RENDER
   // ============================================================================
   return (
-    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* HEADER SECTION */}
       <header className="flex flex-col border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(0,0,0,0.5)] z-20">
@@ -279,7 +355,7 @@ export default function RoomDirectory() {
 
         {/* Search & Categories Bar */}
         <div className="px-4 pb-4 flex flex-col md:flex-row gap-4">
-          <div className="relative w-full md:w-80 shrink-0">
+          <div className="relative w-full shrink-0 md:w-[clamp(16rem,26vw,20rem)]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input 
               type="text" 
@@ -289,9 +365,37 @@ export default function RoomDirectory() {
               className="w-full bg-zinc-950 border-2 border-zinc-800 rounded-none pl-9 pr-4 py-2.5 text-xs font-bold text-white uppercase tracking-widest focus:outline-none focus:border-zinc-500 transition-colors placeholder:text-zinc-700"
             />
           </div>
+          <form onSubmit={handleJoinByCode} className="flex gap-2 shrink-0">
+            <input
+              value={roomCode}
+              onChange={(event) => setRoomCode(event.target.value.toUpperCase())}
+              placeholder="ROOM CODE"
+              maxLength={20}
+              className="w-[clamp(7rem,16vw,9rem)] border-2 border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-black tracking-widest text-white outline-none focus:border-zinc-500"
+              aria-label="Room invite code"
+            />
+            <button disabled={isJoiningByCode || !roomCode.trim()} className="px-3 py-2 border-2 border-zinc-700 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+              {isJoiningByCode ? 'Joining…' : 'Join code'}
+            </button>
+          </form>
           
           <div className="flex-1 overflow-x-auto custom-scrollbar flex items-center gap-2">
-            {CATEGORIES.map(cat => {
+            <button
+              onClick={() => setDirectoryTab('discover')}
+              className={`px-4 py-2 border-2 text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${directoryTab === 'discover' ? 'bg-white text-black border-white' : 'bg-black text-zinc-500 border-zinc-800 hover:text-white'}`}
+            >
+              Discover
+            </button>
+            <button
+              onClick={() => {
+                setDirectoryTab('joined');
+                setActiveCategory('All');
+              }}
+              className={`px-4 py-2 border-2 text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${directoryTab === 'joined' ? 'bg-white text-black border-white' : 'bg-black text-zinc-500 border-zinc-800 hover:text-white'}`}
+            >
+              My rooms
+            </button>
+            {directoryTab === 'discover' && CATEGORIES.map(cat => {
               const isExclusive = cat === 'Exclusive';
               const isLocked = isExclusive && !canAccessExclusive;
 
@@ -324,8 +428,8 @@ export default function RoomDirectory() {
       </header>
 
       {/* ROOM GRID */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative bg-black">
-        <div className="max-w-6xl mx-auto w-full">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 custom-scrollbar relative bg-black">
+        <div className="w-full">
           <div className="flex items-center justify-between mb-4 border-b-2 border-zinc-800 pb-2">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2">
               {activeCategory === 'Trending' ? <Flame className="w-3.5 h-3.5 text-zinc-400" /> : <Hash className="w-3.5 h-3.5 text-zinc-400" />} 
@@ -333,7 +437,12 @@ export default function RoomDirectory() {
             </h2>
           </div>
           
-          {processedRooms.length === 0 ? (
+          {isInitialLoading ? (
+            <div className="w-full py-20 flex flex-col items-center justify-center text-center border-2 border-dashed border-zinc-800 bg-zinc-950/50">
+              <Loader2 className="w-8 h-8 text-zinc-400 animate-spin mb-4" />
+              <h3 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{t('loading')} {t('lounges').toUpperCase()}...</h3>
+            </div>
+          ) : processedRooms.length === 0 ? (
             <div className="w-full py-20 flex flex-col items-center justify-center text-center border-2 border-dashed border-zinc-800 bg-zinc-950/50">
               <div className="w-16 h-16 bg-black flex items-center justify-center border-2 border-zinc-800 mb-4">
                 <Search className="w-6 h-6 text-zinc-600" />
@@ -356,7 +465,7 @@ export default function RoomDirectory() {
             >
               {processedRooms.map((room, idx) => {
                 const isFocused = focusedIndex === idx;
-                const isRoomLocked = (room.isPrivate && !canAccessPrivate) || (room.category === 'Exclusive' && !canAccessExclusive);
+                const isRoomLocked = (room.isPrivate && directoryTab !== 'joined' && !canAccessPrivate) || (room.category === 'Exclusive' && !canAccessExclusive);
 
                 return (
                   <div 
@@ -404,7 +513,7 @@ export default function RoomDirectory() {
                         {room.name}
                         {isRoomLocked && <Lock className="w-3.5 h-3.5 text-zinc-600" />}
                       </h3>
-                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest line-clamp-2 mb-4 leading-relaxed min-h-[30px]">
+                      <p className="mb-4 min-h-[2.5em] line-clamp-2 text-[10px] font-bold uppercase tracking-widest leading-relaxed text-zinc-500">
                         {room.desc || t('noDescription')}
                       </p>
                       
@@ -421,6 +530,17 @@ export default function RoomDirectory() {
               })}
             </div>
           )}
+          {directoryTab === 'discover' && hasMore && (
+            <div className="flex justify-center py-6">
+              <button
+                onClick={loadMoreRooms}
+                disabled={isLoadingMore}
+                className="px-6 py-3 border-2 border-zinc-700 bg-zinc-950 text-white text-[10px] font-black uppercase tracking-widest hover:border-white disabled:opacity-50"
+              >
+                {isLoadingMore ? 'Loading…' : 'Load more rooms'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -433,7 +553,7 @@ export default function RoomDirectory() {
             
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-start">
               <div className="flex items-center gap-3">
-                <div className="text-4xl p-3 bg-black border-2 border-zinc-800 flex items-center justify-center min-w-[70px] min-h-[70px]">
+                <div className="flex size-[clamp(4rem,9vw,5rem)] items-center justify-center border-2 border-zinc-800 bg-black p-3 text-4xl">
                   {previewRoom.icon || '💬'}
                 </div>
                 <div>
@@ -483,7 +603,7 @@ export default function RoomDirectory() {
 
               {(() => {
                 const isExclusiveLocked = previewRoom.category === 'Exclusive' && !canAccessExclusive;
-                const isPrivateLocked = previewRoom.isPrivate && !canAccessPrivate;
+                const isPrivateLocked = previewRoom.isPrivate && directoryTab !== 'joined' && !canAccessPrivate;
                 const isLocked = isExclusiveLocked || isPrivateLocked;
 
                 return (
@@ -520,7 +640,7 @@ export default function RoomDirectory() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
           
-          <div className="relative w-full max-w-lg bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
+          <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200">
             
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="font-black text-sm uppercase tracking-widest text-white flex items-center gap-2">

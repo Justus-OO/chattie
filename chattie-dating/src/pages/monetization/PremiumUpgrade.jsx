@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  Zap, Crown, Eye, Heart, MessageSquare, Undo2, 
-  ChevronDown, ShieldCheck, Loader2, X, Lock, ExternalLink, CreditCard, Smartphone
+  Zap, Crown, Eye, Heart, MessageSquare, Undo2,
+  ChevronDown, ShieldCheck, Loader2, X, Lock, ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -50,6 +50,12 @@ const loadPaystackScript = () => new Promise((resolve, reject) => {
   if (!existing) document.body.appendChild(script);
 });
 
+const formatPrice = (amount, currency = 'USD') => new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency,
+  maximumFractionDigits: currency === 'KES' ? 0 : 2,
+}).format(amount);
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -61,7 +67,6 @@ export default function PremiumUpgrade() {
   const [plans, setPlans] = useState([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState(null);
-  const [selectedGateway, setSelectedGateway] = useState('stripe');
   const [expandedFaq, setExpandedFaq] = useState(null);
   
   const [showSummaryModal, setShowSummaryModal] = useState(false);
@@ -134,7 +139,7 @@ export default function PremiumUpgrade() {
     setIsProcessing(true);
     
     try {
-      const sessionData = await billingService.initiateUpgrade(selectedPlan.id, selectedGateway);
+      const sessionData = await billingService.initiateUpgrade(selectedPlan.id);
       
       if (!sessionData || !sessionData.provider) {
         throw new Error('Invalid gateway response received.');
@@ -262,7 +267,7 @@ export default function PremiumUpgrade() {
   // ============================================================================
   if (isLoadingPlans) {
     return (
-      <div className="flex-1 flex flex-col bg-black w-full h-full relative items-center justify-center">
+      <div className="relative flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black">
         <Loader2 className="w-10 h-10 text-yellow-400 animate-spin mb-4" />
         <p className="text-zinc-500 text-xs font-mono tracking-widest font-bold uppercase">SECURELY LOADING PRICING...</p>
       </div>
@@ -273,11 +278,11 @@ export default function PremiumUpgrade() {
   // RENDER - MAIN UI
   // ============================================================================
   return (
-    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
       
       {/* Main Scrollable Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar pb-32 md:pb-12 bg-black">
-        <div className="max-w-4xl mx-auto w-full px-4 py-8 md:py-12 flex flex-col items-center">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar bg-black">
+        <div className="flex min-h-full w-full flex-col items-center px-2 py-4 sm:px-3 lg:px-4">
           
           {/* Hero Section */}
           <div className="text-center mb-10 w-full flex flex-col items-center border-b-2 border-zinc-800 pb-10">
@@ -326,13 +331,12 @@ export default function PremiumUpgrade() {
                   </h3>
                   
                   <div className="flex items-end justify-center gap-1 mb-3">
-                    <span className="text-[10px] text-zinc-500 font-bold pb-1">$</span>
-                    <span className="text-3xl font-black text-white leading-none">{plan.monthly}</span>
+                    <span className="text-3xl font-black text-white leading-none">{formatPrice(plan.monthly, plan.currency)}</span>
                     <span className="text-[10px] text-zinc-500 font-bold pb-1">/MO</span>
                   </div>
                   
                   <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-6">
-                    BILLED ${plan.price} EVERY {plan.id} MONTHS
+                    BILLED {formatPrice(plan.price, plan.currency)} EVERY {plan.id} MONTHS
                   </p>
 
                   {plan.save > 0 ? (
@@ -469,44 +473,17 @@ export default function PremiumUpgrade() {
                   <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">{selectedPlan.duration} SUBSCRIPTION</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-2xl font-black text-white">${selectedPlan.price}</span>
+                  <span className="text-2xl font-black text-white">{formatPrice(selectedPlan.price, selectedPlan.currency)}</span>
                   <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">NO HIDDEN FEES</p>
                 </div>
               </div>
 
-              {/* PAYMENT GATEWAY TOGGLE */}
               <div className="mb-6">
-                <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-3" id="gateway-label">SELECT PAYMENT METHOD</p>
-                <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-labelledby="gateway-label">
-                  <button
-                    role="radio"
-                    aria-checked={selectedGateway === 'stripe'}
-                    onClick={() => !isProcessing && setSelectedGateway('stripe')}
-                    disabled={isProcessing}
-                    className={`py-3 flex flex-col items-center justify-center gap-2 border-2 transition-colors disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-white ${
-                      selectedGateway === 'stripe' 
-                      ? 'bg-zinc-900 border-yellow-400 text-yellow-400' 
-                      : 'bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600'
-                    }`}
-                  >
-                    <CreditCard className="w-5 h-5" aria-hidden="true" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Stripe</span>
-                  </button>
-                  <button
-                    role="radio"
-                    aria-checked={selectedGateway === 'paystack'}
-                    onClick={() => !isProcessing && setSelectedGateway('paystack')}
-                    disabled={isProcessing}
-                    className={`py-3 flex flex-col items-center justify-center gap-2 border-2 transition-colors disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-white ${
-                      selectedGateway === 'paystack' 
-                      ? 'bg-zinc-900 border-yellow-400 text-yellow-400' 
-                      : 'bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600'
-                    }`}
-                  >
-                    <Smartphone className="w-5 h-5" aria-hidden="true" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Paystack</span>
-                  </button>
-                </div>
+                <p className="border-2 border-zinc-800 bg-zinc-950 p-4 text-[9px] font-bold uppercase leading-relaxed tracking-widest text-zinc-500">
+                  {selectedPlan.currency === 'KES'
+                    ? 'Kenya checkout uses KES through Paystack, including supported local payment methods.'
+                    : 'Checkout uses USD through Stripe. Your payment provider and currency are selected automatically from your verified region.'}
+                </p>
               </div>
 
               <div className="flex items-center gap-2 mb-6 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-950 p-4 border-2 border-zinc-800 leading-relaxed">
@@ -535,7 +512,7 @@ export default function PremiumUpgrade() {
           ===================================================================== */}
       {paymentSession?.provider === 'stripe' && stripePromise && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-8 bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="w-full max-w-4xl bg-white relative rounded-none border-2 border-zinc-600 overflow-hidden h-[95vh] md:h-auto max-h-[900px] shadow-[8px_8px_0px_rgba(250,204,21,0.3)] animate-in zoom-in-95 duration-300">
+          <div className="relative h-[95dvh] max-h-[95dvh] w-full max-w-4xl overflow-hidden border-2 border-zinc-600 bg-white shadow-[8px_8px_0px_rgba(250,204,21,0.3)] animate-in zoom-in-95 duration-300 md:h-auto">
             
             <button 
               onClick={handleCloseStripeModal}

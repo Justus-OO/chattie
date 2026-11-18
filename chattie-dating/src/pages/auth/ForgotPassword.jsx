@@ -46,7 +46,28 @@ export default function ForgotPassword() {
   };
 
   return (
-    <main className="min-h-dvh bg-black px-6 py-12 font-mono text-zinc-300">
+    <main className="flex min-h-dvh overflow-x-hidden bg-black font-mono text-zinc-300">
+      <aside className="relative hidden min-h-dvh w-1/2 items-center justify-center overflow-hidden border-r-2 border-zinc-800 bg-black lg:flex">
+        <img
+          src="https://images.unsplash.com/photo-1555529771-835f59bfc50c?auto=format&fit=crop&w=1200&q=80"
+          alt="Nightlife scene"
+          className="absolute inset-0 h-full w-full object-cover grayscale opacity-30"
+        />
+        <div className="absolute inset-0 bg-black/40" />
+        <div className="relative z-10 max-w-lg p-8 text-left xl:p-12">
+          <div className="mb-8 inline-flex items-center gap-2 border-2 border-white bg-black px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white">
+            <Flame className="h-4 w-4" /> Chattie Premium
+          </div>
+          <h2 className="mb-6 text-4xl font-black uppercase leading-tight tracking-widest text-white xl:text-5xl">
+            Secure your account
+          </h2>
+          <p className="text-xs font-bold uppercase leading-relaxed tracking-widest text-zinc-400">
+            Reset your password with a secure one-time code and get back to your conversations.
+          </p>
+        </div>
+      </aside>
+
+      <div className="flex min-h-dvh w-full flex-col justify-center bg-black px-4 py-8 sm:px-8 md:px-12 lg:w-1/2 lg:px-16">
       <section className="mx-auto w-full max-w-md">
         <div className="mb-8 flex h-12 w-12 items-center justify-center border-2 border-white">
           <Flame className="h-6 w-6 text-white" />
@@ -130,6 +151,7 @@ export default function ForgotPassword() {
           <ArrowLeft className="h-4 w-4" /> Back to login
         </Link>
       </section>
+        </div>
     </main>
   );
 }

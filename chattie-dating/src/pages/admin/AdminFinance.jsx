@@ -1,494 +1,311 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  DollarSign, TrendingUp, TrendingDown, Activity, 
-  BarChart3, PieChart, CreditCard, Wallet, Percent, 
-  ArrowUpRight, ArrowDownRight, RefreshCcw, Download, 
-  Filter, Calendar, ChevronDown, Terminal, Target,
-  Zap, Users
-} from 'lucide-react';
-import { toast } from 'sonner';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, CalendarDays, Download, RefreshCcw, Wallet } from 'lucide-react';
+import { adminService } from '../../api/admin.service';
 
-// ============================================================================
-// MOCK DATA: FINANCIAL TIME-SERIES & UNIT ECONOMICS
-// ============================================================================
-const generate30DayData = () => {
-  return Array.from({ length: 30 }).map((_, i) => {
-    const baseSubs = 12000 + (i * 150); // Upward trend
-    const randomTips = 5000 + Math.floor(Math.random() * 4000);
-    return {
-      day: `AUG ${(i + 1).toString().padStart(2, '0')}`,
-      subscriptions: baseSubs + Math.floor(Math.random() * 1000 - 500),
-      tips: randomTips,
-      total: baseSubs + randomTips,
-    };
-  });
+const periods = ['7D', '30D', '90D', 'YTD'];
+const usdStatuses = new Set(['PENDING', 'APPROVED']);
+const afterDarkPendingStatuses = new Set(['REQUESTED', 'SUBMITTING', 'SUBMISSION_UNKNOWN', 'PROCESSING']);
+
+const getErrorMessage = (error) => error?.response?.data?.error
+  || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '')
+  || (error instanceof Error ? error.message : 'Could not load finance analytics.');
+
+const formatMoney = (currency, minorUnits) => {
+  const amount = Number(minorUnits || 0) / 100;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency || 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    return `${currency || 'Unknown'} ${amount.toFixed(2)}`;
+  }
 };
 
-const MOCK_CHART_DATA = generate30DayData();
-const MAX_CHART_VAL = Math.max(...MOCK_CHART_DATA.map(d => d.total));
+const payoutTotals = (rows, pendingStatuses) => rows.reduce((totals, row) => {
+  if (pendingStatuses.has(String(row.status || '').toUpperCase())) {
+    totals.count += Number(row.requestCount || 0);
+    totals.amountMinor += Number(row.amountMinor || 0);
+  }
+  return totals;
+}, { count: 0, amountMinor: 0 });
 
-const MOCK_COHORTS = [
-  { month: 'MAR 2026', users: 1240, m1: 88, m2: 74, m3: 65, m4: 52, m5: 48 },
-  { month: 'APR 2026', users: 1855, m1: 91, m2: 78, m3: 70, m4: 61, m5: '-' },
-  { month: 'MAY 2026', users: 2100, m1: 85, m2: 72, m3: 60, m4: '-', m5: '-' },
-  { month: 'JUN 2026', users: 2840, m1: 93, m2: 81, m3: '-', m4: '-', m5: '-' },
-  { month: 'JUL 2026', users: 3150, m1: 89, m2: '-', m3: '-', m4: '-', m5: '-' },
-];
+const escapeCsv = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
-const TOP_EARNING_PERSONAS = [
-  { id: 'P_108', name: 'Sarah_Viper', rev: 45200, growth: '+12%' },
-  { id: 'P_102', name: 'Elena_NYC', rev: 38900, growth: '+5%' },
-  { id: 'P_105', name: 'Mia_Tokyo', rev: 29150, growth: '-2%' },
-  { id: 'P_112', name: 'Chloe_Fit', rev: 18400, growth: '+22%' },
-];
-
-// ============================================================================
-// COMPONENT: ADMIN FINANCE & ANALYTICS
-// ============================================================================
 export default function AdminFinance() {
-  const [activeTab, setActiveTab] = useState('REVENUE'); // REVENUE, ECONOMICS, COHORTS
-  const [timeframe, setTimeframe] = useState('30D'); // 7D, 30D, 90D, YTD
-  const [isExporting, setIsExporting] = useState(false);
-
-  // Telemetry Simulation
-  const [metrics, setMetrics] = useState({
-    mrr: 485200.00,
-    arpu: 42.15,
-    churn: 4.2,
-    cac: 12.50
-  });
+  const [period, setPeriod] = useState('30D');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [finance, setFinance] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMetrics(prev => ({
-        ...prev,
-        mrr: prev.mrr + (Math.random() * 100 - 50),
-      }));
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    let active = true;
+    setIsLoading(true);
+    setLoadError('');
 
-  const handleExport = () => {
-    setIsExporting(true);
-    toast('Compiling financial ledger and chart data...');
-    setTimeout(() => {
-      setIsExporting(false);
-      toast.success('Financial_Report_AUG2026.csv downloaded.');
-    }, 1500);
+    adminService.getFinanceAnalytics(period)
+      .then((response) => {
+        if (!response || !Array.isArray(response.revenueBySource)
+          || !Array.isArray(response.dailyRevenue)
+          || !Array.isArray(response.creatorPayouts)
+          || !Array.isArray(response.afterDarkWithdrawals)) {
+          throw new Error('The finance service returned an invalid response.');
+        }
+        if (active) setFinance(response);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setLoadError(getErrorMessage(error));
+        setFinance(null);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [period, refreshKey]);
+
+  const collectionTotals = useMemo(() => {
+    const totals = new Map();
+    for (const row of finance?.revenueBySource || []) {
+      const currency = row.currency || 'Unknown';
+      totals.set(currency, (totals.get(currency) || 0) + Number(row.amountMinor || 0));
+    }
+    return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right));
+  }, [finance]);
+
+  const paymentCount = useMemo(
+    () => (finance?.revenueBySource || []).reduce((count, row) => count + Number(row.paymentCount || 0), 0),
+    [finance],
+  );
+  const cryptoPending = payoutTotals(finance?.creatorPayouts || [], usdStatuses);
+  const afterDarkPending = payoutTotals(finance?.afterDarkWithdrawals || [], afterDarkPendingStatuses);
+
+  const exportReport = () => {
+    if (!finance) return;
+    const rows = [
+      ['Section', 'Date', 'Source or status', 'Currency', 'Amount minor units', 'Count'],
+      ...finance.revenueBySource.map((item) => [
+        'Collected payments', '', item.source, item.currency, item.amountMinor, item.paymentCount,
+      ]),
+      ...finance.dailyRevenue.map((item) => [
+        'Daily collections', item.date, item.source, item.currency, item.amountMinor, item.paymentCount,
+      ]),
+      ...finance.creatorPayouts.map((item) => [
+        'Creator crypto payouts', '', item.status, 'USD', item.amountMinor, item.requestCount,
+      ]),
+      ...finance.afterDarkWithdrawals.map((item) => [
+        'After Dark withdrawals', '', item.status, 'KES', item.amountMinor, item.requestCount,
+      ]),
+    ];
+    const csv = rows.map((row) => row.map(escapeCsv).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `finance-${period.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
-  return (
-    <div className="flex-1 bg-black min-h-screen text-zinc-300 font-mono flex flex-col rounded-none overflow-hidden relative" style={{ fontFamily: 'Roboto, sans-serif' }}>
-      
-      {/* =========================================
-          TOP TELEMETRY BAR
-          ========================================= */}
-      <div className="border-b-2 border-zinc-800 bg-zinc-950 p-4 flex flex-wrap justify-between items-center text-[10px] uppercase font-black tracking-widest shrink-0 gap-4 z-10 relative">
-        <div className="flex items-center gap-6">
-          <span className="flex items-center gap-2 text-green-500">
-            <Activity className="w-4 h-4 animate-pulse" /> FINANCE TELEMETRY ONLINE
-          </span>
-          <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500 hidden sm:inline-block">
-            LATEST AGGREGATION: <span className="text-white">JUST NOW</span>
-          </span>
-          <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500 hidden md:inline-block">
-            DATA WAREHOUSE: <span className="text-blue-400">SYNCED</span>
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-zinc-500 hidden sm:inline-block">PIPELINE: <span className="text-green-400">HEALTHY</span></span>
-          <button 
-            onClick={() => toast('Force re-calculating LTV metrics...')}
-            className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors bg-black border-2 border-zinc-800 px-3 py-1"
-          >
-            <RefreshCcw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">RECALC</span>
-          </button>
-        </div>
-      </div>
+  const activeSubscriptions = Number(finance?.activeMainSubscriptions || 0)
+    + Number(finance?.activeAfterDarkSubscriptions || 0);
 
-      {/* =========================================
-          MAIN HEADER & TABS
-          ========================================= */}
-      <div className="p-6 md:p-8 border-b-2 border-zinc-800 bg-black shrink-0 flex flex-col gap-6 z-10 relative">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+  return (
+    <main className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-black p-2 font-mono text-zinc-300 sm:p-3 lg:p-4">
+      <div className="w-full space-y-4">
+        <header className="flex flex-col justify-between gap-5 border-b-2 border-zinc-800 pb-6 sm:flex-row sm:items-end">
           <div>
-            <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
-              <BarChart3 className="w-8 h-8 text-green-500" /> Platform Analytics
-            </h1>
-            <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-              MONTHLY RECURRING REVENUE, UNIT ECONOMICS, AND COHORT RETENTION
+            <p className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-green-400">
+              <Activity className="h-4 w-4" /> Finance · Live ledger data
+            </p>
+            <h1 className="text-2xl font-black uppercase tracking-widest text-white sm:text-3xl">Platform finance</h1>
+            <p className="mt-2 max-w-3xl text-[10px] font-bold uppercase leading-relaxed tracking-widest text-zinc-500">
+              Confirmed checkouts are reported by source currency. Creator payout liabilities and After Dark withdrawals remain separate to avoid mixing currencies.
             </p>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <div className="flex items-center bg-zinc-950 border-2 border-zinc-800 p-1">
-              {['7D', '30D', '90D', 'YTD'].map(tf => (
-                <button 
-                  key={tf}
-                  onClick={() => setTimeframe(tf)}
-                  className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                    timeframe === tf ? 'bg-white text-black' : 'text-zinc-500 hover:text-white'
-                  }`}
+          <div className="flex flex-wrap gap-2">
+            <div className="flex items-center border-2 border-zinc-800 bg-zinc-950 p-1" aria-label="Select reporting period">
+              {periods.map((option) => (
+                <button
+                  type="button"
+                  key={option}
+                  aria-pressed={period === option}
+                  onClick={() => setPeriod(option)}
+                  className={`px-3 py-2 text-[9px] font-black tracking-widest ${period === option ? 'bg-white text-black' : 'text-zinc-500 hover:text-white'}`}
                 >
-                  {tf}
+                  {option}
                 </button>
               ))}
             </div>
-            <button 
-              onClick={handleExport}
-              disabled={isExporting}
-              className="flex items-center gap-2 bg-zinc-900 text-zinc-300 border-2 border-zinc-700 px-6 py-3 font-black text-xs uppercase tracking-widest hover:border-white hover:text-white transition-colors disabled:opacity-50"
-            >
-              {isExporting ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} 
-              <span className="hidden sm:inline">EXPORT</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex flex-wrap gap-2 border-b-2 border-zinc-800">
-          {[
-            { id: 'REVENUE', label: 'REVENUE TRENDS', icon: TrendingUp },
-            { id: 'ECONOMICS', label: 'UNIT ECONOMICS', icon: Target },
-            { id: 'COHORTS', label: 'COHORT RETENTION', icon: Users }
-          ].map(tab => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-6 py-3 text-[10px] font-black uppercase tracking-widest border-b-4 transition-colors flex items-center gap-2 ${
-                activeTab === tab.id 
-                  ? 'border-white text-white bg-zinc-900' 
-                  : 'border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-zinc-950'
-              }`}
+              type="button"
+              onClick={() => setRefreshKey((key) => key + 1)}
+              disabled={isLoading}
+              className="flex items-center gap-2 border-2 border-zinc-700 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white disabled:opacity-50"
             >
-              <tab.icon className="w-4 h-4" /> {tab.label}
+              <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
             </button>
-          ))}
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={exportReport}
+              disabled={!finance || isLoading}
+              className="flex items-center gap-2 border-2 border-white bg-white px-4 py-2 text-[9px] font-black uppercase tracking-widest text-black hover:bg-zinc-200 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" /> Export CSV
+            </button>
+          </div>
+        </header>
 
-      {/* =========================================
-          TAB CONTENT AREA
-          ========================================= */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-black">
-        
-        {/* =========================================
-            TAB 1: REVENUE TRENDS (CHARTS)
-            ========================================= */}
-        {activeTab === 'REVENUE' && (
-          <div className="p-6 md:p-8 space-y-6">
-            
-            {/* Top KPIs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex flex-col relative overflow-hidden group hover:border-green-500 transition-colors">
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <DollarSign className="w-24 h-24 text-green-500" />
-                </div>
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4 border-b-2 border-zinc-800 pb-2 relative z-10 flex items-center gap-2">
-                  <TrendingUp className="w-3 h-3 text-green-500" /> Projected MRR
-                </span>
-                <span className="text-3xl font-black text-white mb-1 relative z-10">
-                  ${metrics.mrr.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                </span>
-                <div className="text-[9px] text-green-400 font-bold uppercase tracking-widest flex items-center gap-1 relative z-10">
-                  <ArrowUpRight className="w-3 h-3" /> +14.2% MoM
-                </div>
-              </div>
+        {loadError && (
+          <section role="alert" className="border-2 border-red-900 bg-red-950/30 p-4 text-xs text-red-300">
+            <p>{loadError}</p>
+            <button type="button" className="mt-3 text-[10px] font-black uppercase underline" onClick={() => setRefreshKey((key) => key + 1)}>
+              Retry
+            </button>
+          </section>
+        )}
 
-              <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex flex-col relative overflow-hidden group hover:border-blue-500 transition-colors">
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4 border-b-2 border-zinc-800 pb-2 relative z-10 flex items-center gap-2">
-                  <CreditCard className="w-3 h-3 text-blue-500" /> Avg Rev Per User (ARPU)
-                </span>
-                <span className="text-3xl font-black text-white mb-1 relative z-10">
-                  ${metrics.arpu.toFixed(2)}
-                </span>
-                <div className="text-[9px] text-green-400 font-bold uppercase tracking-widest flex items-center gap-1 relative z-10">
-                  <ArrowUpRight className="w-3 h-3" /> +$2.14 vs Last Month
-                </div>
-              </div>
+        {isLoading && !finance ? (
+          <p role="status" className="border-2 border-zinc-800 p-8 text-center text-xs text-zinc-500">Loading finance records…</p>
+        ) : !finance ? (
+          <p className="border-2 border-dashed border-zinc-800 p-8 text-center text-xs text-zinc-500">Finance data is unavailable.</p>
+        ) : (
+          <>
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Confirmed checkouts · {finance.period}</p>
+                <p className="mt-3 text-3xl font-black text-white">{paymentCount.toLocaleString()}</p>
+                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">Main app and After Dark payments</p>
+              </article>
+              <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Active subscriptions</p>
+                <p className="mt-3 text-3xl font-black text-white">{activeSubscriptions.toLocaleString()}</p>
+                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">
+                  Main app {Number(finance.activeMainSubscriptions).toLocaleString()} · After Dark {Number(finance.activeAfterDarkSubscriptions).toLocaleString()}
+                </p>
+              </article>
+              <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Creator payouts reserved</p>
+                <p className="mt-3 text-2xl font-black text-amber-300">{formatMoney('USD', cryptoPending.amountMinor)}</p>
+                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">{cryptoPending.count} pending or approved request(s)</p>
+              </article>
+              <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
+                <p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                  <Wallet className="h-3 w-3" /> After Dark withdrawals in progress
+                </p>
+                <p className="mt-3 text-2xl font-black text-amber-300">{formatMoney('KES', afterDarkPending.amountMinor)}</p>
+                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">{afterDarkPending.count} active withdrawal request(s)</p>
+              </article>
+            </section>
 
-              <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex flex-col relative overflow-hidden group hover:border-yellow-500 transition-colors">
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4 border-b-2 border-zinc-800 pb-2 relative z-10 flex items-center gap-2">
-                  <Wallet className="w-3 h-3 text-yellow-500" /> Gross Tip Volume (30D)
-                </span>
-                <span className="text-3xl font-black text-white mb-1 relative z-10">
-                  $184,205
-                </span>
-                <div className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest flex items-center gap-1 relative z-10">
-                  Excludes Subscription Revenue
-                </div>
-              </div>
-
-              <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex flex-col relative overflow-hidden group hover:border-red-500 transition-colors">
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4 border-b-2 border-zinc-800 pb-2 relative z-10 flex items-center gap-2">
-                  <Activity className="w-3 h-3 text-red-500" /> Subscription Churn
-                </span>
-                <span className="text-3xl font-black text-red-400 mb-1 relative z-10">
-                  {metrics.churn.toFixed(1)}%
-                </span>
-                <div className="text-[9px] text-red-500 font-bold uppercase tracking-widest flex items-center gap-1 relative z-10">
-                  <ArrowUpRight className="w-3 h-3" /> +0.4% MoM (Needs Review)
-                </div>
-              </div>
-            </div>
-
-            {/* Main CSS Neo-Brutalist Chart */}
-            <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex flex-col h-[500px]">
-              <div className="flex justify-between items-center mb-8 border-b-2 border-zinc-800 pb-4">
-                <div>
-                  <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-green-500" /> Gross Revenue Velocity (30 Days)
-                  </h2>
-                  <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-1">
-                    Stacked visual: Subscriptions (Blue) vs Direct Tips (Green)
+            <section className="grid gap-6 xl:grid-cols-[1.1fr_1.9fr]">
+              <div className="border-2 border-zinc-800 bg-zinc-950">
+                <header className="border-b-2 border-zinc-800 bg-black p-4">
+                  <h2 className="text-xs font-black uppercase tracking-widest text-white">Confirmed collections by source</h2>
+                  <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">No cross-currency totals</p>
+                </header>
+                {finance.revenueBySource.length === 0 ? (
+                  <p className="p-6 text-center text-[10px] uppercase tracking-widest text-zinc-600">No confirmed payments in this period.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-full text-left text-[10px]">
+                      <thead className="text-[9px] uppercase tracking-widest text-zinc-500">
+                        <tr><th className="p-3">Source</th><th className="p-3">Currency</th><th className="p-3 text-right">Collected</th><th className="p-3 text-right">Payments</th></tr>
+                      </thead>
+                      <tbody>
+                        {finance.revenueBySource.map((row) => (
+                          <tr key={`${row.source}-${row.currency}`} className="border-t border-zinc-800">
+                            <td className="p-3 font-bold text-white">{String(row.source).replaceAll('_', ' ')}</td>
+                            <td className="p-3 text-zinc-400">{row.currency}</td>
+                            <td className="p-3 text-right font-black text-green-300">{formatMoney(row.currency, row.amountMinor)}</td>
+                            <td className="p-3 text-right text-zinc-400">{Number(row.paymentCount).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {collectionTotals.length > 1 && (
+                  <p className="border-t border-zinc-800 p-3 text-[9px] uppercase tracking-widest text-zinc-600">
+                    Collections are split across {collectionTotals.map(([currency]) => currency).join(', ')}; totals are intentionally not combined.
                   </p>
-                </div>
-                <div className="flex gap-4">
-                  <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400">
-                    <span className="w-3 h-3 bg-blue-500 border border-black"></span> Subscriptions
-                  </div>
-                  <div className="flex items-center gap-2 text-[9px] font-black uppercase text-zinc-400">
-                    <span className="w-3 h-3 bg-green-500 border border-black"></span> Tips
-                  </div>
-                </div>
+                )}
               </div>
 
-              <div className="flex-1 flex items-end gap-1 sm:gap-2 relative">
-                {/* Y-Axis Lines */}
-                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="w-full border-t border-dashed border-zinc-500 h-0 relative">
-                      <span className="absolute -top-3 -left-2 text-[8px] font-mono text-zinc-400 bg-zinc-950 px-1">
-                        {Math.floor(MAX_CHART_VAL * (4 - i) / 4 / 1000)}k
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Bars */}
-                {MOCK_CHART_DATA.map((data, index) => {
-                  const subHeight = (data.subscriptions / MAX_CHART_VAL) * 100;
-                  const tipHeight = (data.tips / MAX_CHART_VAL) * 100;
-
-                  return (
-                    <div key={index} className="flex-1 flex flex-col justify-end items-center group relative h-full pb-6 z-10">
-                      
-                      {/* Tooltip */}
-                      <div className="absolute -top-12 opacity-0 group-hover:opacity-100 bg-white text-black p-2 border-2 border-black pointer-events-none transition-opacity z-50 min-w-max text-center shadow-[4px_4px_0px_rgba(0,0,0,0.5)]">
-                        <div className="text-[10px] font-black uppercase border-b border-black/20 pb-1 mb-1">{data.day}</div>
-                        <div className="text-[9px] font-bold text-blue-600">SUB: ${data.subscriptions.toLocaleString()}</div>
-                        <div className="text-[9px] font-bold text-green-600">TIP: ${data.tips.toLocaleString()}</div>
-                        <div className="text-[9px] font-black mt-1">TOTAL: ${data.total.toLocaleString()}</div>
-                      </div>
-
-                      {/* Stacked Bar */}
-                      <div className="w-full max-w-[24px] flex flex-col justify-end border-2 border-transparent group-hover:border-white transition-colors relative">
-                        <div 
-                          className="w-full bg-green-500 border-t border-black/20 transition-all duration-500 hover:brightness-110" 
-                          style={{ height: `${tipHeight}%` }}
-                        ></div>
-                        <div 
-                          className="w-full bg-blue-500 border-t border-black/20 transition-all duration-500 hover:brightness-110" 
-                          style={{ height: `${subHeight}%` }}
-                        ></div>
-                      </div>
-
-                      {/* X-Axis Label */}
-                      <span className="text-[7px] font-mono text-zinc-600 uppercase mt-2 absolute bottom-0 -rotate-45 origin-top-left hidden sm:block">
-                        {data.day.replace('AUG ', '')}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* =========================================
-            TAB 2: UNIT ECONOMICS
-            ========================================= */}
-        {activeTab === 'ECONOMICS' && (
-          <div className="p-6 md:p-8 space-y-6 max-w-6xl mx-auto">
-            
-            <div className="mb-6 bg-zinc-950 border-2 border-zinc-800 p-6 flex items-start gap-4">
-              <Target className="w-8 h-8 text-blue-500 shrink-0" />
-              <div>
-                <h2 className="text-lg font-black text-white uppercase tracking-widest mb-2">Customer Acquisition & LTV</h2>
-                <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-relaxed">
-                  Monitoring the fundamental profitability of the platform. Ensure Lifetime Value (LTV) remains significantly higher than Customer Acquisition Cost (CAC) for sustainable scaling.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* LTV:CAC Ratio Box */}
-              <div className="bg-black border-2 border-zinc-800 p-8 flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                  <Percent className="w-4 h-4 text-purple-400" /> LTV : CAC Ratio
-                </span>
-                <div className="text-6xl font-black text-white mb-4">
-                  4.8 <span className="text-3xl text-zinc-600">: 1</span>
-                </div>
-                <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-[9px] font-black px-3 py-1 uppercase tracking-widest">
-                  EXCELLENT (Target  3:1)
-                </div>
-                <p className="text-[9px] text-zinc-500 uppercase font-bold mt-6 max-w-xs leading-relaxed">
-                  For every $1 spent on marketing/acquisition, the platform generates $4.80 in net profit over the user's lifetime.
-                </p>
-              </div>
-
-              {/* Specific Economics */}
-              <div className="space-y-4">
-                <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex justify-between items-center group hover:border-red-500 transition-colors">
+              <div className="border-2 border-zinc-800 bg-zinc-950">
+                <header className="flex items-center justify-between border-b-2 border-zinc-800 bg-black p-4">
                   <div>
-                    <span className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Blended CAC</span>
-                    <span className="text-2xl font-black text-white">${metrics.cac.toFixed(2)}</span>
+                    <h2 className="text-xs font-black uppercase tracking-widest text-white">Daily confirmed payments</h2>
+                    <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">Settlement date · {finance.period}</p>
                   </div>
-                  <div className="text-right">
-                    <span className="block text-[9px] text-red-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1 justify-end">
-                      <ArrowUpRight className="w-3 h-3" /> +$1.10 MoM
-                    </span>
-                    <span className="text-[8px] text-zinc-600 uppercase font-mono">Ad spend increasing</span>
-                  </div>
-                </div>
-
-                <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex justify-between items-center group hover:border-green-500 transition-colors">
-                  <div>
-                    <span className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Estimated LTV</span>
-                    <span className="text-2xl font-black text-green-400">$60.00</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="block text-[9px] text-green-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1 justify-end">
-                      <ArrowUpRight className="w-3 h-3" /> +$4.20 MoM
-                    </span>
-                    <span className="text-[8px] text-zinc-600 uppercase font-mono">Better retention</span>
-                  </div>
-                </div>
-
-                <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex justify-between items-center group hover:border-blue-500 transition-colors">
-                  <div>
-                    <span className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Payback Period</span>
-                    <span className="text-2xl font-black text-white">14 Days</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="block text-[9px] text-blue-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1 justify-end">
-                      <CheckCircle2 className="w-3 h-3" /> Optimal
-                    </span>
-                    <span className="text-[8px] text-zinc-600 uppercase font-mono">Time to recover CAC</span>
-                  </div>
+                  <CalendarDays className="h-4 w-4 text-zinc-500" />
+                </header>
+                <div className="max-h-[60dvh] overflow-auto">
+                  {finance.dailyRevenue.length === 0 ? (
+                    <p className="p-6 text-center text-[10px] uppercase tracking-widest text-zinc-600">No confirmed payments in this period.</p>
+                  ) : (
+                    <table className="w-full min-w-full text-left text-[10px]">
+                      <thead className="sticky top-0 bg-zinc-950 text-[9px] uppercase tracking-widest text-zinc-500">
+                        <tr><th className="p-3">Date</th><th className="p-3">Source</th><th className="p-3">Currency</th><th className="p-3 text-right">Amount</th><th className="p-3 text-right">Count</th></tr>
+                      </thead>
+                      <tbody>
+                        {finance.dailyRevenue.map((row) => (
+                          <tr key={`${row.date}-${row.source}-${row.currency}`} className="border-t border-zinc-800">
+                            <td className="p-3 text-zinc-400">{row.date}</td>
+                            <td className="p-3 font-bold text-white">{String(row.source).replaceAll('_', ' ')}</td>
+                            <td className="p-3 text-zinc-400">{row.currency}</td>
+                            <td className="p-3 text-right font-black text-green-300">{formatMoney(row.currency, row.amountMinor)}</td>
+                            <td className="p-3 text-right text-zinc-400">{Number(row.paymentCount).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
+            </section>
 
-            </div>
-
-            {/* Top Earners Box */}
-            <div className="mt-6 bg-zinc-950 border-2 border-zinc-800 overflow-hidden flex flex-col lg:flex-row">
-              <div className="p-6 bg-black border-b-2 lg:border-b-0 lg:border-r-2 border-zinc-800 lg:w-1/3 flex flex-col justify-center">
-                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <Star className="w-4 h-4 text-yellow-400" /> Top Earner Personas
-                </h3>
-                <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest leading-relaxed">
-                  These virtual personas drive the highest direct tip volume and engagement LTV. Ensure operators manning these profiles are retained.
-                </p>
-              </div>
-              <div className="flex-1 p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {TOP_EARNING_PERSONAS.map((p, i) => (
-                  <div key={p.id} className="border-2 border-zinc-800 bg-black p-4 flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-black text-zinc-600">#{i+1}</span>
-                      <div>
-                        <span className="block text-[10px] font-black text-white uppercase">{p.name}</span>
-                        <span className="block text-[8px] text-zinc-500 font-mono mt-0.5">{p.id}</span>
-                      </div>
+            <section className="grid gap-6 lg:grid-cols-2">
+              {[
+                { title: 'Creator crypto payout requests · USD', rows: finance.creatorPayouts, currency: 'USD' },
+                { title: 'After Dark withdrawals · KES', rows: finance.afterDarkWithdrawals, currency: 'KES' },
+              ].map((group) => (
+                <div key={group.title} className="border-2 border-zinc-800 bg-zinc-950">
+                  <header className="border-b-2 border-zinc-800 bg-black p-4">
+                    <h2 className="text-xs font-black uppercase tracking-widest text-white">{group.title}</h2>
+                  </header>
+                  {group.rows.length === 0 ? (
+                    <p className="p-5 text-center text-[10px] uppercase tracking-widest text-zinc-600">No payout requests found.</p>
+                  ) : (
+                    <div className="divide-y divide-zinc-800">
+                      {group.rows.map((row) => (
+                        <div key={row.status} className="flex items-center justify-between gap-4 p-4">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-white">{row.status}</p>
+                            <p className="mt-1 text-[9px] text-zinc-500">{Number(row.requestCount).toLocaleString()} request(s)</p>
+                          </div>
+                          <p className="text-sm font-black text-zinc-200">{formatMoney(group.currency, row.amountMinor)}</p>
+                        </div>
+                      ))}
                     </div>
-                    <div className="text-right">
-                      <span className="block text-sm font-black text-green-400">${p.rev.toLocaleString()}</span>
-                      <span className={`block text-[8px] font-black uppercase ${p.growth.startsWith('+') ? 'text-green-500' : 'text-red-500'}`}>{p.growth}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+                  )}
+                </div>
+              ))}
+            </section>
 
-          </div>
+            <footer className="border-t-2 border-zinc-800 pt-4 text-[9px] uppercase tracking-widest text-zinc-600">
+              <p>Generated {finance.generatedAt ? new Date(finance.generatedAt).toLocaleString() : 'just now'} · Confirmed checkouts only.</p>
+              <p className="mt-2">CAC, LTV, churn, and cohort retention are not shown because the current database does not record their required cost or subscription-history inputs.</p>
+            </footer>
+          </>
         )}
-
-        {/* =========================================
-            TAB 3: COHORT RETENTION
-            ========================================= */}
-        {activeTab === 'COHORTS' && (
-          <div className="p-6 md:p-8 space-y-6">
-            <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b-2 border-zinc-800 pb-6">
-              <div>
-                <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-purple-400" /> Subscription Cohort Analysis
-                </h2>
-                <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
-                  TRACKING PERCENTAGE OF USERS RETAINED BY THE MONTH THEY SUBSCRIBED
-                </p>
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2 bg-zinc-950 border-2 border-zinc-800">
-                <span className="text-[10px] font-black text-zinc-500 uppercase">AVG M1 RETENTION:</span>
-                <span className="text-[10px] font-black text-green-400 uppercase">89.2%</span>
-              </div>
-            </div>
-
-            <div className="bg-zinc-950 border-2 border-zinc-800 overflow-x-auto">
-              <table className="w-full text-center text-xs font-mono whitespace-nowrap">
-                <thead className="bg-black border-b-2 border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-widest">
-                  <tr>
-                    <th className="p-4 text-left border-r-2 border-zinc-800">Cohort Month</th>
-                    <th className="p-4 border-r-2 border-zinc-800">New Users</th>
-                    <th className="p-4">Month 1</th>
-                    <th className="p-4">Month 2</th>
-                    <th className="p-4">Month 3</th>
-                    <th className="p-4">Month 4</th>
-                    <th className="p-4">Month 5</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y-2 divide-zinc-900 text-white font-bold tracking-wide">
-                  {MOCK_COHORTS.map(cohort => (
-                    <tr key={cohort.month} className="hover:bg-zinc-900 transition-colors">
-                      <td className="p-4 text-left border-r-2 border-zinc-800 bg-black">{cohort.month}</td>
-                      <td className="p-4 border-r-2 border-zinc-800 text-zinc-400">{cohort.users.toLocaleString()}</td>
-                      
-                      {[cohort.m1, cohort.m2, cohort.m3, cohort.m4, cohort.m5].map((val, idx) => {
-                        // Calculate color intensity based on retention percentage
-                        let bgColor = 'bg-transparent';
-                        let textColor = 'text-zinc-600';
-                        if (val !== '-') {
-                          if (val > 80) { bgColor = 'bg-green-500/20'; textColor = 'text-green-400'; }
-                          else if (val > 60) { bgColor = 'bg-yellow-500/20'; textColor = 'text-yellow-400'; }
-                          else { bgColor = 'bg-red-500/20'; textColor = 'text-red-400'; }
-                        }
-                        
-                        return (
-                          <td key={idx} className={`p-4 ${bgColor} ${textColor} border-l border-zinc-900/50`}>
-                            {val !== '-' ? `${val}%` : '-'}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-8 bg-zinc-950 border-2 border-zinc-800 p-6">
-              <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-zinc-500" /> Retention Insight
-              </h3>
-              <p className="text-xs text-zinc-400 uppercase font-mono font-bold leading-relaxed">
-                The Month 1 (M1) retention rate defines the percentage of users who renew their subscription after the first 30 days. High churn in M1 indicates a mismatch between user expectations and platform value. Current M1 retention is strong at 89.2%, significantly above the industry average of 65%.
-              </p>
-            </div>
-          </div>
-        )}
-
       </div>
-    </div>
+    </main>
   );
 }

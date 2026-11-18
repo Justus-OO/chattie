@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -14,25 +15,35 @@ import (
 var ErrADPaymentUnavailable = errors.New("After Dark payment item is unavailable")
 
 type ADPaymentIntent struct {
-	ID                string
-	UserID            string
-	PaymentType       string
-	TargetID          string
-	CreatorID         string
-	AmountCents       int64
-	Currency          string
-	Provider          string
-	ProviderSessionID string
-	MerchantRequestID string
-	Status            string
-	Message           string
-	ReceiptNumber     string
+	ID                    string
+	UserID                string
+	PaymentType           string
+	TargetID              string
+	CreatorID             string
+	AmountCents           int64
+	Currency              string
+	SettlementAmountCents int64
+	SettlementCurrency    string
+	ExchangeRate          float64
+	Provider              string
+	ProviderSessionID     string
+	MerchantRequestID     string
+	Status                string
+	Message               string
+	ReceiptNumber         string
 }
 
-func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID, paymentType, targetID, provider string, amountCents int64, message string) (*ADPaymentIntent, error) {
+func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID, paymentType, targetID, provider string, amountCents int64, message, currency string, kesPerUSD float64) (*ADPaymentIntent, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider != "paystack" && provider != "mpesa" {
+	if provider != "paystack" && provider != "mpesa" && provider != "stripe" {
 		return nil, fmt.Errorf("unsupported After Dark payment provider")
+	}
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency != "KES" && currency != "USD" {
+		return nil, fmt.Errorf("unsupported After Dark payment currency")
+	}
+	if (currency == "USD" && provider != "stripe") || (currency == "KES" && provider == "stripe") {
+		return nil, fmt.Errorf("payment provider does not support the selected currency")
 	}
 	paymentType = strings.ToLower(strings.TrimSpace(paymentType))
 	if len(message) > 500 {
@@ -45,7 +56,7 @@ func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID,
 		PaymentType: paymentType,
 		TargetID:    strings.TrimSpace(targetID),
 		AmountCents: amountCents,
-		Currency:    "KES",
+		Currency:    currency,
 		Provider:    provider,
 		Status:      "pending",
 		Message:     strings.TrimSpace(message),
@@ -100,20 +111,44 @@ func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID,
 	default:
 		return nil, fmt.Errorf("unsupported After Dark payment type")
 	}
-	if provider == "mpesa" && intent.AmountCents%100 != 0 {
+	intent.SettlementAmountCents = intent.AmountCents
+	intent.SettlementCurrency = "KES"
+	intent.ExchangeRate = 1
+	if currency == "USD" {
+		usdMinor, err := usdMinorFromKESMinor(intent.SettlementAmountCents, kesPerUSD)
+		if err != nil {
+			return nil, err
+		}
+		intent.AmountCents = usdMinor
+		intent.ExchangeRate = kesPerUSD
+	}
+	if provider == "mpesa" && intent.SettlementAmountCents%100 != 0 {
 		return nil, fmt.Errorf("M-Pesa payments must be in whole Kenyan shillings; choose Paystack for fractional amounts")
 	}
 
 	_, err = r.DB.ExecContext(ctx, `
 		INSERT INTO ad_payment_intents
-			(id, user_id, payment_type, target_id, creator_id, amount_cents, currency, provider, status, message)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '')::uuid, $6, $7, $8, 'pending', $9)`,
+			(id, user_id, payment_type, target_id, creator_id, amount_cents, currency,
+			 settlement_amount_cents, settlement_currency, exchange_rate, provider, status, message)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '')::uuid, $6, $7, $8, $9, $10, $11, 'pending', $12)`,
 		intent.ID, intent.UserID, intent.PaymentType, intent.TargetID, intent.CreatorID,
-		intent.AmountCents, intent.Currency, intent.Provider, intent.Message)
+		intent.AmountCents, intent.Currency, intent.SettlementAmountCents,
+		intent.SettlementCurrency, intent.ExchangeRate, intent.Provider, intent.Message)
 	if err != nil {
 		return nil, fmt.Errorf("create After Dark payment intent: %w", err)
 	}
 	return intent, nil
+}
+
+func usdMinorFromKESMinor(kesMinor int64, kesPerUSD float64) (int64, error) {
+	if kesMinor < 1 || kesPerUSD <= 0 {
+		return 0, fmt.Errorf("valid KES amount and exchange rate are required")
+	}
+	usdMinor := int64(math.Round(float64(kesMinor) / kesPerUSD))
+	if usdMinor < 1 {
+		return 0, fmt.Errorf("converted USD amount is below one cent")
+	}
+	return usdMinor, nil
 }
 
 func (r *ADFinanceRepository) resolveTipCreator(ctx context.Context, senderID, targetID string) (string, error) {
@@ -297,7 +332,8 @@ func (r *ADFinanceRepository) MarkADPaymentFailed(ctx context.Context, intentID 
 func (r *ADFinanceRepository) GetADPaymentIntent(ctx context.Context, intentID, userID string) (*ADPaymentIntent, error) {
 	return r.getADPaymentIntent(ctx, `
 		SELECT id::text, user_id::text, payment_type, COALESCE(target_id, ''),
-		       COALESCE(creator_id::text, ''), amount_cents, currency, provider,
+		       COALESCE(creator_id::text, ''), amount_cents, currency,
+		       settlement_amount_cents, settlement_currency, exchange_rate::float8, provider,
 		       COALESCE(provider_session_id, ''), COALESCE(merchant_request_id, ''),
 		       status, COALESCE(message, ''), COALESCE(receipt_number, '')
 		FROM ad_payment_intents WHERE id = $1 AND user_id = $2`,
@@ -307,7 +343,8 @@ func (r *ADFinanceRepository) GetADPaymentIntent(ctx context.Context, intentID, 
 func (r *ADFinanceRepository) GetADPaymentByProviderSession(ctx context.Context, provider, sessionID string) (*ADPaymentIntent, error) {
 	return r.getADPaymentIntent(ctx, `
 		SELECT id::text, user_id::text, payment_type, COALESCE(target_id, ''),
-		       COALESCE(creator_id::text, ''), amount_cents, currency, provider,
+		       COALESCE(creator_id::text, ''), amount_cents, currency,
+		       settlement_amount_cents, settlement_currency, exchange_rate::float8, provider,
 		       COALESCE(provider_session_id, ''), COALESCE(merchant_request_id, ''),
 		       status, COALESCE(message, ''), COALESCE(receipt_number, '')
 		FROM ad_payment_intents WHERE provider = $1 AND provider_session_id = $2`,
@@ -318,7 +355,8 @@ func (r *ADFinanceRepository) getADPaymentIntent(ctx context.Context, query stri
 	var intent ADPaymentIntent
 	err := r.DB.QueryRowContext(ctx, query, args...).Scan(
 		&intent.ID, &intent.UserID, &intent.PaymentType, &intent.TargetID, &intent.CreatorID,
-		&intent.AmountCents, &intent.Currency, &intent.Provider, &intent.ProviderSessionID,
+		&intent.AmountCents, &intent.Currency, &intent.SettlementAmountCents,
+		&intent.SettlementCurrency, &intent.ExchangeRate, &intent.Provider, &intent.ProviderSessionID,
 		&intent.MerchantRequestID, &intent.Status, &intent.Message, &intent.ReceiptNumber)
 	if err != nil {
 		return nil, err
@@ -336,13 +374,15 @@ func (r *ADFinanceRepository) CompleteADPayment(ctx context.Context, intentID st
 	var intent ADPaymentIntent
 	err = tx.QueryRowContext(ctx, `
 		SELECT id::text, user_id::text, payment_type, COALESCE(target_id, ''),
-		       COALESCE(creator_id::text, ''), amount_cents, currency, provider,
+		       COALESCE(creator_id::text, ''), amount_cents, currency,
+		       settlement_amount_cents, settlement_currency, exchange_rate::float8, provider,
 		       COALESCE(provider_session_id, ''), COALESCE(merchant_request_id, ''),
 		       status, COALESCE(message, ''), COALESCE(receipt_number, '')
 		FROM ad_payment_intents WHERE id = $1 FOR UPDATE`,
 		intentID).Scan(
 		&intent.ID, &intent.UserID, &intent.PaymentType, &intent.TargetID, &intent.CreatorID,
-		&intent.AmountCents, &intent.Currency, &intent.Provider, &intent.ProviderSessionID,
+		&intent.AmountCents, &intent.Currency, &intent.SettlementAmountCents,
+		&intent.SettlementCurrency, &intent.ExchangeRate, &intent.Provider, &intent.ProviderSessionID,
 		&intent.MerchantRequestID, &intent.Status, &intent.Message, &intent.ReceiptNumber)
 	if err != nil {
 		return nil, false, err
@@ -396,13 +436,13 @@ func applyADDeposit(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) er
 		ON CONFLICT (user_id) DO UPDATE SET
 			available_balance_cents = ad_wallets.available_balance_cents + EXCLUDED.available_balance_cents,
 			updated_at = CURRENT_TIMESTAMP`,
-		intent.UserID, intent.AmountCents); err != nil {
+		intent.UserID, intent.SettlementAmountCents); err != nil {
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, 'deposit', $3, 'After Dark wallet deposit')`,
-		intent.UserID, intent.AmountCents, intent.ID)
+		intent.UserID, intent.SettlementAmountCents, intent.ID)
 	return err
 }
 
@@ -410,10 +450,10 @@ func applyADSubscription(ctx context.Context, tx *sql.Tx, intent *ADPaymentInten
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, 'subscription_purchase', $3, 'Creator subscription (30 days)')`,
-		intent.UserID, -intent.AmountCents, intent.ID); err != nil {
+		intent.UserID, -intent.SettlementAmountCents, intent.ID); err != nil {
 		return err
 	}
-	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.AmountCents, "subscription_earning", intent.ID, "New subscriber"); err != nil {
+	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "subscription_earning", intent.ID, "New subscriber"); err != nil {
 		return err
 	}
 	now := time.Now()
@@ -454,10 +494,10 @@ func applyADPPV(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) error 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, 'ppv_purchase', $3, 'Unlocked PPV post')`,
-		intent.UserID, -intent.AmountCents, intent.ID); err != nil {
+		intent.UserID, -intent.SettlementAmountCents, intent.ID); err != nil {
 		return err
 	}
-	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.AmountCents, "ppv_earning", intent.ID, "PPV post unlocked"); err != nil {
+	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "ppv_earning", intent.ID, "PPV post unlocked"); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `
@@ -485,10 +525,10 @@ func applyADTip(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) error 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, 'tip_sent', $3, $4)`,
-		intent.UserID, -intent.AmountCents, intent.ID, intent.Message); err != nil {
+		intent.UserID, -intent.SettlementAmountCents, intent.ID, intent.Message); err != nil {
 		return err
 	}
-	return creditADCreator(ctx, tx, intent.CreatorID, intent.AmountCents, "tip_received", intent.ID, intent.Message)
+	return creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "tip_received", intent.ID, intent.Message)
 }
 
 func applyADLivePass(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) error {
@@ -505,10 +545,10 @@ func applyADLivePass(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) e
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, 'ppv_purchase', $3, 'Live session pass')`,
-		intent.UserID, -intent.AmountCents, intent.ID); err != nil {
+		intent.UserID, -intent.SettlementAmountCents, intent.ID); err != nil {
 		return err
 	}
-	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.AmountCents, "ppv_earning", intent.ID, "Live session pass sold"); err != nil {
+	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "ppv_earning", intent.ID, "Live session pass sold"); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `

@@ -92,42 +92,83 @@ func (h *ADFinanceHandler) RequestWithdrawal(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Could not load payout method", http.StatusInternalServerError)
 		return
 	}
-	if method.Provider == "mpesa" && req.AmountCents%100 != 0 {
-		http.Error(w, "M-Pesa payouts must be a whole number of Kenyan shillings", http.StatusBadRequest)
-		return
+	switch method.Provider {
+	case "mpesa", "paystack_mobile_money":
+		phone, err := services.NormalizeMpesaPhone(method.AccountNumber)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		method.AccountNumber = phone
 	}
 	if err := h.validateWithdrawalProvider(method.Provider); err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	payoutAmountCents, feeCents, err := withdrawalAmounts(method.Provider, req.AmountCents)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	withdrawal := &models.ADWithdrawal{
-		ID:             uuid.New().String(),
-		UserID:         userID,
-		AmountCents:    req.AmountCents,
-		PayoutMethodID: req.PayoutMethodID,
-		Provider:       method.Provider,
-		Status:         "requested",
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:                uuid.New().String(),
+		UserID:            userID,
+		AmountCents:       req.AmountCents,
+		PayoutAmountCents: payoutAmountCents,
+		FeeCents:          feeCents,
+		PayoutMethodID:    req.PayoutMethodID,
+		Provider:          method.Provider,
+		Status:            "requested",
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
 	}
 
 	if err := h.Repo.RequestWithdrawal(r.Context(), withdrawal); err != nil {
-		if err.Error() == "insufficient cleared funds for payout" {
+		if errors.Is(err, repository.ErrInsufficientClearedFunds) {
 			http.Error(w, err.Error(), http.StatusPaymentRequired)
 			return
 		}
-		if err.Error() == "payout method not found" {
+		if errors.Is(err, repository.ErrPayoutMethodNotFound) {
 			http.Error(w, "Payout method not found", http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, repository.ErrWithdrawalInProgress) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, repository.ErrInvalidWithdrawal) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, "Failed to process withdrawal request", http.StatusInternalServerError)
 		return
 	}
 
+	preassignedProviderReference := ""
+	if method.Provider == "paystack_bank" || method.Provider == "paystack_mobile_money" {
+		preassignedProviderReference = withdrawal.ID
+	}
+	if err := h.Repo.BeginWithdrawalSubmission(r.Context(), withdrawal.ID, preassignedProviderReference); err != nil {
+		log.Printf("[AFTER DARK PAYOUT] Could not mark withdrawal %s as submitting: %v", withdrawal.ID, err)
+		http.Error(w, "Could not safely start payout submission. Funds remain reserved for retry.", http.StatusInternalServerError)
+		return
+	}
+
 	providerReference, conversationID, err := h.dispatchWithdrawal(r, withdrawal, method)
 	if err != nil {
-		log.Printf("[AFTER DARK PAYOUT] Submission outcome requires review for withdrawal %s: %v", withdrawal.ID, err)
-		http.Error(w, "Payout submission could not be confirmed. Funds remain reserved while the provider status is reviewed.", http.StatusBadGateway)
+		if services.PayoutFailureIsDefinitive(err) {
+			revertReason := "Provider definitively rejected payout: " + err.Error()
+			if revertErr := h.Repo.FailWithdrawalBeforeSubmission(r.Context(), withdrawal.ID, revertReason); revertErr != nil {
+				log.Printf("[AFTER DARK PAYOUT] Could not reverse rejected withdrawal %s: %v (submission error: %v)", withdrawal.ID, revertErr, err)
+			}
+		} else {
+			log.Printf("[AFTER DARK PAYOUT] Submission outcome is unknown for withdrawal %s; funds remain reserved for reconciliation: %v", withdrawal.ID, err)
+		}
+		status := http.StatusBadGateway
+		if isWithdrawalValidationError(err) {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
 	if err := h.Repo.SetWithdrawalProvider(r.Context(), withdrawal.ID, method.Provider, providerReference, conversationID); err != nil {
@@ -167,7 +208,7 @@ func (h *ADFinanceHandler) dispatchWithdrawal(r *http.Request, withdrawal *model
 		if h.Mpesa == nil {
 			return "", "", errors.New("M-Pesa payouts are not configured")
 		}
-		transfer, err := h.Mpesa.SendB2C(r.Context(), method.AccountNumber, withdrawal.ID, withdrawal.AmountCents/100)
+		transfer, err := h.Mpesa.SendB2C(r.Context(), method.AccountNumber, withdrawal.ID, withdrawal.PayoutAmountCents/100)
 		if err != nil {
 			return "", "", err
 		}
@@ -182,9 +223,9 @@ func (h *ADFinanceHandler) dispatchWithdrawal(r *http.Request, withdrawal *model
 		}
 		recipientCode, err := h.Paystack.CreateTransferRecipient(r.Context(), recipientType, method.AccountName, method.AccountNumber, method.BankCode)
 		if err != nil {
-			return "", "", err
+			return "", "", &services.PayoutNotSubmittedError{Err: err}
 		}
-		transfer, err := h.Paystack.InitiateTransfer(r.Context(), withdrawal.AmountCents, recipientCode, withdrawal.ID, "After Dark creator earnings payout")
+		transfer, err := h.Paystack.InitiateTransfer(r.Context(), withdrawal.PayoutAmountCents, recipientCode, withdrawal.ID, "After Dark creator earnings payout")
 		if err != nil {
 			return "", "", err
 		}
@@ -192,6 +233,41 @@ func (h *ADFinanceHandler) dispatchWithdrawal(r *http.Request, withdrawal *model
 	default:
 		return "", "", errors.New("unsupported payout provider")
 	}
+}
+
+func withdrawalAmounts(provider string, amountCents int64) (int64, int64, error) {
+	if amountCents <= 0 {
+		return 0, 0, errors.New("Withdrawal amount must be positive")
+	}
+	var feeCents int64
+	switch provider {
+	case "mpesa":
+		if amountCents%100 != 0 {
+			return 0, 0, errors.New("M-Pesa payouts must be a whole number of Kenyan shillings")
+		}
+		feeCents = 5000
+	case "paystack_bank", "paystack_mobile_money":
+	default:
+		return 0, 0, errors.New("Unsupported payout provider")
+	}
+	if amountCents <= feeCents {
+		return 0, 0, errors.New("Withdrawal amount must exceed the payout fee")
+	}
+	return amountCents - feeCents, feeCents, nil
+}
+
+func isWithdrawalValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid") ||
+		strings.Contains(msg, "required") ||
+		strings.Contains(msg, "must be") ||
+		strings.Contains(msg, "phone number") ||
+		strings.Contains(msg, "account") ||
+		strings.Contains(msg, "validation") ||
+		strings.Contains(msg, "unsupported payout provider")
 }
 
 // POST /api/afterdark/me/payout-methods

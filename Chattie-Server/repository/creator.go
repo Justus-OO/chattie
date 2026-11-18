@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -36,8 +37,12 @@ func (r *Repository) GetCreatorStats(ctx context.Context, modelID string) (*mode
 	// 3. Fetch 24H Earnings
 	err = r.DB.QueryRowContext(ctx, `
        SELECT COALESCE(SUM(amount), 0) FROM transactions 
-       WHERE model_id = $1 AND amount > 0 AND created_at >= NOW() - INTERVAL '24 hours'
+       WHERE model_id = $1 AND amount > 0 AND tx_type <> 'PAYOUT_REVERSAL'
+         AND created_at >= NOW() - INTERVAL '24 hours'
     `, modelID).Scan(&stats.Earnings24H)
+	if err != nil {
+		return nil, err
+	}
 
 	// 4. Fetch Pending Requests count for this creator's assigned profiles
 	err = r.DB.QueryRowContext(ctx, `
@@ -45,6 +50,71 @@ func (r *Repository) GetCreatorStats(ctx context.Context, modelID string) (*mode
        JOIN managed_profiles mp ON cr.managed_profile_id = mp.id
        WHERE mp.manager_id = $1 AND cr.status = 'PENDING'
     `, modelID).Scan(&stats.PendingReqs)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := r.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM managed_profiles WHERE manager_id = $1
+	`, modelID).Scan(&stats.ManagedProfiles); err != nil {
+		return nil, err
+	}
+
+	if err := r.DB.QueryRowContext(ctx, `
+		WITH creator_chat_users AS (
+			SELECT $1::uuid AS user_id
+			UNION
+			SELECT mp.id
+			FROM managed_profiles mp
+			JOIN users profile_user ON profile_user.id = mp.id
+			WHERE mp.manager_id = $1
+		)
+		SELECT COUNT(DISTINCT CASE
+			WHEN m.sender_id = creator_chat_users.user_id THEN m.recipient_id
+			ELSE m.sender_id
+		END)
+		FROM messages m
+		JOIN creator_chat_users
+		  ON m.sender_id = creator_chat_users.user_id
+		  OR m.recipient_id = creator_chat_users.user_id
+		WHERE m.room_id IS NULL
+		  AND m.recipient_id IS NOT NULL
+		  AND m.created_at >= NOW() - INTERVAL '30 minutes'
+	`, modelID).Scan(&stats.ActiveChats); err != nil {
+		return nil, err
+	}
+
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT TO_CHAR(days.day_start, 'Dy'), COALESCE(SUM(t.amount), 0)
+		FROM generate_series(
+			CURRENT_DATE - INTERVAL '6 days',
+			CURRENT_DATE,
+			INTERVAL '1 day'
+		) AS days(day_start)
+		LEFT JOIN transactions t
+		  ON t.model_id = $1
+		 AND t.amount > 0
+		  AND t.tx_type <> 'PAYOUT_REVERSAL'
+		 AND t.created_at >= days.day_start
+		 AND t.created_at < days.day_start + INTERVAL '1 day'
+		GROUP BY days.day_start
+		ORDER BY days.day_start
+	`, modelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	stats.WeeklyEarnings = make([]models.CreatorEarningDay, 0, 7)
+	for rows.Next() {
+		var day models.CreatorEarningDay
+		if err := rows.Scan(&day.Day, &day.Amount); err != nil {
+			return nil, err
+		}
+		stats.WeeklyEarnings = append(stats.WeeklyEarnings, day)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	return &stats, nil
 }
@@ -133,11 +203,15 @@ func (r *Repository) GetAssignedProfiles(ctx context.Context, creatorID string) 
 	query := `
        SELECT 
           mp.id::text,
-          mp.name,
-          COALESCE(mp.avatar_url, ''),
+          CASE WHEN EXISTS (SELECT 1 FROM users profile_user WHERE profile_user.id = mp.id)
+               THEN mp.id::text ELSE mp.manager_id::text END,
+          COALESCE(NULLIF(mp.name, ''), NULLIF(p.display_name, ''), ''),
+          COALESCE(NULLIF(mp.avatar_url, ''), NULLIF(p.avatar_url, ''), ''),
           mp.status,
+          COALESCE(NULLIF(mp.bio, ''), NULLIF(p.bio, ''), ''),
           (SELECT COUNT(*)::int FROM chat_requests cr WHERE cr.managed_profile_id = mp.id AND cr.status = 'PENDING') AS pending_count
        FROM managed_profiles mp
+       LEFT JOIN user_profiles p ON p.user_id = mp.id
        WHERE mp.manager_id = $1
        ORDER BY mp.created_at ASC
     `
@@ -151,7 +225,7 @@ func (r *Repository) GetAssignedProfiles(ctx context.Context, creatorID string) 
 	profiles := make([]models.ManagedProfile, 0)
 	for rows.Next() {
 		var p models.ManagedProfile
-		if err := rows.Scan(&p.ID, &p.Name, &p.Avatar, &p.Status, &p.Pending); err != nil {
+		if err := rows.Scan(&p.ID, &p.ChatUserID, &p.Name, &p.Avatar, &p.Status, &p.Bio, &p.Pending); err != nil {
 			return nil, err
 		}
 		profiles = append(profiles, p)
@@ -159,13 +233,43 @@ func (r *Repository) GetAssignedProfiles(ctx context.Context, creatorID string) 
 	return profiles, nil
 }
 
+// ResolveManagedProfileChatIdentity maps an assigned profile to the user account
+// used as its direct-message identity. Older creator records can have a managed
+// profile without a matching user row; those conversations belong to the manager.
+func (r *Repository) ResolveManagedProfileChatIdentity(ctx context.Context, profileID, creatorID string) (string, error) {
+	var chatUserID string
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(profile_user.id::text, mp.manager_id::text)
+		FROM managed_profiles mp
+		LEFT JOIN users profile_user ON profile_user.id = mp.id
+		WHERE mp.id = $1 AND mp.manager_id = $2
+	`, profileID, creatorID).Scan(&chatUserID)
+	if err != nil {
+		return "", err
+	}
+	if chatUserID == "" {
+		return "", sql.ErrNoRows
+	}
+	return chatUserID, nil
+}
+
 // UpdateProfileStatus allows the creator to toggle their persona's online/offline status
 func (r *Repository) UpdateProfileStatus(ctx context.Context, profileID string, creatorID string, status string) error {
-	_, err := r.DB.ExecContext(ctx, `
+	result, err := r.DB.ExecContext(ctx, `
        UPDATE managed_profiles SET status = $1, updated_at = NOW() 
        WHERE id = $2 AND manager_id = $3
     `, status, profileID, creatorID)
-	return err
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // =====================================================================
@@ -221,14 +325,9 @@ func (r *Repository) GetChatQueueForProfile(ctx context.Context, profileID strin
 
 // GetProfileMedia fetches media items for a specific managed persona
 func (r *Repository) GetProfileMedia(ctx context.Context, profileID string, creatorID string) ([]models.MediaItem, error) {
-	// Ensures the creator actually manages this profile before returning media
-	var exists bool
-	err := r.DB.QueryRowContext(ctx, `
-       SELECT EXISTS(SELECT 1 FROM managed_profiles WHERE id = $1 AND manager_id = $2)
-    `, profileID, creatorID).Scan(&exists)
-
-	if err != nil || !exists {
-		return []models.MediaItem{}, errors.New("unauthorized or profile not found")
+	chatUserID, err := r.ResolveManagedProfileChatIdentity(ctx, profileID, creatorID)
+	if err != nil {
+		return nil, err
 	}
 
 	query := `
@@ -237,7 +336,7 @@ func (r *Repository) GetProfileMedia(ctx context.Context, profileID string, crea
        WHERE user_id = $1 
        ORDER BY created_at DESC
     `
-	rows, err := r.DB.QueryContext(ctx, query, creatorID)
+	rows, err := r.DB.QueryContext(ctx, query, chatUserID)
 	if err != nil {
 		return nil, err
 	}

@@ -102,26 +102,26 @@ func (m *MpesaGateway) CreateADSTKPush(ctx context.Context, phoneNumber, account
 
 func (m *MpesaGateway) SendB2C(ctx context.Context, phoneNumber, reference string, amountKES int64) (*MpesaB2CTransfer, error) {
 	if err := m.ValidateB2CConfig(); err != nil {
-		return nil, err
+		return nil, &PayoutNotSubmittedError{Err: err}
 	}
 	phone, err := normalizeMpesaPhone(phoneNumber)
 	if err != nil {
-		return nil, err
+		return nil, &PayoutNotSubmittedError{Err: err}
 	}
 	shortcode, err := strconv.ParseInt(m.Shortcode, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("M-Pesa shortcode must be numeric")
+		return nil, &PayoutNotSubmittedError{Err: fmt.Errorf("M-Pesa shortcode must be numeric")}
 	}
 	recipient, err := strconv.ParseInt(phone, 10, 64)
 	if err != nil {
-		return nil, ErrInvalidMpesaPhone
+		return nil, &PayoutNotSubmittedError{Err: ErrInvalidMpesaPhone}
 	}
 	if amountKES < 1 || strings.TrimSpace(reference) == "" {
-		return nil, fmt.Errorf("invalid M-Pesa B2C transfer details")
+		return nil, &PayoutNotSubmittedError{Err: fmt.Errorf("invalid M-Pesa B2C transfer details")}
 	}
 	token, err := m.accessToken(ctx)
 	if err != nil {
-		return nil, err
+		return nil, &PayoutNotSubmittedError{Err: err}
 	}
 	commandID := m.B2CCommandID
 	if commandID == "" {
@@ -157,8 +157,11 @@ func (m *MpesaGateway) SendB2C(ctx context.Context, phoneNumber, reference strin
 	if err := m.postJSON(ctx, "/mpesa/b2c/v1/paymentrequest", token, body, &response); err != nil {
 		return nil, err
 	}
-	if response.ResponseCode != "0" || response.OriginatorConversationID == "" {
-		return nil, fmt.Errorf("M-Pesa B2C did not accept the payout: %s", response.ResponseDescription)
+	if response.ResponseCode != "0" {
+		return nil, &PayoutRejectedError{Message: fmt.Sprintf("M-Pesa B2C did not accept the payout: %s", response.ResponseDescription)}
+	}
+	if response.OriginatorConversationID == "" {
+		return nil, fmt.Errorf("M-Pesa returned an incomplete payout acceptance response")
 	}
 	return &MpesaB2CTransfer{
 		ConversationID:           response.ConversationID,
@@ -382,6 +385,9 @@ func (m *MpesaGateway) postJSON(ctx context.Context, path, token string, body []
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, resp.Body)
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return &PayoutRejectedError{Message: fmt.Sprintf("M-Pesa request was rejected with HTTP %d", resp.StatusCode)}
+		}
 		return fmt.Errorf("M-Pesa request returned HTTP %d", resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
@@ -391,21 +397,39 @@ func (m *MpesaGateway) postJSON(ctx context.Context, path, token string, body []
 }
 
 func normalizeMpesaPhone(phone string) (string, error) {
+	// 1. Strip non-digit characters
 	phone = strings.NewReplacer("+", "", " ", "", "-", "", "(", "", ")", "").Replace(strings.TrimSpace(phone))
-	if strings.HasPrefix(phone, "0") {
+
+	// 2. Handle 13-digit entries with accidental leading zero after 254 (e.g. 25407...)
+	if strings.HasPrefix(phone, "2540") && len(phone) == 13 {
+		phone = "254" + phone[4:]
+	}
+
+	// 3. Handle local 10-digit numbers starting with 0 (e.g. 07... or 01...)
+	if strings.HasPrefix(phone, "0") && len(phone) == 10 {
 		phone = "254" + phone[1:]
 	}
+
+	// 4. Handle local 9-digit numbers starting with 7 or 1 (e.g. 7... or 1...)
+	if len(phone) == 9 && (strings.HasPrefix(phone, "7") || strings.HasPrefix(phone, "1")) {
+		phone = "254" + phone
+	}
+
+	// 5. Final strict validation (must be exactly 12 digits, start with 254, and have 7 or 1 as the 4th digit)
 	if len(phone) != 12 || !strings.HasPrefix(phone, "254") {
 		return "", ErrInvalidMpesaPhone
 	}
+
 	for _, digit := range phone {
 		if digit < '0' || digit > '9' {
 			return "", ErrInvalidMpesaPhone
 		}
 	}
+
 	if phone[3] != '7' && phone[3] != '1' {
 		return "", ErrInvalidMpesaPhone
 	}
+
 	return phone, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"chattie-backend/models"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 )
 
@@ -19,30 +20,43 @@ func NewADChatRepository(db *sql.DB) *ADChatRepository {
 
 // GetOrCreateConversation finds an existing 1-on-1 thread or creates a new one safely
 func (r *ADChatRepository) GetOrCreateConversation(ctx context.Context, userA string, userB string) (string, error) {
-	// 1. Check if conversation already exists between these two exact users
-	queryCheck := `
-		SELECT c.id 
-		FROM ad_conversations c
-		JOIN ad_conversation_participants p1 ON c.id = p1.conversation_id
-		JOIN ad_conversation_participants p2 ON c.id = p2.conversation_id
-		WHERE p1.user_id = $1 AND p2.user_id = $2
-		LIMIT 1
-	`
-	var convID string
-	err := r.DB.QueryRowContext(ctx, queryCheck, userA, userB).Scan(&convID)
-
-	if err == nil {
-		return convID, nil // Found existing
-	} else if err != sql.ErrNoRows {
-		return "", err // DB error
+	if userA == userB {
+		return "", errors.New("conversation participants must be different users")
 	}
 
-	// 2. Create new conversation transactionally
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
+
+	firstUser, secondUser := userA, userB
+	if firstUser > secondUser {
+		firstUser, secondUser = secondUser, firstUser
+	}
+	if _, err := tx.ExecContext(ctx, `
+		SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))
+	`, firstUser, secondUser); err != nil {
+		return "", err
+	}
+
+	var convID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT c.id
+		FROM ad_conversations c
+		JOIN ad_conversation_participants p1 ON p1.conversation_id = c.id AND p1.user_id = $1
+		JOIN ad_conversation_participants p2 ON p2.conversation_id = c.id AND p2.user_id = $2
+		LIMIT 1
+	`, userA, userB).Scan(&convID)
+	if err == nil {
+		if err := tx.Commit(); err != nil {
+			return "", err
+		}
+		return convID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
 
 	err = tx.QueryRowContext(ctx, `INSERT INTO ad_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
 	if err != nil {
@@ -336,8 +350,11 @@ func (r *ADChatRepository) GetConversations(ctx context.Context, userID string) 
 func (r *ADChatRepository) SaveMessage(ctx context.Context, msg *models.ADMessage) error {
 	query := `
 		WITH inserted AS (
-			INSERT INTO ad_messages (id, conversation_id, sender_id, content, media_asset_id, is_explicit, created_at)
-			SELECT $1, $2, $3, $4, NULLIF($5, '')::uuid, $6, $7
+			INSERT INTO ad_messages (
+				id, conversation_id, sender_id, content, media_asset_id, is_explicit,
+				message_kind, call_mode, reply_to_message_id, created_at
+			)
+			SELECT $1, $2, $3, $4, NULLIF($5, '')::uuid, $6, $7, NULLIF($8, ''), NULLIF($9, '')::uuid, $10
 			WHERE EXISTS (
 				SELECT 1 FROM ad_conversation_participants
 				WHERE conversation_id = $2 AND user_id = $3
@@ -350,23 +367,43 @@ func (r *ADChatRepository) SaveMessage(ctx context.Context, msg *models.ADMessag
 				NULLIF($5, '') IS NULL OR EXISTS (
 					SELECT 1 FROM ad_assets WHERE id = NULLIF($5, '')::uuid AND owner_id = $3
 				)
+			) AND (
+				NULLIF($9, '') IS NULL OR EXISTS (
+					SELECT 1 FROM ad_messages reply
+					WHERE reply.id = NULLIF($9, '')::uuid AND reply.conversation_id = $2
+				)
 			)
-			RETURNING id, conversation_id, sender_id, content, media_asset_id, is_explicit, is_read, created_at
+			RETURNING id, conversation_id, sender_id, content, media_asset_id, is_explicit,
+				is_read, message_kind, call_mode, reply_to_message_id, is_pinned, pinned_by,
+				pinned_at, created_at
+		),
+		bumped AS (
+			UPDATE ad_conversations c
+			SET updated_at = CURRENT_TIMESTAMP
+			FROM inserted
+			WHERE c.id = inserted.conversation_id
+			RETURNING c.id
 		)
 		SELECT inserted.id::text, inserted.conversation_id::text, inserted.sender_id::text,
 			inserted.content, COALESCE(inserted.media_asset_id::text, ''),
 			COALESCE(asset.storage_key, ''), COALESCE(asset.mime_type, ''),
-			inserted.is_explicit, inserted.is_read, inserted.created_at
+			inserted.is_explicit, inserted.is_read, inserted.message_kind, COALESCE(inserted.call_mode, ''),
+			COALESCE(inserted.reply_to_message_id::text, ''), inserted.is_pinned,
+			COALESCE(inserted.pinned_by::text, ''), inserted.pinned_at, inserted.created_at
 		FROM inserted
+		JOIN bumped ON bumped.id = inserted.conversation_id
 		LEFT JOIN ad_assets asset ON asset.id = inserted.media_asset_id
 	`
+	var pinnedAt sql.NullTime
 	err := r.DB.QueryRowContext(ctx, query,
 		msg.ID, msg.ConversationID, msg.SenderID, msg.Content,
-		msg.MediaAssetID, msg.IsExplicit, msg.CreatedAt,
+		msg.MediaAssetID, msg.IsExplicit, msg.MessageKind, msg.CallMode,
+		msg.ReplyToMessageID, msg.CreatedAt,
 	).Scan(
 		&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Content,
 		&msg.MediaAssetID, &msg.MediaURL, &msg.MediaType,
-		&msg.IsExplicit, &msg.IsRead, &msg.CreatedAt,
+		&msg.IsExplicit, &msg.IsRead, &msg.MessageKind, &msg.CallMode,
+		&msg.ReplyToMessageID, &msg.IsPinned, &msg.PinnedBy, &pinnedAt, &msg.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return sql.ErrNoRows
@@ -374,25 +411,38 @@ func (r *ADChatRepository) SaveMessage(ctx context.Context, msg *models.ADMessag
 	if err != nil {
 		return err
 	}
-
-	// Update the thread's updated_at timestamp to bubble it to the top of the inbox.
-	_, err = r.DB.ExecContext(ctx, `UPDATE ad_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = $1`, msg.ConversationID)
-	return err
+	if pinnedAt.Valid {
+		msg.PinnedAt = &pinnedAt.Time
+	}
+	return nil
 }
 
 // GetMessages fetches paginated history for a conversation
-func (r *ADChatRepository) GetMessages(ctx context.Context, convID string, limit int, offset int) ([]models.ADMessage, error) {
+func (r *ADChatRepository) GetMessages(ctx context.Context, convID string, userID string, limit int, offset int) ([]models.ADMessage, error) {
 	query := `
 		SELECT m.id::text, m.conversation_id::text, m.sender_id::text, COALESCE(m.content, ''),
 		       COALESCE(m.media_asset_id::text, ''), COALESCE(a.storage_key, ''),
-		       COALESCE(a.mime_type, ''), m.is_explicit, m.is_read, m.created_at
+		       COALESCE(a.mime_type, ''), m.is_explicit, m.is_read,
+		       m.message_kind, COALESCE(m.call_mode, ''), COALESCE(m.reply_to_message_id::text, ''),
+		       m.is_pinned, COALESCE(m.pinned_by::text, ''), m.pinned_at, m.created_at,
+		       COALESCE((
+		           SELECT json_agg(json_build_object(
+		               'emoji', grouped.emoji, 'count', grouped.reaction_count, 'reacted', grouped.reacted
+		           ))
+		           FROM (
+		               SELECT r.emoji, COUNT(*) AS reaction_count, BOOL_OR(r.user_id = $4) AS reacted
+		               FROM ad_message_reactions r
+		               WHERE r.message_id = m.id
+		               GROUP BY r.emoji
+		           ) grouped
+		       ), '[]'::json)::text
 		FROM ad_messages m
 		LEFT JOIN ad_assets a ON a.id = m.media_asset_id
 		WHERE m.conversation_id = $1
 		ORDER BY m.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
-	rows, err := r.DB.QueryContext(ctx, query, convID, limit, offset)
+	rows, err := r.DB.QueryContext(ctx, query, convID, limit, offset, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -401,12 +451,21 @@ func (r *ADChatRepository) GetMessages(ctx context.Context, convID string, limit
 	var messages []models.ADMessage
 	for rows.Next() {
 		var m models.ADMessage
+		var reactionsJSON []byte
+		var pinnedAt sql.NullTime
 		if err := rows.Scan(
 			&m.ID, &m.ConversationID, &m.SenderID, &m.Content,
 			&m.MediaAssetID, &m.MediaURL, &m.MediaType,
-			&m.IsExplicit, &m.IsRead, &m.CreatedAt,
+			&m.IsExplicit, &m.IsRead, &m.MessageKind, &m.CallMode, &m.ReplyToMessageID,
+			&m.IsPinned, &m.PinnedBy, &pinnedAt, &m.CreatedAt, &reactionsJSON,
 		); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal(reactionsJSON, &m.Reactions); err != nil {
+			return nil, err
+		}
+		if pinnedAt.Valid {
+			m.PinnedAt = &pinnedAt.Time
 		}
 		messages = append(messages, m)
 	}
@@ -460,15 +519,135 @@ func (r *ADChatRepository) IsBlocked(ctx context.Context, userA string, userB st
 
 func (r *ADChatRepository) SetBlock(ctx context.Context, blockerID string, blockedID string, blocked bool) error {
 	if blocked {
-		_, err := r.DB.ExecContext(ctx, `
+		tx, err := r.DB.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		lockedUsers, err := lockUsersInOrder(ctx, tx, blockerID, blockedID)
+		if err != nil {
+			return err
+		}
+		if len(lockedUsers) != 2 {
+			return ErrUserNotFound
+		}
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO blocks (blocker_id, blocked_id)
 			VALUES ($1, $2)
 			ON CONFLICT (blocker_id, blocked_id) DO NOTHING
-		`, blockerID, blockedID)
-		return err
+		`, blockerID, blockedID); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		DELETE FROM blocks WHERE blocker_id = $1 AND blocked_id = $2
 	`, blockerID, blockedID)
 	return err
+}
+
+func (r *ADChatRepository) PinMessage(ctx context.Context, conversationID, userID, messageID string, pinned bool) error {
+	result, err := r.DB.ExecContext(ctx, `
+		UPDATE ad_messages
+		SET is_pinned = $1,
+		    pinned_by = CASE WHEN $1 THEN $2::uuid ELSE NULL END,
+		    pinned_at = CASE WHEN $1 THEN CURRENT_TIMESTAMP ELSE NULL END
+		WHERE id = $3 AND conversation_id = $4
+		  AND EXISTS (
+		      SELECT 1 FROM ad_conversation_participants
+		      WHERE conversation_id = $4 AND user_id = $2
+		  )
+	`, pinned, userID, messageID, conversationID)
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *ADChatRepository) ToggleMessageReaction(ctx context.Context, conversationID, userID, messageID, emoji string) (bool, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2 || ':' || $3))
+	`, messageID, userID, emoji); err != nil {
+		return false, err
+	}
+
+	var participant bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM ad_conversation_participants p
+			JOIN ad_messages m ON m.conversation_id = p.conversation_id
+			WHERE p.conversation_id = $1 AND p.user_id = $2 AND m.id = $3
+		)
+	`, conversationID, userID, messageID).Scan(&participant); err != nil {
+		return false, err
+	}
+	if !participant {
+		return false, sql.ErrNoRows
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO ad_message_reactions (message_id, user_id, emoji)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (message_id, user_id, emoji) DO NOTHING
+	`, messageID, userID, emoji)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected > 0 {
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM ad_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3
+	`, messageID, userID, emoji); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (r *ADChatRepository) GetMessageReactions(ctx context.Context, conversationID, userID, messageID string) ([]models.ADMessageReaction, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT r.emoji, COUNT(*)::int, BOOL_OR(r.user_id = $3)
+		FROM ad_message_reactions r
+		JOIN ad_messages m ON m.id = r.message_id AND m.conversation_id = $1
+		WHERE r.message_id = $2
+		GROUP BY r.emoji
+		ORDER BY r.emoji
+	`, conversationID, messageID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	reactions := make([]models.ADMessageReaction, 0)
+	for rows.Next() {
+		var reaction models.ADMessageReaction
+		if err := rows.Scan(&reaction.Emoji, &reaction.Count, &reaction.Reacted); err != nil {
+			return nil, err
+		}
+		reactions = append(reactions, reaction)
+	}
+	return reactions, rows.Err()
 }

@@ -20,9 +20,10 @@ import (
 )
 
 type UploadService struct {
-	Client    *s3.Client
-	Bucket    string
-	PublicURL string
+	Client       *s3.Client
+	Bucket       string
+	PublicURL    string
+	PublicBucket bool
 }
 
 // NewUploadService initializes the Backblaze B2 (S3-Compatible) engine
@@ -33,6 +34,7 @@ func NewUploadService() *UploadService {
 	keyID := os.Getenv("B2_KEY_ID")
 	appKey := os.Getenv("B2_APPLICATION_KEY")
 	publicURL := os.Getenv("B2_PUBLIC_URL")
+	publicBucket := strings.EqualFold(strings.TrimSpace(os.Getenv("B2_BUCKET_PUBLIC")), "true")
 
 	// 1. Configure AWS SDK to point at Backblaze B2
 	cfg, err := config.LoadDefaultConfig(context.Background(),
@@ -50,9 +52,10 @@ func NewUploadService() *UploadService {
 	})
 
 	return &UploadService{
-		Client:    client,
-		Bucket:    bucket,
-		PublicURL: strings.TrimRight(publicURL, "/"), // Clean trailing slashes
+		Client:       client,
+		Bucket:       bucket,
+		PublicURL:    strings.TrimRight(publicURL, "/"), // Clean trailing slashes
+		PublicBucket: publicBucket,
 	}
 }
 
@@ -183,4 +186,14 @@ func (s *UploadService) PresignGetFile(ctx context.Context, fileURL string, expi
 		return "", fmt.Errorf("failed to sign media URL: %w", err)
 	}
 	return request.URL, nil
+}
+
+func (s *UploadService) ReadURL(ctx context.Context, fileURL string, expires time.Duration) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("media storage is unavailable")
+	}
+	if s.PublicBucket {
+		return fileURL, nil
+	}
+	return s.PresignGetFile(ctx, fileURL, expires)
 }

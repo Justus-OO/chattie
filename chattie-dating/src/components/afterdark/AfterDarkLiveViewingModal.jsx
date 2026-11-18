@@ -45,7 +45,7 @@ function LiveKitRenderer({ creator, isMuted, onConnectionStateChanged, onViewerC
         <VideoTrack trackRef={hostVideoTrack} className="absolute inset-0 h-full w-full object-cover" />
       ) : hostAudioTrack ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-zinc-900 to-black">
-          <div className="flex h-24 w-24 items-center justify-center rounded-full border border-white/15 bg-white/10">
+          <div className="flex size-[clamp(5rem,12vw,6rem)] items-center justify-center rounded-full border border-white/15 bg-white/10">
             <Radio className="h-10 w-10 text-[var(--accent)]" />
           </div>
           <div className="text-center">
@@ -65,7 +65,7 @@ function LiveKitRenderer({ creator, isMuted, onConnectionStateChanged, onViewerC
       {/* Guest Stage Video Tracks (Picture-in-Picture) */}
       <div className="absolute right-3 top-20 flex flex-col gap-3 z-20">
         {guestVideoTracks.map((track, index) => (
-          <div key={track.participant.identity} className="relative w-24 overflow-hidden rounded-xl border border-white/20 bg-black/50 shadow-lg backdrop-blur-sm sm:w-28" style={{ aspectRatio: '3/4' }}>
+          <div key={track.participant.identity} className="relative w-[clamp(5rem,10vw,7rem)] overflow-hidden rounded-xl border border-white/20 bg-black/50 shadow-lg backdrop-blur-sm" style={{ aspectRatio: '3/4' }}>
             <VideoTrack trackRef={track} className="h-full w-full object-cover" />
             <span className="absolute bottom-1 left-1 max-w-[80%] truncate rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
               {track.participant.name || `Guest ${index + 1}`}
@@ -569,7 +569,7 @@ export default function LiveViewer({
           <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-6 rounded-3xl bg-black/60 p-6 backdrop-blur-xl border border-white/10 shadow-2xl">
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="relative">
-                <img src={creator.avatar} alt="" className="h-24 w-24 rounded-full border-2 border-[var(--accent)] object-cover shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)]" />
+                <img src={creator.avatar} alt="" className="size-[clamp(5rem,12vw,6rem)] rounded-full border-2 border-[var(--accent)] object-cover shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)]" />
                 <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-bold text-black">
                   LIVE NOW
                 </span>
@@ -815,7 +815,7 @@ export default function LiveViewer({
                 
                 {/* Mobile Chat Area - TikTok fade style */}
                 <div 
-                  className="pointer-events-none mb-4 flex max-h-[30vh] w-[85%] flex-col gap-2 overflow-hidden" 
+                  className="pointer-events-none mb-4 flex max-h-[30dvh] w-[85%] flex-col gap-2 overflow-hidden"
                   style={{ maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 100%)' }}
                 >
                   <div className="flex flex-col justify-end flex-1 gap-2 overflow-y-auto pb-1 scrollbar-hide">

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,7 +16,6 @@ import (
 	"chattie-backend/repository"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
@@ -37,14 +37,18 @@ var upgrader = websocket.Upgrader{
 
 // Client represents an active WebSocket connection
 type Client struct {
-	Hub      *Hub
-	Conn     *websocket.Conn
-	Send     chan []byte
-	HubRoom  string // Internal virtual routing string
-	RoomID   string // DB Room UUID (for group chats)
-	TargetID string // DB Recipient UUID (for 1-on-1 DMs)
-	UserID   string // Sender UUID
-	Role     string // 'model', 'operator', or 'user'
+	Hub         *Hub
+	Conn        *websocket.Conn
+	Send        chan []byte
+	HubRoom     string // Internal virtual routing string
+	RoomID      string // DB Room UUID (for group chats)
+	TargetID    string // DB Recipient UUID (for 1-on-1 DMs)
+	UserID      string // Authenticated account UUID
+	CountryCode string
+	ChatUserID  string // Profile identity used for creator direct messages
+	ProfileID   string // Managed profile context for creator direct messages
+	Role        string // 'model', 'operator', or 'user'
+	RoomRepo    *repository.RoomRepository
 }
 
 type Hub struct {
@@ -102,6 +106,43 @@ func (h *Hub) SendToUser(ctx context.Context, userID string, payload interface{}
 		return fmt.Errorf("user %s has no active socket", userID)
 	}
 	return nil
+}
+
+func (h *Hub) DisconnectUser(userID string) int {
+	h.Mutex.Lock()
+	clients := make([]*Client, 0)
+	for client := range h.Clients {
+		if client.UserID == userID {
+			clients = append(clients, client)
+		}
+	}
+	h.Mutex.Unlock()
+
+	for _, client := range clients {
+		_ = client.Conn.Close()
+	}
+	return len(clients)
+}
+
+func (h *Hub) DisconnectCountry(countryCode string) int {
+	countryCode = strings.ToUpper(strings.TrimSpace(countryCode))
+	if countryCode == "" {
+		return 0
+	}
+
+	h.Mutex.Lock()
+	clients := make([]*Client, 0)
+	for client := range h.Clients {
+		if strings.EqualFold(client.CountryCode, countryCode) {
+			clients = append(clients, client)
+		}
+	}
+	h.Mutex.Unlock()
+
+	for _, client := range clients {
+		_ = client.Conn.Close()
+	}
+	return len(clients)
 }
 
 func (h *Hub) Run() {
@@ -187,7 +228,7 @@ func (h *Hub) Run() {
 
 					// Scan active sockets for global recipient delivery
 					for client := range h.Clients {
-						if client.UserID == msg.RecipientID {
+						if client.UserID == msg.RecipientID || client.ChatUserID == msg.RecipientID {
 							select {
 							case client.Send <- message:
 								delivered = true
@@ -208,7 +249,7 @@ func (h *Hub) Run() {
 					// ---------------------------------------------------------
 					for client := range h.Rooms[msg.RoomID] {
 						// Prevent echoing standard chat back to the sender socket
-						if client.UserID == msg.SenderID && msg.Type == "chat" {
+						if client.ChatUserID == msg.SenderID && msg.Type == "chat" {
 							continue
 						}
 
@@ -284,58 +325,236 @@ func (h *Hub) broadcastPresence(userID string, isOnline bool) {
 }
 
 type WebSocketHandler struct {
-	Hub  *Hub
-	Repo *repository.ChatRepository
+	Hub      *Hub
+	Repo     *repository.ChatRepository
+	RoomRepo *repository.RoomRepository
 }
 
-func NewWebSocketHandler(hub *Hub, repo *repository.ChatRepository) *WebSocketHandler {
-	return &WebSocketHandler{Hub: hub, Repo: repo}
+func NewWebSocketHandler(hub *Hub, repo *repository.ChatRepository, roomRepos ...*repository.RoomRepository) *WebSocketHandler {
+	handler := &WebSocketHandler{Hub: hub, Repo: repo}
+	if len(roomRepos) > 0 {
+		handler.RoomRepo = roomRepos[0]
+	}
+	return handler
+}
+
+func (h *WebSocketHandler) PinDirectMessage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var payload struct {
+		MessageID string `json:"message_id"`
+		Pinned    bool   `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.MessageID == "" {
+		http.Error(w, "message_id is required", http.StatusBadRequest)
+		return
+	}
+	targetID := chi.URLParam(r, "target_id")
+	if targetID == "" || targetID == userID {
+		http.Error(w, "A conversation partner is required", http.StatusBadRequest)
+		return
+	}
+	chatUserID := userID
+	if profileID := r.URL.Query().Get("profile_id"); profileID != "" {
+		var err error
+		chatUserID, err = h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, userID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Assigned profile not found", http.StatusForbidden)
+				return
+			}
+			log.Printf("[CHAT] Could not validate profile pin request for %s: %v", profileID, err)
+			http.Error(w, "Unable to validate profile access", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := h.Repo.PinDirectMessage(chatUserID, targetID, payload.MessageID, payload.Pinned); err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Message not found in this conversation", http.StatusNotFound)
+			return
+		}
+		log.Printf("[CHAT] Failed to pin direct message %s for user %s: %v", payload.MessageID, userID, err)
+		http.Error(w, "Unable to update message pin", http.StatusInternalServerError)
+		return
+	}
+	if err := h.Hub.SendToUser(r.Context(), targetID, map[string]interface{}{
+		"type": "pin_update", "message_id": payload.MessageID, "is_pinned": payload.Pinned,
+	}); err != nil {
+		log.Printf("[CHAT] Message pin saved but partner %s is not currently connected: %v", targetID, err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *WebSocketHandler) RecordDirectCallEvent(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var payload struct {
+		Event string `json:"event"`
+		Mode  string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid call event", http.StatusBadRequest)
+		return
+	}
+	if payload.Mode != "audio" && payload.Mode != "video" {
+		http.Error(w, "mode must be audio or video", http.StatusBadRequest)
+		return
+	}
+	targetID := chi.URLParam(r, "target_id")
+	if targetID == "" || targetID == userID {
+		http.Error(w, "A conversation partner is required", http.StatusBadRequest)
+		return
+	}
+	chatUserID := userID
+	if profileID := r.URL.Query().Get("profile_id"); profileID != "" {
+		var err error
+		chatUserID, err = h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, userID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Assigned profile not found", http.StatusForbidden)
+				return
+			}
+			log.Printf("[CHAT] Could not validate profile call history request for %s: %v", profileID, err)
+			http.Error(w, "Unable to validate profile access", http.StatusInternalServerError)
+			return
+		}
+	}
+	eventLabels := map[string]string{
+		"started":   "started",
+		"connected": "connected",
+		"ended":     "ended",
+		"missed":    "missed",
+		"no_answer": "not answered",
+		"declined":  "declined",
+	}
+	label, validEvent := eventLabels[payload.Event]
+	if !validEvent {
+		http.Error(w, "Unsupported call event", http.StatusBadRequest)
+		return
+	}
+
+	message := &models.Message{
+		SenderID:    chatUserID,
+		RecipientID: targetID,
+		Content:     fmt.Sprintf("%s call %s", strings.ToUpper(payload.Mode[:1])+payload.Mode[1:], label),
+		Status:      "sent",
+		MessageKind: "call_event",
+		CallMode:    payload.Mode,
+	}
+	if err := h.Repo.SaveMessage(message); err != nil {
+		log.Printf("[CHAT] Failed to save call event for user %s: %v", chatUserID, err)
+		http.Error(w, "Unable to save call history", http.StatusInternalServerError)
+		return
+	}
+	message.Type = "chat"
+	if err := h.Hub.SendToUser(r.Context(), message.RecipientID, message); err != nil {
+		log.Printf("[CHAT] Call event %s saved but recipient %s is not currently connected: %v", message.ID, message.RecipientID, err)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(message); err != nil {
+		log.Printf("[CHAT] Failed to encode call event response for message %s: %v", message.ID, err)
+	}
 }
 
 func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	roomID := r.URL.Query().Get("room_id")
 	targetID := r.URL.Query().Get("target_id")
+	profileID := r.URL.Query().Get("profile_id")
 	tokenStr := r.URL.Query().Get("token")
 
 	tokenStr = strings.TrimPrefix(tokenStr, "Bearer ")
 	tokenStr = strings.TrimSpace(tokenStr)
 
-	var userID string
-	var role string
-	if tokenStr != "" {
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-			return []byte("super_secret_chattie_key_do_not_leak"), nil
-		})
-
-		if err == nil && token != nil && token.Valid {
-			if claims, ok := token.Claims.(jwt.MapClaims); ok {
-				if id, ok := claims["user_id"].(string); ok {
-					userID = id
-				} else if id, ok := claims["sub"].(string); ok {
-					userID = id
-				} else if id, ok := claims["userID"].(string); ok {
-					userID = id
-				}
-				if r, ok := claims["role"].(string); ok {
-					role = r
-				}
-			}
-		} else {
-			log.Printf("WS WARNING: JWT Parsing failed: %v", err)
+	userID, role, err := middlewares.ParseAuthTokenWithDB(r.Context(), tokenStr, h.Repo.DB)
+	if err != nil {
+		log.Printf("WS WARNING: JWT parsing failed: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	countryCode := middlewares.CountryCodeFromContext(r.Context())
+	if countryCode != "" {
+		_, err = h.Repo.DB.ExecContext(r.Context(), `
+			INSERT INTO user_locations (user_id, country_code)
+			VALUES ($1, $2)
+			ON CONFLICT (user_id) DO UPDATE SET
+				country_code = EXCLUDED.country_code,
+				last_updated = CURRENT_TIMESTAMP
+			WHERE user_locations.country_code IS DISTINCT FROM EXCLUDED.country_code
+		`, userID, countryCode)
+	} else {
+		err = h.Repo.DB.QueryRowContext(r.Context(), `
+			SELECT COALESCE(country_code, '')
+			FROM user_locations
+			WHERE user_id = $1
+		`, userID).Scan(&countryCode)
+		if err == sql.ErrNoRows {
+			err = nil
 		}
 	}
-
-	if userID == "" {
-		log.Println("WS CRITICAL: User connected without a valid UserID!")
+	if err != nil {
+		log.Printf("WS WARNING: could not resolve country for user %s: %v", userID, err)
+		http.Error(w, "Unable to verify regional access", http.StatusInternalServerError)
 		return
+	}
+	if countryCode != "" {
+		var countryBlocked bool
+		if err := h.Repo.DB.QueryRowContext(r.Context(), `
+			SELECT EXISTS (
+				SELECT 1 FROM regional_country_blocks WHERE country_code = $1
+			)
+		`, countryCode).Scan(&countryBlocked); err != nil {
+			log.Printf("WS WARNING: could not check country access for user %s: %v", userID, err)
+			http.Error(w, "Unable to verify regional access", http.StatusInternalServerError)
+			return
+		}
+		if countryBlocked {
+			http.Error(w, "This service is not available in your country", http.StatusUnavailableForLegalReasons)
+			return
+		}
+	}
+	chatUserID := userID
+	if profileID != "" {
+		if role != "model" && role != "operator" {
+			http.Error(w, "Creator role required for profile chat", http.StatusForbidden)
+			return
+		}
+		chatUserID, err = h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, userID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Assigned profile not found", http.StatusForbidden)
+				return
+			}
+			log.Printf("WS WARNING: could not validate profile chat for user %s: %v", userID, err)
+			http.Error(w, "Unable to validate profile chat access", http.StatusInternalServerError)
+			return
+		}
+	}
+	if roomID != "" && roomID != "undefined" {
+		isMember, err := h.Repo.IsRoomMember(r.Context(), roomID, userID)
+		if err != nil {
+			log.Printf("WS WARNING: could not validate room membership for user %s: %v", userID, err)
+			http.Error(w, "Unable to validate room access", http.StatusInternalServerError)
+			return
+		}
+		if !isMember {
+			http.Error(w, "Room membership required", http.StatusForbidden)
+			return
+		}
 	}
 
 	hubRoom := "default"
 	if targetID != "" && targetID != "undefined" {
-		if userID < targetID {
-			hubRoom = "dm_" + userID + "_" + targetID
+		if chatUserID < targetID {
+			hubRoom = "dm_" + chatUserID + "_" + targetID
 		} else {
-			hubRoom = "dm_" + targetID + "_" + userID
+			hubRoom = "dm_" + targetID + "_" + chatUserID
 		}
 	} else if roomID != "" && roomID != "undefined" {
 		hubRoom = roomID
@@ -350,14 +569,18 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 
 	client := &Client{
-		Hub:      h.Hub,
-		Conn:     conn,
-		Send:     make(chan []byte, 256),
-		HubRoom:  hubRoom,
-		RoomID:   roomID,
-		TargetID: targetID,
-		UserID:   userID,
-		Role:     role,
+		Hub:         h.Hub,
+		Conn:        conn,
+		Send:        make(chan []byte, 256),
+		HubRoom:     hubRoom,
+		RoomID:      roomID,
+		TargetID:    targetID,
+		UserID:      userID,
+		CountryCode: countryCode,
+		ChatUserID:  chatUserID,
+		ProfileID:   profileID,
+		Role:        role,
+		RoomRepo:    h.RoomRepo,
 	}
 	h.Hub.Register <- client
 
@@ -430,7 +653,7 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 			continue
 		}
 
-		msg.SenderID = c.UserID
+		msg.SenderID = c.ChatUserID
 		msg.Status = "sent"
 		msg.Role = c.Role
 
@@ -456,8 +679,8 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 			}
 
 			if partnerID != "" {
-				go repo.MarkMessagesAsRead(c.UserID, partnerID)
-				receiptsEnabled, err := repo.ReadReceiptsEnabled(c.UserID)
+				go repo.MarkMessagesAsRead(c.ChatUserID, partnerID)
+				receiptsEnabled, err := repo.ReadReceiptsEnabled(c.ChatUserID)
 				if err != nil {
 					log.Printf("[CHAT] Could not load read-receipt preference for %s: %v", c.UserID, err)
 					continue
@@ -510,17 +733,45 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 			continue
 		}
 
+		if c.TargetID != "" && c.TargetID != "undefined" {
+			msg.RecipientID = c.TargetID
+			msg.RoomID = ""
+		} else {
+			msg.RoomID = c.RoomID
+			msg.RecipientID = ""
+		}
+
+		contentMode := "general"
+		if msg.RoomID != "" {
+			if c.RoomRepo == nil {
+				c.sendRoomError(msg.ClientMessageID, "Room message policy is unavailable")
+				continue
+			}
+			var err error
+			contentMode, err = c.RoomRepo.ValidateRoomMessage(context.Background(), msg.RoomID, c.UserID, msg.Content, msg.Media)
+			if err != nil {
+				c.sendRoomError(msg.ClientMessageID, roomMessageError(err))
+				continue
+			}
+			msg.Role, err = c.RoomRepo.GetRoomMemberRole(context.Background(), msg.RoomID, c.UserID)
+			if err != nil {
+				log.Printf("[WS WARNING] could not load room role for user %s in room %s: %v", c.UserID, msg.RoomID, err)
+				c.sendRoomError(msg.ClientMessageID, "Could not validate room role")
+				continue
+			}
+		}
+
 		// =======================================================
 		// MODERATION FILTER ENGINE
 		// =======================================================
-		originalText := msg.Content // Store the original text before masking
+		originalText := msg.Content
 		isFlagged := false
 
 		if c.Role == "model" || c.Role == "operator" {
 			cleanText, flagged := MaskSocialInfo(msg.Content)
 			msg.Content = cleanText
 			isFlagged = flagged
-		} else {
+		} else if contentMode != "mature" {
 			cleanText, flagged := MaskBadWords(msg.Content)
 			msg.Content = cleanText
 			isFlagged = flagged
@@ -538,21 +789,17 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 			}
 		}
 
-		if c.TargetID != "" && c.TargetID != "undefined" {
-			msg.RecipientID = c.TargetID
-			msg.RoomID = ""
-		} else {
-			msg.RoomID = c.RoomID
-			msg.RecipientID = ""
-		}
-
 		if msg.SenderID == "" || (msg.RoomID == "" && msg.RecipientID == "") {
 			continue
 		}
 
 		// Save to DB
+		if c.ProfileID != "" && c.Role == "model" && c.RoomID == "" {
+			msg.EarnedByCreatorID = c.UserID
+		}
 		if err := repo.SaveMessage(&msg); err != nil {
 			log.Printf("DATABASE ERROR saving WS message: %v\n", err)
+			c.sendRoomError(msg.ClientMessageID, "Message could not be saved")
 			continue
 		}
 
@@ -566,7 +813,54 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 
 		msg.RoomID = c.HubRoom
 		payload, _ := json.Marshal(msg)
+		select {
+		case c.Send <- payload:
+		default:
+			log.Printf("WS WARNING: could not acknowledge message %s to user %s", msg.ID, c.UserID)
+		}
 		c.Hub.Broadcast <- payload
+	}
+}
+
+func roomMessageError(err error) string {
+	switch err {
+	case repository.ErrUnauthorized:
+		return "You are not a member of this room"
+	case repository.ErrRoomNotFound:
+		return "This room is no longer available"
+	case repository.ErrRoomBanned:
+		return "You are banned from this room"
+	case repository.ErrRoomAgeRestricted:
+		return "This room is for adults only"
+	case repository.ErrRoomMuted:
+		return "You are muted in this room"
+	case repository.ErrRoomReadOnly:
+		return "Only room moderators can post"
+	case repository.ErrRoomMediaDisabled:
+		return "Media is disabled in this room"
+	case repository.ErrRoomLinksDisabled:
+		return "Links are disabled in this room"
+	case repository.ErrRoomSlowMode:
+		return "Slow mode is enabled; wait before posting again"
+	default:
+		return "Message does not follow this room's posting rules"
+	}
+}
+
+func (c *Client) sendRoomError(clientMessageID, reason string) {
+	payload, err := json.Marshal(models.Message{
+		Type:            "error",
+		ClientMessageID: clientMessageID,
+		Reason:          reason,
+	})
+	if err != nil {
+		log.Printf("WS ERROR: failed to encode room message error: %v", err)
+		return
+	}
+	select {
+	case c.Send <- payload:
+	default:
+		log.Printf("WS WARNING: could not send room message error to user %s", c.UserID)
 	}
 }
 

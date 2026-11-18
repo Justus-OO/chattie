@@ -49,6 +49,10 @@ func NewPaystackGateway() *PaystackGateway {
 
 // CreateSubscription uses dynamic price data passed from the DB instead of resolving Paystack Plan Codes
 func (p *PaystackGateway) CreateSubscription(ctx context.Context, email, userID string, price float64, months int) (*CheckoutSession, error) {
+	return p.CreateSubscriptionWithCurrency(ctx, email, userID, price, months, p.Currency)
+}
+
+func (p *PaystackGateway) CreateSubscriptionWithCurrency(ctx context.Context, email, userID string, price float64, months int, currency string) (*CheckoutSession, error) {
 	// Paystack expects amounts in subunits (e.g., Kobo for NGN, Cents for USD, Cents for KES)
 	amountInSubunits := int64(math.Round(price * 100))
 
@@ -65,8 +69,8 @@ func (p *PaystackGateway) CreateSubscription(ctx context.Context, email, userID 
 	if callbackURL := strings.TrimSpace(os.Getenv("PAYSTACK_CALLBACK_URL")); callbackURL != "" {
 		payload["callback_url"] = callbackURL
 	}
-	if p.Currency != "" {
-		payload["currency"] = p.Currency
+	if currency != "" {
+		payload["currency"] = strings.ToUpper(strings.TrimSpace(currency))
 	}
 
 	bodyBytes, err := json.Marshal(payload)
@@ -297,8 +301,17 @@ func (p *PaystackGateway) InitiateTransfer(ctx context.Context, amountMinor int6
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode Paystack transfer response: %w", err)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !result.Status || result.Data.Reference != reference {
-		return nil, fmt.Errorf("Paystack rejected transfer: %s", result.Message)
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		return nil, &PayoutRejectedError{Message: fmt.Sprintf("Paystack rejected transfer: %s", result.Message)}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("Paystack transfer returned HTTP %d; payout outcome is unknown", resp.StatusCode)
+	}
+	if !result.Status {
+		return nil, &PayoutRejectedError{Message: fmt.Sprintf("Paystack rejected transfer: %s", result.Message)}
+	}
+	if result.Data.Reference != reference {
+		return nil, fmt.Errorf("Paystack transfer response reference did not match the request")
 	}
 	return &PaystackTransfer{Code: result.Data.TransferCode, Reference: result.Data.Reference, Status: result.Data.Status}, nil
 }

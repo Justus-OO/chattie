@@ -194,7 +194,7 @@ const handleSetPrimary = async (imageId) => {
   );
 
   return (
-    <div className="flex-1 bg-black min-h-screen text-zinc-300 font-mono flex flex-col rounded-none overflow-hidden relative" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -222,7 +222,7 @@ const handleSetPrimary = async (imageId) => {
       {/* =========================================
           MAIN HEADER & TABS
           ========================================= */}
-      <div className="p-6 md:p-8 border-b-2 border-zinc-800 bg-black shrink-0 flex flex-col gap-6 z-10 relative">
+      <div className="shrink-0 border-b-2 border-zinc-800 bg-black p-3 sm:p-4 flex flex-col gap-4 z-10 relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
@@ -265,7 +265,7 @@ const handleSetPrimary = async (imageId) => {
       {/* =========================================
           TAB CONTENT AREA
           ========================================= */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-black">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar relative bg-black">
         
         {isLoading ? (
           <div className="flex items-center justify-center h-full w-full p-20">
@@ -277,7 +277,7 @@ const handleSetPrimary = async (imageId) => {
                 TAB 1: VAULT DIRECTORY
                 ========================================= */}
             {activeTab === 'DIRECTORY' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 
                 {/* Search */}
                 <div className="flex bg-zinc-950 p-4 border-2 border-zinc-800 items-center gap-2">
@@ -352,7 +352,7 @@ const handleSetPrimary = async (imageId) => {
                 TAB 2: BULK ASSET INJECTION (UPLOADER)
                 ========================================= */}
             {activeTab === 'INJECTION' && (
-              <div className="p-6 md:p-8 max-w-4xl mx-auto space-y-6">
+              <div className="w-full p-2 sm:p-3 lg:p-4 space-y-4">
                 
                 <div className="bg-zinc-950 border-2 border-zinc-800 p-6">
                   <h2 className="text-lg font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -406,7 +406,7 @@ const handleSetPrimary = async (imageId) => {
                       <span className="text-[10px] font-black text-blue-400">{uploadFiles.length} FILES</span>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                    <div className="grid max-h-[60dvh] grid-cols-2 gap-4 overflow-y-auto pr-2 custom-scrollbar sm:grid-cols-4">
                       {uploadFiles.map(file => (
                         <div key={file.id} className="relative group border-2 border-zinc-800 bg-zinc-950 aspect-square">
                           <img src={file.preview} alt="preview" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
@@ -448,7 +448,7 @@ const handleSetPrimary = async (imageId) => {
                 TAB 3: AUDIT LOGS
                 ========================================= */}
             {activeTab === 'AUDIT' && (
-              <div className="p-6 md:p-8">
+              <div className="p-2 sm:p-3 lg:p-4">
                 <div className="bg-zinc-950 border-2 border-zinc-800 overflow-x-auto">
                   <table className="w-full text-left text-xs font-mono whitespace-nowrap">
                     <thead className="bg-black border-b-2 border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-widest">
@@ -480,7 +480,7 @@ const handleSetPrimary = async (imageId) => {
                             </td>
                             <td className="p-4 text-white">{log.target}</td>
                             <td className="p-4 text-zinc-400">{log.admin}</td>
-                            <td className="p-4 text-zinc-500 truncate max-w-[200px]">{log.filename}</td>
+                            <td className="max-w-[clamp(8rem,18vw,13rem)] truncate p-4 text-zinc-500">{log.filename}</td>
                           </tr>
                         ))
                       )}
@@ -642,7 +642,7 @@ const handleSetPrimary = async (imageId) => {
 
               {/* Right Side: Image Inspector Panel */}
               {drawerTab === 'GALLERY' && previewImage && (
-                <div className="w-80 bg-zinc-950 border-l-2 border-zinc-800 flex flex-col shrink-0 animate-in slide-in-from-right-8 duration-200">
+                <div className="flex w-[clamp(14rem,22vw,20rem)] shrink-0 flex-col border-l-2 border-zinc-800 bg-zinc-950 animate-in slide-in-from-right-8 duration-200">
                   <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center">
                     <span className="text-[10px] font-black text-white uppercase tracking-widest">Asset Inspector</span>
                     <button onClick={() => setPreviewImage(null)} className="text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>

@@ -65,6 +65,41 @@ func TestParseFeedCreatorID(t *testing.T) {
 	}
 }
 
+func TestParseFeedPagination(t *testing.T) {
+	tests := []struct {
+		name       string
+		limit      string
+		page       string
+		offset     string
+		wantLimit  int
+		wantOffset int
+		wantError  bool
+	}{
+		{name: "default pagination", wantLimit: 20},
+		{name: "zero based page", limit: "8", page: "2", wantLimit: 8, wantOffset: 16},
+		{name: "explicit offset", limit: "10", page: "2", offset: "7", wantLimit: 10, wantOffset: 7},
+		{name: "zero limit", limit: "0", wantError: true},
+		{name: "limit above maximum", limit: "51", wantError: true},
+		{name: "malformed limit", limit: "many", wantError: true},
+		{name: "negative page", page: "-1", wantError: true},
+		{name: "page exceeds maximum offset", limit: "50", page: "20001", wantError: true},
+		{name: "negative offset", offset: "-1", wantError: true},
+		{name: "malformed offset", offset: "next", wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gotLimit, gotOffset, err := parseFeedPagination(test.limit, test.page, test.offset)
+			if (err != nil) != test.wantError {
+				t.Fatalf("parseFeedPagination() error = %v, wantError %v", err, test.wantError)
+			}
+			if err == nil && (gotLimit != test.wantLimit || gotOffset != test.wantOffset) {
+				t.Fatalf("parseFeedPagination() = (%d, %d), want (%d, %d)", gotLimit, gotOffset, test.wantLimit, test.wantOffset)
+			}
+		})
+	}
+}
+
 func int64Pointer(value int64) *int64 {
 	return &value
 }

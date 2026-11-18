@@ -11,8 +11,10 @@ import { toast } from 'sonner';
 // Import existing modules
 import LockedPostCard from '../../components/afterdark/LockedPostCard';
 import MpesaPaystackModal from '../../components/afterdark/MpesaPaystackModal';
+import { normalizeMediaType } from '../../utils/mediaType';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
+import { useAppDialogs } from '../../components/modals/useAppDialogs';
 
 // ============================================================================
 // DATA NORMALIZATION
@@ -48,7 +50,7 @@ const normalizePost = (post, creator) => ({
   id: post.id || post.post_id,
   creator,
   mediaUrl: post.mediaUrl || post.media_url || post.preview_url || '',
-  mediaType: post.mediaType || post.media_type || 'image',
+  mediaType: normalizeMediaType(post.mediaType || post.media_type),
   pricingStrategy: post.pricingStrategy || post.pricing_strategy || 'ppv',
   price: Number(post.price ?? post.price_cents ?? 0) / (post.price_cents !== undefined ? 100 : 1),
   timestamp: post.timestamp || post.created_at || 'Recently',
@@ -227,7 +229,7 @@ const SubscribeModal = ({ isOpen, onClose, creator, balance, onCheckoutFallback 
         
         <div className="p-6 space-y-6 bg-black">
           <div className="flex items-center gap-4 border-2 border-zinc-800 bg-zinc-950 p-4 rounded-none">
-            <img src={creator.avatar} alt={creator.name} className="w-16 h-16 object-cover border-2 border-yellow-400 shrink-0 rounded-none" />
+            <img src={creator.avatar} alt={creator.name} className="size-[clamp(3.5rem,8vw,4.5rem)] object-cover border-2 border-yellow-400 shrink-0 rounded-none" />
             <div>
               <h3 className="text-base font-bold text-white uppercase tracking-widest">{creator.name}</h3>
               <p className="text-sm font-bold text-yellow-400 uppercase tracking-widest mt-0.5">
@@ -294,6 +296,7 @@ const SubscribeModal = ({ isOpen, onClose, creator, balance, onCheckoutFallback 
 // MAIN COMPONENT: CREATOR PROFILE & DIRECTORY EXPLORER
 // ============================================================================
 export default function AfterDarkCreatorProfile() {
+  const { confirm } = useAppDialogs();
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -435,13 +438,25 @@ export default function AfterDarkCreatorProfile() {
       if (active) setProfileLoading(false);
     });
 
-    afterDarkService.getFeed({ creator_id: selectedCreatorId, limit: 40 }).then(feedResponse => {
+    afterDarkService.getFeed({ creator_id: selectedCreatorId, limit: 40 }).then(async feedResponse => {
       if (!active) return;
       const postRecords = Array.isArray(feedResponse)
         ? feedResponse
         : feedResponse?.posts || feedResponse?.items || [];
       if (!Array.isArray(postRecords)) throw new Error('The creator feed returned an invalid response.');
-      setPosts(postRecords.map(post => normalizePost(post, creatorRef.current || { id: selectedCreatorId })));
+      const creatorPosts = await Promise.all(postRecords.map(async record => {
+        const post = normalizePost(record, creatorRef.current || { id: selectedCreatorId });
+        if (!post.id || !post.isUnlocked || post.mediaUrl) return post;
+
+        try {
+          const mediaResponse = await afterDarkService.getPostMediaUrl(post.id);
+          return { ...post, mediaUrl: mediaResponse?.url || '' };
+        } catch (mediaError) {
+          console.error(`Could not load authorized media for After Dark post ${post.id}.`, mediaError);
+          return post;
+        }
+      }));
+      if (active) setPosts(creatorPosts);
     }).catch(error => {
       if (active) toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load this creator’s posts.'));
     }).finally(() => {
@@ -590,7 +605,11 @@ export default function AfterDarkCreatorProfile() {
   };
 
   const reportCreator = async () => {
-    if (!creator || !window.confirm(`Report ${creator.name} for review?`)) return;
+    if (!creator || !await confirm(`Report ${creator.name} for review?`, {
+      title: 'Report creator',
+      confirmLabel: 'Submit report',
+      tone: 'danger',
+    })) return;
     try {
       await afterDarkService.submitReport({ target_type: 'creator', target_id: creator.id, reason: 'User report' });
       toast.success('Report submitted for review.');
@@ -617,7 +636,7 @@ export default function AfterDarkCreatorProfile() {
   // ==========================================================================
   if (!creator && !profileLoading) {
     return (
-      <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
         
         {/* HEADER */}
         <header className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0 z-20">
@@ -636,7 +655,7 @@ export default function AfterDarkCreatorProfile() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="relative flex-1 sm:w-64">
+            <div className="relative min-w-0 flex-1 sm:w-[clamp(12rem,26vw,20rem)]">
               <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
@@ -698,8 +717,8 @@ export default function AfterDarkCreatorProfile() {
         </div>
 
         {/* CREATORS GRID */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 bg-black">
-          <div className="max-w-6xl mx-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar bg-black p-2 sm:p-3 lg:p-4">
+          <div className="w-full">
             {directoryLoading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 text-white animate-spin mb-3" />
@@ -721,7 +740,7 @@ export default function AfterDarkCreatorProfile() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredAvailableCreators.map(item => (
                   <div key={item.id} className="bg-black border-2 border-zinc-800 hover:border-zinc-600 transition-colors flex flex-col rounded-none group">
-                    <div className="h-28 bg-zinc-950 border-b-2 border-zinc-800 relative overflow-hidden">
+                    <div className="relative aspect-[3/1] overflow-hidden border-b-2 border-zinc-800 bg-zinc-950">
                       {item.cover && (
                         <img src={item.cover} alt="" className="w-full h-full object-cover opacity-50 grayscale group-hover:grayscale-0 transition-all" />
                       )}
@@ -798,7 +817,7 @@ export default function AfterDarkCreatorProfile() {
 
   if (profileLoading && !creator) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center text-zinc-300 w-full h-full font-mono">
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-6 text-center text-zinc-300 font-mono">
         <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
         <h2 className="text-sm font-bold text-white uppercase tracking-widest">Loading Creator Vault...</h2>
       </div>
@@ -809,10 +828,10 @@ export default function AfterDarkCreatorProfile() {
   // RENDER: MAIN CREATOR PROFILE & VAULT MANIPULATION UI
   // ==========================================================================
   return (
-    <div className="flex-1 flex bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 bg-black w-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
       
       {/* LEFT/MAIN SCROLLABLE AREA */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto custom-scrollbar relative lg:border-r-2 border-zinc-800 rounded-none">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto custom-scrollbar relative lg:border-r-2 border-zinc-800 rounded-none">
         
         {/* TOP STICKY HEADER BAR (Matches UserSettings Header) */}
         <header className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex items-center justify-between sticky top-0 z-30 shrink-0 rounded-none">
@@ -862,7 +881,7 @@ export default function AfterDarkCreatorProfile() {
               {showMenu && (
                 <>
                   <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] z-30 flex flex-col rounded-none">
+                  <div className="absolute right-0 top-full z-30 mt-2 flex w-[clamp(12rem,24vw,16rem)] flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] rounded-none">
                     <button onClick={copyProfileLink} className="px-4 py-3 text-left text-[10px] font-bold text-white uppercase tracking-widest hover:bg-zinc-950 flex items-center gap-2 border-b-2 border-zinc-800">
                       <Share2 className="w-4 h-4 text-zinc-400" /> Share Profile
                     </button>
@@ -919,7 +938,7 @@ export default function AfterDarkCreatorProfile() {
                       <img src={item.avatar} alt="" className="w-5 h-5 object-cover border border-black rounded-none" />
                       {item.isOnline && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 border border-black rounded-none" />}
                     </div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest max-w-[90px] truncate">
+                    <span className="max-w-[clamp(5rem,12vw,7rem)] truncate text-[10px] font-bold uppercase tracking-widest">
                       {item.name}
                     </span>
                   </button>
@@ -930,7 +949,7 @@ export default function AfterDarkCreatorProfile() {
         )}
 
         {/* HERO / COVER SECTION */}
-        <div className="relative h-48 md:h-64 bg-zinc-950 border-b-2 border-zinc-800 shrink-0 overflow-hidden">
+        <div className="relative aspect-[4/1] shrink-0 overflow-hidden border-b-2 border-zinc-800 bg-zinc-950">
           {creator.cover ? (
             <img src={creator.cover} alt="cover" className="w-full h-full object-cover opacity-60 grayscale" />
           ) : (
@@ -948,7 +967,7 @@ export default function AfterDarkCreatorProfile() {
               <img 
                 src={creator.avatar} 
                 alt={creator.name} 
-                className="w-28 h-28 md:w-36 md:h-36 object-cover border-2 border-zinc-600 bg-black rounded-none" 
+                className="size-[clamp(6rem,13vw,9rem)] object-cover border-2 border-zinc-600 bg-black rounded-none"
               />
               {creator.isOnline && (
                 <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black border-2 border-green-500 text-[8px] font-bold text-green-500 uppercase tracking-widest rounded-none">
@@ -992,7 +1011,7 @@ export default function AfterDarkCreatorProfile() {
           </div>
 
           {/* Name, Bio & Interactive Tags */}
-          <div className="max-w-3xl">
+          <div className="w-full">
             <div className="flex flex-wrap items-center gap-3 mb-3">
               <h2 className="text-xl md:text-2xl font-bold text-white uppercase tracking-widest flex items-center gap-2">
                 {creator.name}
@@ -1165,8 +1184,8 @@ export default function AfterDarkCreatorProfile() {
         </div>
 
         {/* VAULT POSTS DISPLAY */}
-        <div className="p-4 md:p-8 pb-24 bg-black flex-1">
-          <div className="max-w-3xl mx-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-black p-2 sm:p-3 lg:p-4">
+          <div className="w-full">
             {loadingPosts ? (
               <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
                 <Loader2 className="w-8 h-8 animate-spin mb-4 text-white" />
@@ -1177,21 +1196,25 @@ export default function AfterDarkCreatorProfile() {
                 <Camera className="w-8 h-8 text-zinc-600 mb-3" />
                 <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-1">No Matching Vault Media</h3>
                 <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">
-                  {!showExplicitContent && posts.some(post => post.isExplicit)
-                    ? 'Explicit posts are hidden by your viewing preference. Change it in After Dark settings to show them.'
+                  {!showExplicitContent
+                    ? 'Explicit posts are hidden by your viewing preference. Enable them in After Dark Settings. Posts awaiting moderation stay hidden.'
                     : 'Adjust your media filters or search terms.'}
                 </p>
                 <button
                   type="button"
                   onClick={() => {
-                    setActiveTab('all');
-                    setAccessFilter('all');
-                    setPostSearch('');
-                    setSelectedTag('');
+                    if (!showExplicitContent) {
+                      navigate('/afterdark/settings?tab=viewing');
+                    } else {
+                      setActiveTab('all');
+                      setAccessFilter('all');
+                      setPostSearch('');
+                      setSelectedTag('');
+                    }
                   }}
                   className="px-4 py-2 bg-white text-black border-2 border-white text-[10px] font-bold uppercase tracking-widest rounded-none"
                 >
-                  Reset Vault Filters
+                  {!showExplicitContent ? 'Viewing Settings' : 'Reset Vault Filters'}
                 </button>
               </div>
             ) : viewLayout === 'grid' ? (
@@ -1264,7 +1287,7 @@ export default function AfterDarkCreatorProfile() {
       </div>
 
       {/* RIGHT SIDEBAR (Desktop: Available Creators Directory & Manipulation) */}
-      <aside className="hidden xl:flex flex-col w-80 bg-black shrink-0 overflow-y-auto custom-scrollbar rounded-none">
+      <aside className="hidden w-[clamp(16rem,22vw,22rem)] shrink-0 flex-col overflow-y-auto bg-black custom-scrollbar rounded-none xl:flex">
         
         <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 sticky top-0 z-10 space-y-3 rounded-none">
           <div className="flex items-center justify-between">

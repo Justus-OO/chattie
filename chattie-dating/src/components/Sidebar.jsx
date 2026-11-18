@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Flame, Zap, Users, ShieldCheck, 
-  Grid, MessageSquare, Settings, Loader2, Radio, Bell
+  Grid, MessageSquare, Settings, Loader2, Radio, Bell, LifeBuoy
 } from 'lucide-react';
 
 // Services
@@ -107,7 +107,7 @@ export default function Sidebar() {
 
   return (
     <aside 
-      className="w-80 flex flex-col justify-between h-full text-zinc-300 rounded-none shrink-0"
+      className="flex h-full w-full shrink-0 flex-col justify-between text-zinc-300 rounded-none"
       style={{ backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)' }}
     >
       <div className="flex flex-col h-full overflow-hidden">
@@ -144,7 +144,7 @@ export default function Sidebar() {
         </div>
 
         {/* Global Navigation Links */}
-        <div className="p-2 grid grid-cols-4 gap-1 shrink-0" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <div className="p-2 grid grid-cols-5 gap-1 shrink-0" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
           <NavLink to="/rooms" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <Users className="w-5 h-5" />
             <span className="text-[9px] font-bold uppercase">{t('rooms')}</span>
@@ -160,6 +160,10 @@ export default function Sidebar() {
           <NavLink to="/messages" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <MessageSquare className="w-5 h-5" />
             <span className="text-[9px] font-bold uppercase">{t('inbox')}</span>
+          </NavLink>
+          <NavLink to="/support" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
+            <LifeBuoy className="w-5 h-5" />
+            <span className="text-[9px] font-bold uppercase">Support</span>
           </NavLink>
         </div>
 
@@ -303,7 +307,7 @@ export default function Sidebar() {
             </div>
           )}
           <div>
-            <p className="text-xs font-bold flex items-center gap-1 uppercase truncate max-w-[120px]" style={{ color: 'var(--text-primary)' }}>
+            <p className="max-w-[clamp(5rem,10vw,8rem)] truncate text-xs font-bold uppercase flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
               {user.name || 'My Account'} <ShieldCheck className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
             </p>
             <p className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--success)' }}>Online</p>

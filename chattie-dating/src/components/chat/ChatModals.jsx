@@ -10,7 +10,7 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-3xl shadow-2xl flex flex-col h-[85vh] rounded-3xl overflow-hidden animate-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+      <div className="relative flex h-[85dvh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl shadow-2xl animate-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
         <div className="p-6 flex justify-between items-center shrink-0" style={{ backgroundColor: 'var(--surface-alt)', borderBottom: '1px solid var(--border)' }}>
           <div>
             <h2 className="text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
@@ -64,7 +64,7 @@ export function MediaVaultModal({ isOpen, images, onClose, onSelect, isLoading, 
               images.map((mediaObj) => (
                 <button 
                   key={mediaObj.id || mediaObj.url}
-                  onClick={() => onSelect(mediaObj.url || mediaObj.media_url)}
+                  onClick={() => onSelect(mediaObj.url || mediaObj.media_url, mediaObj)}
                   className="aspect-square rounded-2xl overflow-hidden group relative shadow-sm"
                   style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)' }}
                 >

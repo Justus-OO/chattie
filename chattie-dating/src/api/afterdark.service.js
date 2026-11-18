@@ -92,9 +92,9 @@ export const afterDarkService = {
   },
 
   /**
-   * Fetches the global or filtered post feed.
+   * Fetches the viewer-authorized creator feed.
    * @component AfterDarkFeed.jsx
-   * @param {Object} params - e.g., { creator_id: '...', access: 'free'|'ppv'|'all', media_type: 'video', cursor: '...' }
+   * @param {Object} params - e.g., { creator_id: '...', access: 'free'|'subscriber'|'ppv'|'all', feed_scope: 'discover'|'following', page: 0 }
    */
   getFeed: async (params) => {
     const response = await apiClient.get('/afterdark/feed', { params });
@@ -265,6 +265,34 @@ export const afterDarkService = {
     return response.data;
   },
 
+  pinMessage: async (conversationId, messageId, pinned) => {
+    const response = await apiClient.post(`/afterdark/conversations/${conversationId}/messages/pin`, {
+      message_id: messageId,
+      pinned,
+    });
+    return response.data;
+  },
+
+  toggleMessageReaction: async (conversationId, messageId, emoji) => {
+    const response = await apiClient.post(`/afterdark/conversations/${conversationId}/messages/reactions`, {
+      message_id: messageId,
+      emoji,
+    });
+    return response.data;
+  },
+
+  getConversationCallToken: async (conversationId, participantName) => {
+    const response = await apiClient.post(`/afterdark/conversations/${conversationId}/voice-token`, {
+      participant_name: participantName,
+    });
+    return response.data;
+  },
+
+  recordConversationCallEvent: async (conversationId, event, mode) => {
+    const response = await apiClient.post(`/afterdark/conversations/${conversationId}/call-events`, { event, mode });
+    return response.data;
+  },
+
   /**
    * Updates the read receipt cursor when the user opens a thread.
    * @component AfterDarkChatHub.jsx (on thread selection)
@@ -324,6 +352,11 @@ export const afterDarkService = {
 
   startPayment: async (paymentData) => {
     const response = await apiClient.post('/afterdark/payments/checkout', paymentData);
+    return response.data;
+  },
+
+  getCheckoutConfig: async () => {
+    const response = await apiClient.get('/afterdark/payments/config');
     return response.data;
   },
 

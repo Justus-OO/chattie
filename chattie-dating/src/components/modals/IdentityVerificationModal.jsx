@@ -496,7 +496,7 @@ export default function IdentityVerificationModal({ isOpen, onClose, onVerified,
 
         {/* LOADING CONFIG STATE */}
         {isLoadingConfig && (
-          <div className="p-16 flex flex-col items-center justify-center bg-black min-h-[300px]">
+          <div className="flex min-h-[45dvh] flex-col items-center justify-center bg-black p-6 sm:p-10">
             <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-4" />
             <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t('verificationLoading')}</p>
           </div>
@@ -548,7 +548,7 @@ export default function IdentityVerificationModal({ isOpen, onClose, onVerified,
               <div className="p-6 flex flex-col items-center bg-black">
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mb-3 w-full">{t('captureDocument', { side: step === 3 ? 'front' : 'back' })}</h4>
                 <p className="text-[10px] text-zinc-400 mb-4 text-center">{t('documentCaptureHint', { document: config.document_labels[documentType]?.toLowerCase() })}</p>
-                <div className="relative w-full aspect-[4/3] max-h-64 bg-zinc-950 border-2 border-blue-500/60 overflow-hidden">
+                <div className="relative aspect-[4/3] max-h-[45dvh] w-full overflow-hidden border-2 border-blue-500/60 bg-zinc-950">
                   <video ref={videoRef} autoPlay muted playsInline aria-label="Live document camera preview" className="w-full h-full object-cover" />
                   <div className="absolute inset-[8%] border-2 border-dashed border-white/80 pointer-events-none" />
                 </div>
@@ -564,7 +564,7 @@ export default function IdentityVerificationModal({ isOpen, onClose, onVerified,
               <div className="p-6 flex flex-col items-center bg-black">
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mb-3 w-full">{t('reviewDocument', { side: step === 8 ? 'front' : 'back' })}</h4>
                 <p className="text-[10px] text-zinc-400 mb-4 text-center">{t('documentReviewHint')}</p>
-                <img src={step === 8 ? frontPreview : backPreview} alt={`Captured document ${step === 8 ? 'front' : 'back'}`} className="w-full max-h-64 object-contain bg-zinc-950 border-2 border-zinc-700" />
+                <img src={step === 8 ? frontPreview : backPreview} alt={`Captured document ${step === 8 ? 'front' : 'back'}`} className="max-h-[45dvh] w-full border-2 border-zinc-700 bg-zinc-950 object-contain" />
                 <div className="flex gap-3 w-full mt-5">
                   <button onClick={() => setStep(step === 8 ? 3 : 4)} className="flex-1 py-3 border-2 border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase">{t('retake')}</button>
                   <button onClick={step === 8 ? continueAfterFrontReview : continueAfterBackReview} className="flex-2 py-3 bg-white text-black text-[10px] font-bold uppercase">{t('looksGoodContinue')}</button>
@@ -577,7 +577,7 @@ export default function IdentityVerificationModal({ isOpen, onClose, onVerified,
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mb-3 w-full text-left">{t('liveSelfieCheck')}</h4>
                 <p className="text-sm font-bold text-white mb-3">{formatPrompt(pose, t)}</p>
                 <p className="text-[10px] text-zinc-400 mb-4">{t('selfieInstructions')}</p>
-                <div className="relative w-full aspect-[4/3] max-h-64 bg-zinc-950 border-2 border-blue-500/60 overflow-hidden">
+                <div className="relative aspect-[4/3] max-h-[45dvh] w-full overflow-hidden border-2 border-blue-500/60 bg-zinc-950">
                   <video ref={videoRef} autoPlay muted playsInline aria-label={t('liveSelfieCheck')} className="w-full h-full object-cover" />
                   <div className="absolute inset-y-[8%] left-[25%] right-[25%] rounded-full border-2 border-dashed border-white/80 pointer-events-none" />
                   
@@ -605,8 +605,8 @@ export default function IdentityVerificationModal({ isOpen, onClose, onVerified,
             )}
 
             {step === 6 && (
-              <div className="p-10 flex flex-col items-center justify-center bg-black min-h-[350px]">
-                <div className="relative mb-10 flex items-center justify-center w-32 h-32">
+              <div className="flex min-h-[45dvh] flex-col items-center justify-center bg-black p-6 sm:p-10">
+                <div className="relative mb-10 flex size-[clamp(6rem,16vw,8rem)] items-center justify-center">
                   <div className="absolute inset-0 border-2 border-zinc-800 border-t-yellow-400 rounded-full animate-spin" />
                   <Sparkles className="w-8 h-8 text-yellow-400 animate-pulse" />
                 </div>

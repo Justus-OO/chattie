@@ -4,7 +4,8 @@ import {
   MessageSquare, Search, MoreVertical, BellOff, 
   Trash2, Archive, CheckCircle2, Flame, AlertTriangle, Clock,
   Loader2, RefreshCw, Send, ArrowLeft, Bot, Sparkles, Check, CheckCheck, X, Heart,
-  Image as ImageIcon, Smile, Upload, Video, Mic, MicOff, PhoneOff, Phone, Headphones
+  Image as ImageIcon, Smile, Upload, Video, Mic, MicOff, PhoneOff, Phone, Headphones,
+  Pin, PinOff, PhoneCall
 } from 'lucide-react';
 import { toast } from 'sonner';
 import EmojiPicker from 'emoji-picker-react';
@@ -30,6 +31,127 @@ import { MediaVaultModal, DeleteConfirmModal, BlockUserModal } from '../../compo
 import { useI18n } from '../../i18n';
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880"; 
+
+const getPrivateCallRoomId = (firstUserId, secondUserId) =>
+  `dm_call_${[String(firstUserId), String(secondUserId)].sort().join('_')}`;
+
+function AutoPublishMic({ micGain, setMicEnabled, setMicLevel }) {
+  const { localParticipant } = useLocalParticipant();
+  const publishedRef = useRef(null);
+  const srcStreamRef = useRef(null);
+  const analyserRef = useRef(null);
+  const gainNodeRef = useRef(null);
+  const micGainRef = useRef(micGain);
+
+  useEffect(() => {
+    micGainRef.current = micGain;
+  }, [micGain]);
+
+  useEffect(() => {
+    if (!localParticipant) return undefined;
+    let mounted = true;
+    let animationFrame = null;
+    let lastLevelUpdate = 0;
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    const setup = async () => {
+      try {
+        await audioContext.resume();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!mounted) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        srcStreamRef.current = stream;
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        analyserRef.current = analyser;
+        const gainNode = audioContext.createGain();
+        gainNode.gain.value = micGainRef.current ?? 1;
+        gainNodeRef.current = gainNode;
+        const destination = audioContext.createMediaStreamDestination();
+        source.connect(analyser);
+        analyser.connect(gainNode);
+        gainNode.connect(destination);
+
+        const updateLevel = () => {
+          if (!mounted || !analyserRef.current) return;
+          const data = new Uint8Array(analyserRef.current.fftSize);
+          analyserRef.current.getByteTimeDomainData(data);
+          const mean = data.reduce((sum, value) => sum + value, 0) / data.length;
+          const rms = Math.sqrt(data.reduce((sum, value) => sum + (value - mean) ** 2, 0) / data.length) / 128;
+          const now = performance.now();
+          if (now - lastLevelUpdate >= 100) {
+            setMicLevel(Math.min(1, Math.max(0, rms)));
+            lastLevelUpdate = now;
+          }
+          animationFrame = requestAnimationFrame(updateLevel);
+        };
+        updateLevel();
+
+        if (LocalAudioTrack && localParticipant.publishTrack) {
+          const localAudioTrack = new LocalAudioTrack(destination.stream.getAudioTracks()[0]);
+          try {
+            const publication = await localParticipant.publishTrack(localAudioTrack);
+            if (!mounted) {
+              await localParticipant.unpublishTrack(localAudioTrack);
+              return;
+            }
+            publishedRef.current = { publication, localAudioTrack };
+            setMicEnabled(true);
+            return;
+          } catch (error) {
+            console.warn('Processed microphone publish failed; falling back to LiveKit microphone:', error);
+          }
+        }
+
+        if (localParticipant.setMicrophoneEnabled) {
+          await localParticipant.setMicrophoneEnabled(true);
+          setMicEnabled(true);
+        }
+      } catch (error) {
+        if (mounted) {
+          setMicEnabled(false);
+          console.error('Private call microphone setup failed:', error);
+          toast.error('Could not access your microphone. Check browser permissions and try again.');
+        }
+      }
+    };
+
+    setup();
+
+    return () => {
+      mounted = false;
+      if (publishedRef.current) {
+        localParticipant.unpublishTrack(publishedRef.current.localAudioTrack).catch((error) => {
+          console.warn('Could not unpublish the private call microphone:', error);
+        });
+        publishedRef.current = null;
+      }
+      if (srcStreamRef.current) {
+        srcStreamRef.current.getTracks().forEach((track) => track.stop());
+        srcStreamRef.current = null;
+      }
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      analyserRef.current?.disconnect();
+      analyserRef.current = null;
+      gainNodeRef.current?.disconnect();
+      gainNodeRef.current = null;
+      audioContext.close().catch((error) => {
+        console.warn('Could not close private call audio context:', error);
+      });
+      setMicEnabled(false);
+      setMicLevel(0);
+    };
+  }, [localParticipant, setMicEnabled, setMicLevel]);
+
+  useEffect(() => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = micGain;
+  }, [micGain]);
+
+  return null;
+}
 
 // --- ROBUST WS URL BUILDER ---
 const getWsUrl = (queryParameters) => {
@@ -77,19 +199,32 @@ export default function PrivateInbox() {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [autoPilot, setAutoPilot] = useState(false);
+  const [aiSuggestions, setAISuggestions] = useState([]);
+  const [isGeneratingAISuggestions, setIsGeneratingAISuggestions] = useState(false);
+  const [aiAutoReplyEnabled, setAIAutoReplyEnabled] = useState(false);
+  const [isLoadingAIAutoReply, setIsLoadingAIAutoReply] = useState(false);
+  const [isUpdatingAIAutoReply, setIsUpdatingAIAutoReply] = useState(false);
   
   // --- CALL / WEBRTC STATE ---
   const [callToken, setCallToken] = useState("");
   const [isInCall, setIsInCall] = useState(false);
   const [isConnectingCall, setIsConnectingCall] = useState(false);
   const [callMode, setCallMode] = useState('video');
+  const [callRoomId, setCallRoomId] = useState('');
+  const [outgoingCallData, setOutgoingCallData] = useState(null);
   const [callStartedAt, setCallStartedAt] = useState(null);
   const [callElapsedSec, setCallElapsedSec] = useState(0);
+  const [activeCallPeerId, setActiveCallPeerId] = useState('');
+  const [pinningMessageId, setPinningMessageId] = useState(null);
   
   // Incoming call / ringing state
   const [incomingCallData, setIncomingCallData] = useState(null); 
   const notificationSocketRef = useRef(null);
+  const callTimeoutRef = useRef(null);
+  const outgoingCallRef = useRef(null);
+  const incomingCallRef = useRef(null);
+  const isInCallRef = useRef(false);
+  const callRoomRef = useRef('');
   const notificationReconnectAttempts = useRef(0);
   const notificationIntentionalClose = useRef(false);
 
@@ -100,120 +235,6 @@ export default function PrivateInbox() {
   const [micGain, setMicGain] = useState(1.0);
   const [micEnabled, setMicEnabled] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
-  const micGainRef = useRef(micGain);
-  const analyserRef = useRef(null);
-  const rafRef = useRef(null);
-
-  // Auto-publish microphone helper component
-  function AutoPublishMic() {
-    const { localParticipant } = useLocalParticipant();
-    const publishedRef = useRef(null);
-    const srcStreamRef = useRef(null);
-    const gainNodeRef = useRef(null);
-    useEffect(() => { micGainRef.current = micGain; }, [micGain]);
-
-    useEffect(() => {
-      if (!localParticipant) return;
-      let mounted = true;
-      let audioCtx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
-      audioCtxRef.current = audioCtx;
-
-      const setup = async () => {
-        try {
-          setMicEnabled(true);
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (!mounted) return;
-          srcStreamRef.current = stream;
-          const src = audioCtx.createMediaStreamSource(stream);
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 256;
-          analyserRef.current = analyser;
-          const gainNode = audioCtx.createGain();
-          gainNode.gain.value = micGainRef.current ?? 1.0;
-          gainNodeRef.current = gainNode;
-          const dest = audioCtx.createMediaStreamDestination();
-          src.connect(analyser);
-          analyser.connect(gainNode);
-          gainNode.connect(dest);
-
-          const processedTrack = dest.stream.getAudioTracks()[0];
-
-          const updateLevel = () => {
-            if (!mounted || !analyserRef.current) return;
-            const data = new Uint8Array(analyserRef.current.fftSize);
-            analyserRef.current.getByteTimeDomainData(data);
-            const mean = data.reduce((sum, v) => sum + v, 0) / data.length;
-            const rms = Math.sqrt(data.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / data.length) / 128;
-            const value = Math.min(1, Math.max(0, rms));
-            setMicLevel(value);
-            if (!micEnabled && value > 0.001) {
-              setMicEnabled(true);
-            }
-            rafRef.current = requestAnimationFrame(updateLevel);
-          };
-          updateLevel();
-
-          if (LocalAudioTrack && localParticipant.publishTrack) {
-            try {
-              const localAudioTrack = new LocalAudioTrack(processedTrack);
-              const publication = await localParticipant.publishTrack(localAudioTrack);
-              publishedRef.current = { publication, localAudioTrack };
-              return;
-            } catch (e) {
-              console.warn('publishTrack failed, falling back to setMicrophoneEnabled', e);
-            }
-          }
-
-          if (localParticipant.setMicrophoneEnabled) {
-            await localParticipant.setMicrophoneEnabled(true);
-          }
-        } catch (e) {
-          console.warn('AutoPublishMic setup failed', e);
-        }
-      };
-
-      setup();
-
-      return () => {
-        mounted = false;
-        try {
-          if (publishedRef.current && localParticipant.unpublishTrack) {
-            localParticipant.unpublishTrack(publishedRef.current.localAudioTrack).catch(() => {});
-          }
-        } catch (e) {}
-        if (srcStreamRef.current) {
-          srcStreamRef.current.getTracks().forEach(t => t.stop());
-          srcStreamRef.current = null;
-        }
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
-          rafRef.current = null;
-        }
-        if (analyserRef.current) {
-          try { analyserRef.current.disconnect(); } catch (e) {}
-          analyserRef.current = null;
-        }
-        if (gainNodeRef.current) {
-          try { gainNodeRef.current.disconnect(); } catch (e) {}
-          gainNodeRef.current = null;
-        }
-        setMicEnabled(false);
-        setMicLevel(0);
-      };
-    }, [localParticipant]);
-
-    useEffect(() => {
-      if (gainNodeRef.current) gainNodeRef.current.gain.value = micGain;
-    }, [micGain]);
-
-    return null;
-  }
-
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [speakerOn, setSpeakerOn] = useState(true);
-  const [swappedCamera, setSwappedCamera] = useState(false);
-  const [showReactions, setShowReactions] = useState(false);
-
   // --- TEXTING FEATURES STATE ---
   const [showMediaVault, setShowMediaVault] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
@@ -229,9 +250,10 @@ export default function PrivateInbox() {
   
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const persistedCallEventsRef = useRef({});
+  const messageRefs = useRef(new Map());
   const socketMetaRef = useRef({ reconnectAttempts: 0, manuallyClosed: false, reconnectTimer: null });
   const activeChatRef = useRef(null);
+  const conversationsRef = useRef(conversations);
   const lastIncomingCallRef = useRef(null);
   const lastTypingTimeRef = useRef(0);
   const typingTimeoutRef = useRef(null);
@@ -239,30 +261,265 @@ export default function PrivateInbox() {
   const [partnerPresence, setPartnerPresence] = useState('offline');
   const [replyingTo, setReplyingTo] = useState(null);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
-  const [localStream, setLocalStream] = useState(null);
-  const localPreviewRef = useRef(null);
-
-  const assignStream = (el, stream) => {
-    if (!el) return;
-    try {
-      if (el.srcObject !== stream) el.srcObject = stream;
-    } catch (e) {}
-  };
-
   const currentUser = useAppStore((s) => s.user) || { id: 'me', name: 'You' };
   const appToken = useAppStore((state) => state.token);
+  const currentUserRef = useRef(currentUser);
+  activeChatRef.current = activeChat;
+  conversationsRef.current = conversations;
+  currentUserRef.current = currentUser;
+  outgoingCallRef.current = outgoingCallData;
+  incomingCallRef.current = incomingCallData;
+  isInCallRef.current = isInCall;
+  callRoomRef.current = callRoomId;
+
+  useEffect(() => {
+    let cancelled = false;
+    setAISuggestions([]);
+    setAIAutoReplyEnabled(false);
+    if (!activeChat?.id || activeChat.type !== 'dm') {
+      setIsLoadingAIAutoReply(false);
+      return () => { cancelled = true; };
+    }
+
+    setIsLoadingAIAutoReply(true);
+    chatService.getAIAutoReplyPreference(activeChat.id)
+      .then(({ enabled }) => {
+        if (!cancelled) setAIAutoReplyEnabled(Boolean(enabled));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          toast.error(error.response?.data?.error || 'Could not load AI auto-reply setting.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingAIAutoReply(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [activeChat?.id, activeChat?.type]);
+
+  const handleGenerateAISuggestions = async () => {
+    if (!activeChat?.id || activeChat.type !== 'dm' || isGeneratingAISuggestions) return;
+    const targetId = activeChat.id;
+    setIsGeneratingAISuggestions(true);
+    try {
+      const response = await chatService.generateAISuggestions(targetId);
+      if (activeChatRef.current?.id === targetId) {
+        setAISuggestions(Array.isArray(response.suggestions) ? response.suggestions : []);
+      }
+    } catch (error) {
+      const message = typeof error.response?.data === 'string'
+        ? error.response.data
+        : error.response?.data?.error || 'AI suggestions are unavailable right now.';
+      toast.error(message);
+    } finally {
+      setIsGeneratingAISuggestions(false);
+    }
+  };
+
+  const handleToggleAIAutoReply = async () => {
+    if (!activeChat?.id || activeChat.type !== 'dm' || isUpdatingAIAutoReply) return;
+    const targetId = activeChat.id;
+    const enabled = !aiAutoReplyEnabled;
+    setIsUpdatingAIAutoReply(true);
+    try {
+      const response = await chatService.setAIAutoReplyPreference(targetId, enabled);
+      if (activeChatRef.current?.id === targetId) {
+        setAIAutoReplyEnabled(Boolean(response.enabled));
+      }
+      toast.success(enabled
+        ? 'AI replies are enabled for this chat after 5 hours without your reply.'
+        : 'AI replies are disabled for this chat.');
+    } catch (error) {
+      const message = typeof error.response?.data === 'string'
+        ? error.response.data
+        : error.response?.data?.error || 'Could not update AI auto-reply setting.';
+      toast.error(message);
+    } finally {
+      setIsUpdatingAIAutoReply(false);
+    }
+  };
+
+  const applyPinUpdate = (message) => {
+    if (!message.message_id) return;
+    setMessages((previous) => previous.map((item) => item.id === message.message_id
+      ? { ...item, isPinned: Boolean(message.is_pinned) }
+      : item));
+  };
+
+  const appendCallEventMessage = (message) => {
+    const partnerId = message.sender_id === currentUserRef.current?.id
+      ? message.recipient_id
+      : message.sender_id;
+    const chatMessage = {
+      id: message.id,
+      sender: message.sender_id === currentUserRef.current?.id ? 'me' : 'partner',
+      text: message.content || message.text || '',
+      messageKind: message.message_kind || 'call_event',
+      callMode: message.call_mode || 'audio',
+      status: message.status || 'sent',
+      time: formatChatTimestamp(message.created_at || Date.now())
+    };
+
+    if (activeChatRef.current?.id === partnerId) {
+      setMessages((previous) => previous.some((item) => item.id === chatMessage.id)
+        ? previous
+        : [...previous, chatMessage]);
+    }
+    setConversations((previous) => {
+      const exists = previous.some((chat) => chat.id === partnerId);
+      if (!exists) return previous;
+      return previous.map((chat) => chat.id === partnerId
+        ? { ...chat, lastMessage: chatMessage.text, timestamp: chatMessage.time }
+        : chat);
+    });
+  };
+
+  const recordCallEvent = async (targetId, event, mode) => {
+    const message = await chatService.recordDirectCallEvent(targetId, event, mode);
+    appendCallEventMessage(message);
+    return message;
+  };
+
+  const sendCallSignal = (type, targetId, extra = {}) => {
+    const payload = {
+      type,
+      target_id: targetId,
+      from: currentUserRef.current?.id,
+      ...extra
+    };
+    const socket = [socketRef.current, notificationSocketRef.current]
+      .find((candidate) => candidate?.readyState === WebSocket.OPEN);
+    if (!socket) throw new Error('Call signaling is not connected');
+    socket.send(JSON.stringify(payload));
+  };
+
+  const clearCallTimeout = () => {
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current);
+      callTimeoutRef.current = null;
+    }
+  };
+
+  const receiveIncomingCall = (incoming) => {
+    const callerId = incoming.from || incoming.sender_id;
+    if (!callerId || callerId === currentUserRef.current?.id || !incoming.room_id) return;
+    if (incoming.room_id !== getPrivateCallRoomId(callerId, currentUserRef.current?.id)) return;
+    if (isInCallRef.current || outgoingCallRef.current) {
+      try {
+        sendCallSignal('call_rejected', callerId, {
+          room_id: incoming.room_id,
+          reason: 'busy'
+        });
+      } catch (error) {
+        console.warn('Could not decline a call while busy:', error);
+      }
+      return;
+    }
+    if (lastIncomingCallRef.current === incoming.room_id) return;
+
+    lastIncomingCallRef.current = incoming.room_id;
+    const caller = conversationsRef.current.find((chat) => chat.id === callerId);
+    setActiveChat((current) => current?.id === callerId ? current : {
+      id: callerId,
+      type: 'dm',
+      name: incoming.from_name || incoming.sender_name || caller?.name || 'Caller',
+      avatar: caller?.avatar || '',
+      lifetimeSpend: caller?.lifetimeSpend || 0,
+      flagged: caller?.flagged || false,
+      bio: caller?.bio || ''
+    });
+    setIncomingCallData({
+      fromId: callerId,
+      fromName: incoming.from_name || incoming.sender_name || caller?.name || 'Caller',
+      roomId: incoming.room_id,
+      mode: incoming.mode === 'audio' ? 'audio' : 'video'
+    });
+  };
+
+  const handleCallAnswered = (incoming) => {
+    const pending = outgoingCallRef.current;
+    if (!pending || pending.roomId !== incoming.room_id) return;
+    clearCallTimeout();
+    outgoingCallRef.current = null;
+    setOutgoingCallData(null);
+    setCallToken(pending.token);
+    setCallMode(pending.mode);
+    setCallRoomId(pending.roomId);
+    setActiveCallPeerId(pending.targetId);
+    setIsInCall(true);
+    setCallStartedAt(Date.now());
+    try {
+      localStorage.setItem('chattie.activeCall', JSON.stringify({
+        chatId: pending.targetId,
+        roomId: pending.roomId,
+        token: pending.token,
+        mode: pending.mode,
+        startedAt: Date.now()
+      }));
+    } catch (error) {
+      console.warn('Could not persist active call state:', error);
+    }
+    recordCallEvent(pending.targetId, 'connected', pending.mode)
+      .catch((error) => {
+        console.error('Could not save call history:', error);
+        toast.error('The call connected, but its history could not be saved.');
+      });
+    ensureAudioPlayback();
+  };
+
+  const handleCallRejected = (incoming) => {
+    const pending = outgoingCallRef.current;
+    if (!pending || pending.roomId !== incoming.room_id) return;
+    clearCallTimeout();
+    outgoingCallRef.current = null;
+    setOutgoingCallData(null);
+    setCallToken('');
+    setCallStartedAt(null);
+    setCallRoomId('');
+    setActiveCallPeerId('');
+    try { localStorage.removeItem('chattie.activeCall'); } catch (error) {
+      console.warn('Could not clear active call state:', error);
+    }
+    stopRingtone();
+    toast.error(incoming.reason === 'busy' ? 'This person is already on another call.' : t('callRejectedInbox'));
+  };
+
+  const finishCallFromSignal = (incoming) => {
+    if (callRoomRef.current && incoming.room_id !== callRoomRef.current) return;
+    setIsInCall(false);
+    setCallToken('');
+    setCallStartedAt(null);
+    setCallElapsedSec(0);
+    setCallRoomId('');
+    try { localStorage.removeItem('chattie.activeCall'); } catch (error) {
+      console.warn('Could not clear active call state:', error);
+    }
+  };
+
+  const handleCallSignal = (incoming) => {
+    if (incoming.type === 'incoming_call') {
+      receiveIncomingCall(incoming);
+    } else if (incoming.type === 'call_answered') {
+      handleCallAnswered(incoming);
+    } else if (incoming.type === 'call_rejected') {
+      handleCallRejected(incoming);
+    } else if (incoming.type === 'call_ended') {
+      finishCallFromSignal(incoming);
+    } else if (incoming.type === 'call_cancelled') {
+      if (incomingCallRef.current?.roomId === incoming.room_id) {
+        setIncomingCallData(null);
+        lastIncomingCallRef.current = null;
+        stopRingtone();
+      }
+    }
+  };
   
   const [contextMenuTarget, setContextMenuTarget] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(null);
   
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const listRef = useRef(null);
-
-  const smartSuggestions = [
-    "I'm here! What's on your mind?",
-    "Thanks for the tip, VIP! 😘",
-    "Want to move this to a video call?"
-  ];
 
   const formatChatTimestamp = (value) => {
     if (!value) return '';
@@ -361,6 +618,13 @@ export default function PrivateInbox() {
   // WEBSOCKET SETUP WHEN ACTIVE CHAT OPENS (ROBUST BACKOFF)
   // ============================================================================
   useEffect(() => {
+    let disposed = false;
+    const chatSockets = new Set();
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    setIsPartnerTyping(false);
     setPartnerPresence(activeChat?.status === 'online' ? 'online' : 'offline');
     setFirstUnreadId(null);
     setReplyingTo(null);
@@ -374,10 +638,6 @@ export default function PrivateInbox() {
       }
       setIsInCall(false);
       setCallToken("");
-      try {
-        if (localStream) localStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
-      } catch (e) {}
-      setLocalStream(null);
       return;
     }
 
@@ -385,6 +645,7 @@ export default function PrivateInbox() {
       socketMetaRef.current.manuallyClosed = false;
 
       const doConnect = () => {
+        if (disposed) return;
         let token = appToken || '';
         try {
           const stored = localStorage.getItem('chattie-session-storage');
@@ -400,27 +661,32 @@ export default function PrivateInbox() {
 
         try {
           const ws = new WebSocket(wsUrl);
+          chatSockets.add(ws);
           socketRef.current = ws;
 
           ws.onopen = () => {
+            if (disposed) {
+              ws.close(1000, "Chat view closed");
+              return;
+            }
             socketMetaRef.current.reconnectAttempts = 0;
-            if (!socketRef.current) return;
             const presencePayload = activeChatRef.current?.type === 'room'
               ? { type: 'presence', status: 'online', room_id: activeChatRef.current.id }
               : { type: 'presence', status: 'online', target_id: activeChatRef.current?.id };
-            try { socketRef.current.send(JSON.stringify(presencePayload)); } catch (e) {}
+            try { ws.send(JSON.stringify(presencePayload)); } catch (e) {}
             
             if (activeChatRef.current?.type === 'dm') {
               try { apiClient.patch(`/chats/${activeChatRef.current.id}/read`).catch(()=>{}); } catch(e){}
-              try { socketRef.current.send(JSON.stringify({ type: 'mark_read', target_id: activeChatRef.current.id })); } catch(e){}
+              try { ws.send(JSON.stringify({ type: 'read_receipt', target_id: activeChatRef.current.id })); } catch(e){}
             }
           };
 
           ws.onmessage = (event) => {
+            if (disposed) return;
             try {
               const incoming = JSON.parse(event.data);
 
-              if (incoming.type === 'mark_read') {
+              if (incoming.type === 'mark_read' || incoming.type === 'read_receipt') {
                 setMessages(prev => prev.map(msg => msg.sender === 'me' ? { ...msg, status: 'read' } : msg));
                 return;
               }
@@ -433,45 +699,35 @@ export default function PrivateInbox() {
                 return;
               }
 
-              if (incoming.type === 'typing') {
+              if (incoming.type === 'typing' || incoming.type === 'stop_typing') {
                 const senderId = incoming.sender_id || incoming.from;
                 if (senderId === activeChatRef.current?.id) {
-                  setIsPartnerTyping(true);
                   if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-                  typingTimeoutRef.current = window.setTimeout(() => setIsPartnerTyping(false), 3000);
+                  if (incoming.type === 'stop_typing') {
+                    typingTimeoutRef.current = null;
+                    setIsPartnerTyping(false);
+                  } else {
+                    setIsPartnerTyping(true);
+                    typingTimeoutRef.current = window.setTimeout(() => {
+                      typingTimeoutRef.current = null;
+                      setIsPartnerTyping(false);
+                    }, 3000);
+                  }
                 }
                 return;
               }
 
-              if (incoming.type === 'incoming_call') {
-                if (isInCall) { stopRingtone(); return; }
-                if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
-                setIncomingCallData({
-                  fromId: incoming.from || incoming.sender_id,
-                  fromName: incoming.from_name || incoming.sender_name || 'Caller',
-                  roomId: incoming.room_id,
-                  mode: incoming.mode || 'video'
-                });
+              if (['incoming_call', 'call_answered', 'call_rejected', 'call_ended', 'call_cancelled'].includes(incoming.type)) {
+                handleCallSignal(incoming);
                 return;
               }
 
-              if (incoming.type === 'call_answered') {
-                stopRingtone();
-                setIncomingCallData(null);
-                if (!isInCall) {
-                  setIsInCall(true);
-                  setCallStartedAt(Date.now());
-                }
+              if (incoming.type === 'chat' && incoming.message_kind === 'call_event') {
+                appendCallEventMessage(incoming);
                 return;
               }
-
-              if (incoming.type === 'call_rejected') {
-                stopRingtone();
-                setIncomingCallData(null);
-                toast.error(t('callRejectedInbox'));
-                setIsInCall(false);
-                setCallToken('');
-                setCallStartedAt(null);
+              if (incoming.type === 'pin_update') {
+                applyPinUpdate(incoming);
                 return;
               }
 
@@ -482,16 +738,28 @@ export default function PrivateInbox() {
                 media: incoming.media || null,
                 nsfw: incoming.nsfw || incoming.is_flagged || incoming.flagged || false,
                 flagged: incoming.flagged || incoming.is_flagged || incoming.isFlagged || false,
+                isPinned: incoming.is_pinned || false,
+                isAIGenerated: Boolean(incoming.is_ai_generated),
+                messageKind: incoming.message_kind || 'chat',
+                callMode: incoming.call_mode || '',
                 status: incoming.sender_id === activeChatRef.current?.id ? 'delivered' : 'sent',
                 time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               };
               setMessages(prev => {
                 if (prev.some(m => m.id === newMsg.id)) return prev;
+                const optimisticIndex = incoming.client_message_id
+                  ? prev.findIndex(message => message.id === incoming.client_message_id)
+                  : -1;
+                if (optimisticIndex >= 0) {
+                  const next = [...prev];
+                  next[optimisticIndex] = { ...next[optimisticIndex], ...newMsg, status: 'delivered' };
+                  return next;
+                }
                 const next = [...prev, newMsg];
                 if (activeChatRef.current?.type === 'dm' && incoming.sender_id === activeChatRef.current?.id) {
                   setTimeout(() => {
                     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-                      try { socketRef.current.send(JSON.stringify({ type: 'mark_read', target_id: activeChatRef.current.id })); } catch (e) {}
+                      try { socketRef.current.send(JSON.stringify({ type: 'read_receipt', target_id: activeChatRef.current.id })); } catch (e) {}
                     }
                   }, 150);
                 }
@@ -501,7 +769,9 @@ export default function PrivateInbox() {
           };
 
           ws.onclose = () => {
-            if (socketMetaRef.current.manuallyClosed) return;
+            chatSockets.delete(ws);
+            if (socketRef.current === ws) socketRef.current = null;
+            if (disposed || socketMetaRef.current.manuallyClosed) return;
             socketMetaRef.current.reconnectAttempts = (socketMetaRef.current.reconnectAttempts || 0) + 1;
             const attempt = socketMetaRef.current.reconnectAttempts;
             const delay = Math.min(30000, Math.pow(2, attempt) * 500);
@@ -529,11 +799,14 @@ export default function PrivateInbox() {
           media: msg.media || null,
           nsfw: msg.nsfw || msg.is_flagged || msg.isFlagged || false,
           flagged: msg.flagged || msg.is_flagged || msg.isFlagged || false,
+          isPinned: msg.is_pinned || false,
+          isAIGenerated: Boolean(msg.is_ai_generated),
+          messageKind: msg.message_kind || 'chat',
+          callMode: msg.call_mode || '',
           status: (msg.status || (msg.read === false ? 'unread' : undefined)) || 'delivered',
           time: formatChatTimestamp(msg.created_at || msg.timestamp || msg.createdAt || msg.sent_at || Date.now()) || 'Just now'
         }));
-        const persistedEvents = persistedCallEventsRef.current[activeChat.id] || [];
-        const initialMessages = [...formatted, ...persistedEvents];
+        const initialMessages = formatted;
         setMessages(initialMessages);
         const firstUnread = initialMessages.find(m => m.unread || m.is_unread || m.status === 'unread')
           || (activeChat?.unreadCount > 0 ? initialMessages.filter(m => m.sender === 'partner')[Math.max(0, initialMessages.filter(m => m.sender === 'partner').length - activeChat.unreadCount)] : null);
@@ -548,6 +821,9 @@ export default function PrivateInbox() {
     loadChatHistoryAndConnect();
 
     return () => {
+      disposed = true;
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
       try {
         socketMetaRef.current.manuallyClosed = true;
         if (socketMetaRef.current.reconnectTimer) { clearTimeout(socketMetaRef.current.reconnectTimer); socketMetaRef.current.reconnectTimer = null; }
@@ -559,7 +835,14 @@ export default function PrivateInbox() {
         }
       } catch (e) {}
       // CLEAN DISCONNECT
-      try { if (socketRef.current) { socketRef.current.close(1000, "Intentional disconnect"); socketRef.current = null; } } catch (e) {}
+      chatSockets.forEach((ws) => {
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close(1000, "Intentional disconnect");
+        } else if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, "Intentional disconnect");
+        }
+      });
+      if (socketRef.current && chatSockets.has(socketRef.current)) socketRef.current = null;
     };
   }, [activeChat, appToken]);
 
@@ -567,6 +850,8 @@ export default function PrivateInbox() {
   // GLOBAL NOTIFICATION SOCKET (WITH EXPONENTIAL BACKOFF)
   // ============================================================================
   useEffect(() => {
+    let disposed = false;
+    let reconnectTimer;
     let activeToken = appToken;
     if (!activeToken) {
       try {
@@ -578,6 +863,7 @@ export default function PrivateInbox() {
     if (!activeToken) return;
 
     const connectGlobalNotifications = () => {
+      if (disposed) return;
       notificationIntentionalClose.current = false;
       const cleanToken = activeToken.startsWith('Bearer ') ? activeToken.slice(7) : activeToken;
       
@@ -589,70 +875,64 @@ export default function PrivateInbox() {
         notificationSocketRef.current = nws;
 
         nws.onopen = () => {
+          if (disposed) {
+            nws.close(1000, "Notifications view closed");
+            return;
+          }
           notificationReconnectAttempts.current = 0;
           console.log('✅ Global Notification Socket Connected');
         };
 
         nws.onmessage = (ev) => {
+          if (disposed) return;
           try {
             const incoming = JSON.parse(ev.data);
-            if (incoming.type === 'incoming_call') {
-              if (isInCall) { stopRingtone(); return; }
-              if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
-              setIncomingCallData({
-                fromId: incoming.from || incoming.sender_id,
-                fromName: incoming.from_name || incoming.sender_name || 'Caller',
-                roomId: incoming.room_id,
-                mode: incoming.mode || 'video'
-              });
+            if (['incoming_call', 'call_answered', 'call_rejected', 'call_ended', 'call_cancelled'].includes(incoming.type)) {
+              handleCallSignal(incoming);
               return;
             }
-            if (incoming.type === 'call_answered') {
-              stopRingtone();
-              setIncomingCallData(null);
-              if (!isInCall) {
-                setIsInCall(true);
-                setCallStartedAt(Date.now());
-              }
+            if (incoming.type === 'chat' && incoming.message_kind === 'call_event') {
+              appendCallEventMessage(incoming);
               return;
             }
-            if (incoming.type === 'call_rejected') {
-              stopRingtone();
-              setIncomingCallData(null);
-              toast.error(t('callRejectedInbox'));
-              setIsInCall(false);
-              setCallToken('');
-              setCallStartedAt(null);
+            if (incoming.type === 'pin_update') {
+              applyPinUpdate(incoming);
               return;
             }
           } catch (e) {}
         };
 
         nws.onclose = () => {
-          if (notificationIntentionalClose.current) return;
+          if (disposed || notificationIntentionalClose.current) return;
           // Exponential backoff for notification socket
           const attempt = notificationReconnectAttempts.current;
           const delay = Math.min(30000, Math.pow(2, attempt) * 1000);
           notificationReconnectAttempts.current += 1;
-          setTimeout(connectGlobalNotifications, delay);
+          reconnectTimer = setTimeout(connectGlobalNotifications, delay);
         };
       } catch (e) {
         // Fallback retry
-        setTimeout(connectGlobalNotifications, 2000);
+        reconnectTimer = setTimeout(connectGlobalNotifications, 2000);
       }
     };
 
     connectGlobalNotifications();
 
     return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       notificationIntentionalClose.current = true;
       if (notificationSocketRef.current) {
-        // CLEAN DISCONNECT
-        try { notificationSocketRef.current.close(1000, "Intentional disconnect"); } catch (e) {}
+        const ws = notificationSocketRef.current;
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => ws.close(1000, "Intentional disconnect");
+        } else if (ws.readyState === WebSocket.OPEN) {
+          try { ws.close(1000, "Intentional disconnect"); } catch (e) {}
+        }
         notificationSocketRef.current = null;
       }
     };
-  }, [appToken, isInCall, currentUser?.id]);
+  }, [appToken, currentUser?.id]);
 
   // Rehydrate persisted active call on mount
   useEffect(() => {
@@ -690,8 +970,6 @@ export default function PrivateInbox() {
     return () => stopRingtone();
   }, [incomingCallData]);
 
-  useEffect(() => { assignStream(localPreviewRef.current, localStream); }, [localStream]);
-
   useEffect(() => {
     if (isInCall) {
       stopRingtone();
@@ -710,47 +988,58 @@ export default function PrivateInbox() {
   // CALL HANDLERS
   // ============================================================================
   const startCall = async (mode = 'video') => {
-    if (!activeChat?.id) return;
-    appendSystemMessage(`Calling ${activeChat.name}...`, 'call_started', { mode });
+    if (!activeChat?.id || isInCall || outgoingCallData) return;
     setCallMode(mode);
     setIsConnectingCall(true);
     try {
-      if (mode === 'video' && navigator?.mediaDevices?.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-          setLocalStream(stream);
-        } catch (err) {
-          console.warn('Camera permission not granted:', err);
-        }
-      }
-      const res = await apiClient.post('/rooms/voice-token', {
-        room_id: `dm_call_${activeChat.id}`,
-        participant_name: useAppStore.getState().user?.name || 'Host'
+      const res = await apiClient.post(`/chats/${activeChat.id}/voice-token`, {
+        participant_name: currentUser?.name || 'Host'
       });
-      setCallToken(res.data.token);
-      setIsInCall(true);
-      setCallStartedAt(Date.now());
-      try {
-        localStorage.setItem('chattie.activeCall', JSON.stringify({ chatId: activeChat?.id, token: res.data.token, mode, startedAt: Date.now() }));
-      } catch (e) {}
-      await ensureAudioPlayback();
-      
-      const notify = {
-        type: 'incoming_call',
-        from: currentUser?.id,
-        from_name: currentUser?.name,
-        target_id: activeChat.id,
-        room_id: `dm_call_${activeChat.id}`,
-        mode
+      if (!res?.data?.token || !res.data.room_id) throw new Error('No direct call token was returned');
+      const roomId = res.data.room_id;
+      if (roomId !== getPrivateCallRoomId(activeChat.id, currentUserRef.current?.id)) {
+        throw new Error('The call token returned an unexpected room');
+      }
+
+      outgoingCallRef.current = {
+        roomId,
+        mode,
+        token: res.data.token,
+        targetId: activeChat.id,
+        targetName: activeChat.name
       };
-      try {
-        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify(notify));
-        } else if (notificationSocketRef.current && notificationSocketRef.current.readyState === WebSocket.OPEN) {
-          notificationSocketRef.current.send(JSON.stringify(notify));
+      setOutgoingCallData(outgoingCallRef.current);
+      recordCallEvent(activeChat.id, 'started', mode).catch((error) => {
+        console.error('Could not save call history:', error);
+        toast.error('The call started, but its history could not be saved.');
+      });
+      sendCallSignal('incoming_call', activeChat.id, {
+        from_name: currentUser?.name || 'Caller',
+        room_id: roomId,
+        mode
+      });
+      clearCallTimeout();
+      callTimeoutRef.current = window.setTimeout(() => {
+        const pending = outgoingCallRef.current;
+        if (!pending || pending.roomId !== roomId) return;
+        outgoingCallRef.current = null;
+        setOutgoingCallData(null);
+        try {
+          sendCallSignal('call_cancelled', activeChat.id, { room_id: roomId });
+        } catch (error) {
+          console.warn('Could not send call timeout signal:', error);
         }
-      } catch (e) {}
+        recordCallEvent(activeChat.id, 'no_answer', mode).catch((error) => {
+          console.error('Could not save unanswered call history:', error);
+          toast.error('The unanswered call could not be added to chat history.');
+        });
+        toast.info(`${activeChat.name} did not answer.`);
+      }, 45000);
     } catch (err) {
+      outgoingCallRef.current = null;
+      setOutgoingCallData(null);
+      clearCallTimeout();
+      console.error('Failed to start private call:', err);
       toast.error(t('secureCallFailedInbox'));
     } finally {
       setIsConnectingCall(false);
@@ -758,53 +1047,69 @@ export default function PrivateInbox() {
   };
 
   const endCall = () => {
-    appendSystemMessage('Call ended', 'call_ended');
+    const peerId = activeCallPeerId || activeChatRef.current?.id;
+    const mode = callMode;
+    const roomId = callRoomRef.current;
+    if (peerId) {
+      recordCallEvent(peerId, 'ended', mode).catch((error) => {
+        console.error('Could not save ended call history:', error);
+        toast.error('Call ended, but its history could not be saved.');
+      });
+      try {
+        sendCallSignal('call_ended', peerId, { room_id: roomId });
+      } catch (error) {
+        console.warn('Could not notify the other participant that the call ended:', error);
+      }
+    }
+    clearCallTimeout();
+    outgoingCallRef.current = null;
+    setOutgoingCallData(null);
     setIsInCall(false);
     setCallToken("");
     setCallStartedAt(null);
     setCallElapsedSec(0);
-    try {
-      if (localStream) {
-        localStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
-      }
-    } catch (e) {}
-    setLocalStream(null);
+    setCallRoomId('');
+    setActiveCallPeerId('');
     try { localStorage.removeItem('chattie.activeCall'); } catch (e) {}
   };
 
   const acceptCall = async () => {
-    if (!incomingCallData) return;
-    setCallMode(incomingCallData.mode || 'video');
-    setIncomingCallData(null);
+    const incoming = incomingCallRef.current;
+    if (!incoming || isConnectingCall) return;
+    const mode = incoming.mode || 'video';
+    setCallMode(mode);
     stopRingtone();
     setIsConnectingCall(true);
     try {
-      if ((incomingCallData.mode || 'video') === 'video' && navigator?.mediaDevices?.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-          setLocalStream(stream);
-        } catch (err) {}
-      }
-      const res = await apiClient.post('/rooms/voice-token', {
-        room_id: incomingCallData.roomId,
+      const res = await apiClient.post(`/chats/${incoming.fromId}/voice-token`, {
         participant_name: currentUser?.name || 'Guest'
       });
+      if (!res?.data?.token || res.data.room_id !== incoming.roomId) {
+        throw new Error('The caller token did not match the requested room');
+      }
+      sendCallSignal('call_answered', incoming.fromId, { room_id: incoming.roomId });
       setCallToken(res.data.token);
       setIsInCall(true);
       setCallStartedAt(Date.now());
+      setCallRoomId(incoming.roomId);
+      setActiveCallPeerId(incoming.fromId);
       try {
-        localStorage.setItem('chattie.activeCall', JSON.stringify({ chatId: activeChat?.id || incomingCallData.roomId, token: res.data.token, mode: incomingCallData.mode || 'video', startedAt: Date.now() }));
-      } catch (e) {}
-      appendSystemMessage('Call connected', 'call_connected');
+        localStorage.setItem('chattie.activeCall', JSON.stringify({
+          chatId: incoming.fromId,
+          roomId: incoming.roomId,
+          token: res.data.token,
+          mode,
+          startedAt: Date.now()
+        }));
+      } catch (error) {
+        console.warn('Could not persist active call state:', error);
+      }
       stopRingtone();
       setIncomingCallData(null);
+      lastIncomingCallRef.current = null;
       await ensureAudioPlayback();
-      const ack = { type: 'call_answered', room_id: incomingCallData.roomId, from: currentUser?.id, to: incomingCallData.fromId };
-      try {
-        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(ack));
-        if (notificationSocketRef.current && notificationSocketRef.current.readyState === WebSocket.OPEN) notificationSocketRef.current.send(JSON.stringify(ack));
-      } catch (e) {}
     } catch (err) {
+      console.error('Failed to accept private call:', err);
       toast.error(t('joinCallFailedInbox'));
     } finally {
       setIsConnectingCall(false);
@@ -812,14 +1117,28 @@ export default function PrivateInbox() {
   };
 
   const rejectCall = (reason = 'rejected') => {
-    if (!incomingCallData) return;
-    appendSystemMessage(`Missed call from ${incomingCallData.fromName}`, 'missed_call', { mode: incomingCallData.mode || 'audio' });
-    const rej = { type: 'call_rejected', room_id: incomingCallData.roomId, from: currentUser?.id, to: incomingCallData.fromId, reason };
+    const incoming = incomingCallRef.current;
+    if (!incoming) return;
+    recordCallEvent(incoming.fromId, reason === 'rejected' ? 'declined' : 'missed', incoming.mode || 'audio')
+      .catch((error) => {
+        console.error('Could not save declined call history:', error);
+        toast.error('The call was declined, but its history could not be saved.');
+      });
     try {
-      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(rej));
-      if (notificationSocketRef.current && notificationSocketRef.current.readyState === WebSocket.OPEN) notificationSocketRef.current.send(JSON.stringify(rej));
-    } catch (e) {}
+      sendCallSignal('call_rejected', incoming.fromId, {
+        room_id: incoming.roomId,
+        reason
+      });
+    } catch (error) {
+      console.error('Could not notify the caller that the call was declined:', error);
+      toast.error('Could not send the decline notice. Check your connection.');
+    }
+    recordCallEvent(incoming.fromId, 'missed', incoming.mode || 'audio').catch((error) => {
+      console.error('Could not save missed call history:', error);
+      toast.error('The missed call could not be added to chat history.');
+    });
     setIncomingCallData(null);
+    lastIncomingCallRef.current = null;
     stopRingtone();
   };
 
@@ -911,6 +1230,30 @@ export default function PrivateInbox() {
     return result;
   }, [conversations, searchQuery, activeTab]);
 
+  const pinnedMessages = useMemo(
+    () => messages.filter((message) => message.isPinned),
+    [messages]
+  );
+  const latestPinnedMessage = pinnedMessages[pinnedMessages.length - 1];
+
+  const toggleDirectMessagePin = async (message) => {
+    if (!activeChat?.id || !message?.id || pinningMessageId) return;
+    const pinned = !message.isPinned;
+    setPinningMessageId(message.id);
+    try {
+      await chatService.pinDirectMessage(activeChat.id, message.id, pinned);
+      setMessages((previous) => previous.map((item) => item.id === message.id
+        ? { ...item, isPinned: pinned }
+        : item));
+      toast.success(pinned ? 'Message pinned' : 'Message unpinned');
+    } catch (error) {
+      console.error('Failed to update direct message pin:', error);
+      toast.error('Could not update the message pin.');
+    } finally {
+      setPinningMessageId(null);
+    }
+  };
+
   const handleOpenChatModal = (id, name, avatar, type = 'dm', extraData = {}) => {
     if (!id) return;
     setContextMenuTarget(null);
@@ -924,26 +1267,6 @@ export default function PrivateInbox() {
       bio: extraData.bio || ''
     });
     setConversations(prev => prev.map(chat => chat.id === id ? { ...chat, unreadCount: 0 } : chat));
-  };
-
-  const appendSystemMessage = (text, type = 'system', meta = {}) => {
-    const systemMsg = {
-      id: `system-${Date.now()}-${Math.random()}`,
-      sender: 'system',
-      type,
-      text,
-      meta,
-      time: formatChatTimestamp(Date.now())
-    };
-    setMessages((prev) => [...prev, systemMsg]);
-
-    if (type.startsWith('call') && activeChat?.id) {
-      const chatId = activeChat.id;
-      persistedCallEventsRef.current[chatId] = [
-        ...(persistedCallEventsRef.current[chatId] || []),
-        systemMsg
-      ];
-    }
   };
 
   const handleSendMessage = async (overrideText = null) => {
@@ -975,6 +1298,7 @@ export default function PrivateInbox() {
       }
 
       const payload = {
+        client_message_id: localMessageId,
         room_id: isRoomChat ? activeChat.id : "",
         recipient_id: isDmChat ? activeChat.id : "",
         target_id: isDmChat ? activeChat.id : "",
@@ -1153,67 +1477,66 @@ export default function PrivateInbox() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center w-full h-full" style={{ backgroundColor: 'var(--surface)', color: 'var(--text-primary)', fontFamily: 'Roboto, sans-serif' }}>
-        <Loader2 className="w-10 h-10 animate-spin mb-4" style={{ color: 'var(--accent)' }} />
-        <h2 className="text-sm font-medium tracking-wide">{t('loadingConversations')}</h2>
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center p-6 text-center bg-black text-zinc-300" style={{ fontFamily: 'Roboto, sans-serif' }}>
+        <Loader2 className="w-8 h-8 animate-spin mb-4 text-yellow-400" />
+        <h2 className="text-sm font-bold uppercase tracking-widest">{t('loadingConversations')}</h2>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col w-full h-full relative overflow-hidden" style={{ backgroundColor: 'var(--surface)', color: 'var(--text-primary)', fontFamily: 'Roboto, sans-serif' }}>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col w-full relative overflow-hidden bg-black text-zinc-300" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* HEADER */}
-      <header className="p-4 md:p-6 shrink-0 flex flex-col gap-4 z-10" style={{ backgroundColor: 'var(--glass)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(18px)' }}>
+      <header className="p-4 md:p-6 shrink-0 flex flex-col gap-4 z-10 bg-zinc-950 border-b-2 border-zinc-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="p-2.5 rounded-2xl shadow-sm" style={{ backgroundColor: 'var(--surface-strong)' }}>
-              <MessageSquare className="w-5 h-5" style={{ color: 'var(--accent-strong)' }} />
+            <div className="h-10 w-10 border-2 border-zinc-700 bg-black flex items-center justify-center">
+              <MessageSquare className="w-5 h-5 text-yellow-400" />
             </div>
             <div>
-              <h1 className="font-bold text-2xl tracking-tight" style={{ color: 'var(--text-primary)' }}>{t('inbox')}</h1>
-              <p className="text-sm mt-0.5 font-medium" style={{ color: 'var(--text-secondary)' }}>
+              <h1 className="font-black text-xl md:text-2xl uppercase tracking-widest text-white">{t('inbox')}</h1>
+              <p className="text-[10px] mt-1 font-bold uppercase tracking-widest text-zinc-500">
                 {totalUnread > 0 ? `You have ${totalUnread} unread messages` : "You're all caught up!"}
               </p>
             </div>
           </div>
-          <button onClick={fetchInboxData} className="p-2.5 rounded-full transition-all shadow-sm" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+          <button onClick={fetchInboxData} aria-label="Refresh inbox" className="p-2.5 border-2 border-zinc-800 bg-black text-zinc-400 hover:border-white hover:text-white transition-colors">
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
 
         <div className="relative w-full max-w-xl">
-          <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
+          <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" />
           <input 
             type="text" 
             placeholder={t('searchMessages')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-2xl pl-11 pr-4 py-3 text-sm focus:outline-none transition-all placeholder:text-zinc-500"
-            style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            className="w-full border border-zinc-700 bg-black pl-11 pr-4 py-3 text-sm text-white focus:outline-none focus:border-yellow-400 transition-colors placeholder:text-zinc-600"
           />
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto flex flex-col" style={{ backgroundColor: 'var(--surface)' }}>
+      <div className="flex-1 overflow-y-auto flex flex-col bg-black">
         
         {/* NEW MATCHES BAR */}
         {!searchQuery && (
-          <div className="shrink-0 pb-2" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface-alt)' }}>
-            <h2 className="text-xs font-semibold px-6 pt-5 pb-3 flex items-center gap-2 tracking-wide uppercase" style={{ color: 'var(--text-secondary)' }}>
-              <Flame className="w-4 h-4" style={{ color: 'var(--accent)' }} /> New Matches
+          <div className="shrink-0 pb-2 border-b border-zinc-800 bg-zinc-950">
+            <h2 className="text-[10px] font-black px-6 pt-5 pb-3 flex items-center gap-2 tracking-widest uppercase text-zinc-400">
+              <Flame className="w-4 h-4 text-yellow-400" /> New Matches
             </h2>
             <div className="flex gap-5 overflow-x-auto px-6 pb-2 custom-scrollbar">
-              <div onClick={() => navigate('/likes')} className="flex flex-col items-center gap-2 min-w-[68px] cursor-pointer group shrink-0">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center group-hover:border-orange-500 transition-colors shadow-sm" style={{ backgroundColor: 'var(--surface-strong)', border: '2px solid rgba(210, 79, 116, 0.32)' }}>
-                  <Heart className="w-6 h-6" style={{ color: 'var(--accent)', fill: 'rgba(210, 79, 116, 0.14)' }} />
+              <div onClick={() => navigate('/likes')} className="flex min-w-[clamp(4rem,9vw,5rem)] shrink-0 cursor-pointer flex-col items-center gap-2 group">
+                <div className="flex size-[clamp(3.5rem,9vw,4rem)] items-center justify-center border-2 border-zinc-700 bg-black transition-colors group-hover:border-yellow-400">
+                  <Heart className="w-6 h-6 text-yellow-400" />
                 </div>
-                <span className="text-xs font-medium group-hover:text-white transition-colors" style={{ color: 'var(--text-primary)' }}>{t('likes')}</span>
+                <span className="text-xs font-bold uppercase tracking-wider group-hover:text-white transition-colors text-zinc-400">{t('likes')}</span>
               </div>
 
               {newMatches.length === 0 ? (
-                <div className="flex items-center justify-center w-full min-h-[64px]">
-                  <span className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>{t('noNewMatches')}</span>
+                <div className="flex min-h-[clamp(3.5rem,8vw,4rem)] w-full items-center justify-center">
+                  <span className="text-xs font-bold uppercase tracking-widest text-zinc-600">{t('noNewMatches')}</span>
                 </div>
               ) : (
                 newMatches.map(match => {
@@ -1222,19 +1545,19 @@ export default function PrivateInbox() {
                     <div 
                       key={match.id || match.user_id}
                       onClick={() => handleOpenChatModal(matchId, match.name || match.display_name, match.avatar || match.avatar_url, 'dm', match)}
-                      className="flex flex-col items-center gap-2 min-w-[68px] max-w-[76px] cursor-pointer group shrink-0"
+                      className="flex min-w-[clamp(4rem,9vw,5rem)] max-w-[clamp(4.5rem,10vw,5.25rem)] shrink-0 cursor-pointer flex-col items-center gap-2 group"
                     >
                       <div className="relative">
                         {match.avatar || match.avatar_url ? (
-                          <img src={match.avatar || match.avatar_url} alt="match" className="w-16 h-16 object-cover rounded-full border-2 border-transparent group-hover:border-white transition-all shadow-sm" />
+                          <img src={match.avatar || match.avatar_url} alt="match" className="size-[clamp(3.5rem,9vw,4rem)] object-cover border-2 border-transparent group-hover:border-white transition-all" />
                         ) : (
-                          <div className="w-16 h-16 rounded-full flex items-center justify-center text-lg font-medium border-2 border-transparent group-hover:border-white transition-all shadow-sm" style={{ backgroundColor: 'var(--surface-muted)', color: 'var(--text-primary)' }}>
+                          <div className="flex size-[clamp(3.5rem,9vw,4rem)] items-center justify-center border-2 border-zinc-700 bg-black text-lg font-bold text-white transition-all group-hover:border-white">
                             {(match.name || match.display_name || 'U').charAt(0).toUpperCase()}
                           </div>
                         )}
-                        {match.status === 'online' && <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full" style={{ backgroundColor: 'var(--success)', border: '2px solid var(--surface)' }}></span>}
+                        {match.status === 'online' && <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-black"></span>}
                       </div>
-                      <span className="text-xs font-medium group-hover:text-zinc-200 truncate w-full text-center px-1 transition-colors" style={{ color: 'var(--text-secondary)' }}>{match.name || match.display_name}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider group-hover:text-white truncate w-full text-center px-1 transition-colors text-zinc-500">{match.name || match.display_name}</span>
                     </div>
                   );
                 })
@@ -1244,14 +1567,14 @@ export default function PrivateInbox() {
         )}
 
         {/* CHAT TABS */}
-        <div className="flex shrink-0 px-4 pt-2" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+        <div className="flex shrink-0 px-4 pt-2 border-b border-zinc-800 bg-black">
           {['All', 'Unread'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 
                 ${activeTab === tab ? 'border-white text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}
-              style={activeTab === tab ? { color: 'var(--text-primary)', borderBottomColor: 'var(--accent)' } : { color: 'var(--text-muted)' }}
+              style={activeTab === tab ? { color: '#ffffff', borderBottomColor: '#facc15' } : { color: '#71717a' }}
             >
               {tab} Messages
             </button>
@@ -1262,11 +1585,11 @@ export default function PrivateInbox() {
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {processedConversations.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center py-24">
-              <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ backgroundColor: 'var(--surface-alt)' }}>
-                <MessageSquare className="w-8 h-8" style={{ color: 'var(--text-muted)' }} />
+              <div className="w-20 h-20 border-2 border-zinc-800 bg-zinc-950 flex items-center justify-center mb-6">
+                <MessageSquare className="w-8 h-8 text-zinc-600" />
               </div>
-              <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>{t('noConversations')}</h3>
-              <p className="text-sm max-w-xs" style={{ color: 'var(--text-muted)' }}>{t('conversationEmpty')}</p>
+              <h3 className="text-sm font-black uppercase tracking-widest text-white mb-2">{t('noConversations')}</h3>
+              <p className="text-xs max-w-xs text-zinc-500">{t('conversationEmpty')}</p>
             </div>
           ) : (
             <div ref={listRef} className="flex flex-col py-2 px-3 gap-1">
@@ -1277,44 +1600,43 @@ export default function PrivateInbox() {
                   <div key={chat.id} className="relative group">
                     <button 
                       onClick={() => handleOpenChatModal(chat.id, chat.name, chat.avatar, chat.type, chat)}
-                      className={`w-full flex items-center justify-between p-3.5 transition-all text-left rounded-2xl
-                        ${isFocused ? 'bg-zinc-800/80' : 'bg-transparent hover:bg-zinc-900/60'}`}
-                      style={isFocused ? { backgroundColor: 'var(--surface-alt)' } : {}}
+                      className={`w-full flex items-center justify-between p-3.5 transition-colors text-left border
+                        ${isFocused ? 'bg-zinc-900 border-zinc-600' : 'bg-transparent border-transparent hover:bg-zinc-950 hover:border-zinc-800'}`}
                     >
                       <div className="flex items-center gap-4 overflow-hidden">
                         <div className="relative shrink-0 shadow-sm">
                           {chat.avatar ? (
-                            <img src={chat.avatar} alt="avatar" className="w-14 h-14 object-cover rounded-full" />
+                            <img src={chat.avatar} alt="avatar" className="w-14 h-14 object-cover border border-zinc-700" />
                           ) : (
-                            <div className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-medium" style={{ backgroundColor: 'var(--surface-muted)', color: 'var(--text-primary)' }}>
+                            <div className="w-14 h-14 flex items-center justify-center text-lg font-bold border border-zinc-700 bg-black text-white">
                               {chat.name.charAt(0).toUpperCase()}
                             </div>
                           )}
-                          {chat.status === 'online' && <span className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full" style={{ backgroundColor: 'var(--success)', border: '2px solid var(--surface)' }}></span>}
+                          {chat.status === 'online' && <span className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 bg-green-500 border-2 border-black"></span>}
                         </div>
                         <div className="overflow-hidden pr-2">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className={`text-base truncate tracking-tight ${chat.unreadCount > 0 ? 'font-semibold' : 'font-medium'}`} style={{ color: chat.unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                            <h3 className={`text-sm truncate uppercase tracking-wider ${chat.unreadCount > 0 ? 'font-black text-white' : 'font-bold text-zinc-300'}`}>
                               {chat.name}
                             </h3>
-                            {chat.isMuted && <BellOff className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />}
+                            {chat.isMuted && <BellOff className="w-3.5 h-3.5 shrink-0 text-zinc-600" />}
                           </div>
-                          <p className={`text-sm truncate ${chat.unreadCount > 0 ? 'font-medium' : 'font-normal'}`} style={{ color: chat.unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                          <p className={`text-xs truncate ${chat.unreadCount > 0 ? 'font-semibold text-zinc-300' : 'font-normal text-zinc-500'}`}>
                             {chat.lastMessage}
                           </p>
                         </div>
                       </div>
 
                       <div className="flex flex-col items-end gap-2 shrink-0 pl-3">
-                        <span className={`text-xs whitespace-nowrap ${chat.unreadCount > 0 ? 'font-medium' : 'font-normal'}`} style={{ color: chat.unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        <span className={`text-[10px] whitespace-nowrap uppercase tracking-wider ${chat.unreadCount > 0 ? 'font-bold text-white' : 'font-medium text-zinc-600'}`}>
                           {chat.timestamp}
                         </span>
                         {chat.unreadCount > 0 ? (
-                          <span className="min-w-[22px] h-[22px] px-1.5 flex items-center justify-center rounded-full text-xs font-bold shadow-sm" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>
+                          <span className="min-w-[22px] h-[22px] px-1.5 flex items-center justify-center bg-yellow-400 text-black text-xs font-black">
                             {chat.unreadCount}
                           </span>
                         ) : (
-                          <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                          <CheckCircle2 className="w-4 h-4 text-zinc-700" />
                         )}
                       </div>
                     </button>
@@ -1324,9 +1646,8 @@ export default function PrivateInbox() {
                         e.stopPropagation();
                         setContextMenuTarget(contextMenuTarget?.id === chat.id ? null : chat);
                       }}
-                      className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full transition-all shadow-md
+                      className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 border border-zinc-700 bg-black text-zinc-400 hover:text-white transition-all shadow-md
                         md:opacity-0 md:group-hover:opacity-100 ${contextMenuTarget?.id === chat.id ? 'opacity-100 z-20' : ''}`}
-                      style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-secondary)' }}
                     >
                       <MoreVertical className="w-4 h-4" />
                     </button>
@@ -1344,105 +1665,160 @@ export default function PrivateInbox() {
       {activeChat && (() => {
         const tier = getUserTier(activeChat.lifetimeSpend, activeChat.flagged);
         return (
-          <div className="absolute inset-0 z-50 flex flex-col animate-in slide-in-from-right-8 duration-300" style={{ backgroundColor: 'var(--surface)' }}>
+          <div className="absolute inset-0 z-50 flex flex-col animate-in slide-in-from-right-8 duration-300 bg-black">
             
             {/* Header with Call Triggers */}
-            <div className="flex items-center justify-between px-6 py-4 shrink-0 z-20" style={{ backgroundColor: 'var(--glass)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(18px)' }}>
-              <div className="flex items-center gap-5">
-                <button onClick={() => setActiveChat(null)} className="p-2.5 rounded-full transition-colors" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between gap-3 px-3 md:px-6 py-3 shrink-0 z-20 bg-zinc-950 border-b-2 border-zinc-800">
+              <div className="flex items-center gap-3 md:gap-5 min-w-0">
+                <button
+                  onClick={() => setActiveChat(null)}
+                  disabled={isInCall || Boolean(outgoingCallData)}
+                  aria-label="Back to inbox"
+                  className="p-2 border-2 border-zinc-800 bg-black text-zinc-300 hover:border-white hover:text-white disabled:opacity-40 transition-colors"
+                >
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-                <div className="flex items-center gap-3.5">
+                <div className="flex items-center gap-3 min-w-0">
                   <div className="relative">
                     {activeChat.avatar ? (
-                      <img src={activeChat.avatar} alt="avatar" className="w-11 h-11 rounded-full object-cover shadow-sm" />
+                      <img src={activeChat.avatar} alt="avatar" className="w-11 h-11 border border-zinc-700 object-cover" />
                     ) : (
-                      <div className="w-11 h-11 rounded-full flex items-center justify-center text-lg font-medium" style={{ backgroundColor: 'var(--surface-muted)', color: 'var(--text-primary)' }}>
+                      <div className="w-11 h-11 border border-zinc-700 bg-black flex items-center justify-center text-lg font-bold text-white">
                         {activeChat.name.charAt(0).toUpperCase()}
                       </div>
                     )}
-                    <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full" style={{ backgroundColor: 'var(--success)', border: '2px solid var(--surface)' }}></span>
+                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-black"></span>
                   </div>
-                  <div className="flex flex-col">
-                    <h2 className="text-base font-semibold tracking-tight flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                      {activeChat.name}
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${tier.bg} ${tier.text}`}>
+                  <div className="flex flex-col min-w-0">
+                    <h2 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-white truncate">
+                      <span className="truncate">{activeChat.name}</span>
+                      <span className={`hidden sm:inline-block px-2 py-0.5 border text-[9px] font-black uppercase tracking-wider ${tier.color} ${tier.text}`}>
                         {tier.label}
                       </span>
                     </h2>
-                    <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      {getPresenceText(partnerPresence)}
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                      {isPartnerTyping ? 'Typing…' : getPresenceText(partnerPresence)}
                     </span>
                   </div>
                 </div>
               </div>
               
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
                 <button 
                   onClick={() => startCall('audio')}
-                  disabled={isConnectingCall}
-                  className="px-4 py-2 rounded-full font-medium text-sm flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                  disabled={isConnectingCall || isInCall || Boolean(outgoingCallData)}
+                  className="px-2.5 md:px-4 py-2 border-2 border-zinc-700 bg-black text-zinc-200 font-black uppercase tracking-wider text-[9px] md:text-[10px] flex items-center gap-2 hover:border-white hover:text-white disabled:opacity-50 transition-colors"
                 >
-                  <Phone className="w-4 h-4 text-emerald-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'audio' ? 'Connecting...' : 'Audio Call'}</span>
+                  <Phone className="w-4 h-4 text-green-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'audio' ? 'Connecting...' : outgoingCallData?.mode === 'audio' ? 'Calling...' : 'Audio'}</span>
                 </button>
                 <button 
                   onClick={() => startCall('video')}
-                  disabled={isConnectingCall}
-                  className="px-4 py-2 rounded-full font-medium text-sm flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                  disabled={isConnectingCall || isInCall || Boolean(outgoingCallData)}
+                  className="px-2.5 md:px-4 py-2 border-2 border-zinc-700 bg-black text-zinc-200 font-black uppercase tracking-wider text-[9px] md:text-[10px] flex items-center gap-2 hover:border-white hover:text-white disabled:opacity-50 transition-colors"
                 >
-                  <Video className="w-4 h-4 text-blue-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'video' ? 'Connecting...' : 'Video Call'}</span>
+                  <Video className="w-4 h-4 text-yellow-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'video' ? 'Connecting...' : outgoingCallData?.mode === 'video' ? 'Calling...' : 'Video'}</span>
                 </button>
               </div>
             </div>
 
+            {latestPinnedMessage && (
+              <button
+                type="button"
+                onClick={() => messageRefs.current.get(latestPinnedMessage.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-2 text-left hover:bg-zinc-900"
+              >
+                <Pin className="h-4 w-4 shrink-0 text-yellow-400" />
+                <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-yellow-400">
+                  {pinnedMessages.length > 1 ? `${pinnedMessages.length} pinned` : 'Pinned'}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{latestPinnedMessage.text || 'Attachment'}</span>
+              </button>
+            )}
+
+            {outgoingCallData && !isInCall && (
+              <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+                <div className="flex items-center gap-3 text-white">
+                  {outgoingCallData.mode === 'video' ? <Video className="h-4 w-4 text-yellow-400" /> : <Phone className="h-4 w-4 text-green-400" />}
+                  <span className="text-xs font-black uppercase tracking-widest">Calling {outgoingCallData.targetName}…</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pending = outgoingCallRef.current;
+                    if (!pending) return;
+                    clearCallTimeout();
+                    try { sendCallSignal('call_cancelled', pending.targetId, { room_id: pending.roomId }); } catch (error) {
+                      console.warn('Could not cancel outgoing call:', error);
+                    }
+                    outgoingCallRef.current = null;
+                    setOutgoingCallData(null);
+                    recordCallEvent(pending.targetId, 'no_answer', pending.mode).catch((error) => {
+                      console.error('Could not save cancelled call history:', error);
+                    });
+                  }}
+                  className="border-2 border-zinc-700 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-red-500 hover:text-red-400"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
             {/* CALL ROOM OVERLAY (LiveKit WebRTC) */}
             {/* INCOMING CALL RINGING UI */}
             {incomingCallData && !isInCall && (
-              <div className="absolute inset-0 z-60 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-                <div className="w-full max-w-md p-6 rounded-2xl shadow-2xl" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+              <div className="absolute inset-0 z-[80] flex items-center justify-center p-4 bg-black/80">
+                <div className="w-full max-w-md border-2 border-zinc-600 bg-zinc-950 p-6 shadow-[8px_8px_0px_rgba(255,255,255,0.12)]">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-full bg-zinc-900 flex items-center justify-center text-xl font-bold">
+                    <div className="h-14 w-14 border-2 border-yellow-400 bg-black flex items-center justify-center text-xl font-black text-white">
                       {(incomingCallData.fromName || 'C').charAt(0).toUpperCase()}
                     </div>
-                    {/* Local preview when available */}
-                    {localStream && (
-                      <div className="w-14 h-14 rounded-md overflow-hidden bg-black">
-                        <video autoPlay muted playsInline ref={localPreviewRef} className="w-full h-full object-cover" />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <div className="text-sm font-bold">Incoming {incomingCallData.mode === 'video' ? 'Video' : 'Audio'} Call</div>
-                      <div className="text-xs text-zinc-400">{incomingCallData.fromName}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400">Incoming {incomingCallData.mode === 'video' ? 'video' : 'voice'} call</p>
+                      <p className="mt-1 truncate text-sm font-black uppercase tracking-widest text-white">{incomingCallData.fromName}</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => rejectCall()} className="px-3 py-2 rounded-md text-sm" style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}>{t('decline')}</button>
-                        <button onClick={() => acceptCall()} className="px-3 py-2 rounded-md text-sm font-bold" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>{t('answer')}</button>
-                      </div>
-                    </div>
+                  </div>
+                  <div className="mt-6 grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => rejectCall()}
+                      className="flex items-center justify-center gap-2 border-2 border-red-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-red-400 hover:bg-red-500 hover:text-black"
+                    >
+                      <PhoneOff className="h-4 w-4" /> {t('decline')}
+                    </button>
+                    <button
+                      onClick={() => acceptCall()}
+                      disabled={isConnectingCall}
+                      className="flex items-center justify-center gap-2 border-2 border-green-500 bg-green-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-green-400 disabled:opacity-50"
+                    >
+                      {isConnectingCall ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneCall className="h-4 w-4" />}
+                      {isConnectingCall ? 'Connecting…' : t('answer')}
+                    </button>
                   </div>
                 </div>
               </div>
             )}
             
             {isInCall && callToken && (
-              <div className="absolute inset-0 z-50 flex flex-col animate-in fade-in duration-300" style={{ backgroundColor: 'var(--surface)' }}>
+              <div className="absolute inset-0 z-50 flex flex-col animate-in fade-in duration-300 bg-black">
                 <LiveKitRoom
                   serverUrl={LIVEKIT_URL}
                   token={callToken}
                   connect={true}
-                  audio={true}
+                  audio={false}
                   video={callMode === 'video'}
+                  onConnected={() => toast.success(`${callMode === 'video' ? 'Video' : 'Audio'} call connected`)}
+                  onError={(error) => {
+                    console.error('Private LiveKit call failed:', error);
+                    toast.error(error.message || 'The call connection failed.');
+                    endCall();
+                  }}
                   className="flex-1 flex flex-col"
                 >
                     <RoomAudioRenderer />
-                      <AutoPublishMic />
-                      <InboxCallStage activeChat={activeChat} callMode={callMode} callElapsedSec={callElapsedSec} localStream={localStream} micEnabled={micEnabled} micLevel={micLevel} />
-                  <div className="p-8 pb-12 flex items-center justify-center gap-6 shrink-0 relative">
-                    <TrackToggle source={Track.Source.Microphone} className="w-14 h-14 rounded-full flex items-center justify-center transition-colors shadow-lg" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)', border: '1px solid var(--border)' }} />
-                    {callMode === 'video' && <TrackToggle source={Track.Source.Camera} className="w-14 h-14 rounded-full flex items-center justify-center transition-colors shadow-lg" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)', border: '1px solid var(--border)' }} />}
+                      <AutoPublishMic micGain={micGain} setMicEnabled={setMicEnabled} setMicLevel={setMicLevel} />
+                      <InboxCallStage activeChat={activeChat} callMode={callMode} callElapsedSec={callElapsedSec} micEnabled={micEnabled} micLevel={micLevel} />
+                  <div className="flex flex-wrap items-center justify-center gap-3 border-t-2 border-zinc-800 bg-black px-4 py-5 shrink-0 relative">
+                    <TrackToggle source={Track.Source.Microphone} aria-label="Toggle microphone" className="w-12 h-12 border-2 border-zinc-700 bg-zinc-950 flex items-center justify-center text-white hover:border-white" />
+                    {callMode === 'video' && <TrackToggle source={Track.Source.Camera} aria-label="Toggle camera" className="w-12 h-12 border-2 border-zinc-700 bg-zinc-950 flex items-center justify-center text-white hover:border-white" />}
 
                     <div className="flex items-center gap-2">
                       <label className="text-[10px] text-zinc-400">{t('microphoneGain')}</label>
@@ -1453,66 +1829,40 @@ export default function PrivateInbox() {
                         step="0.1"
                         value={micGain}
                         onChange={(e) => setMicGain(parseFloat(e.target.value))}
-                        className="w-32"
+                        className="w-[clamp(7rem,15vw,9rem)]"
                         aria-label={t('microphoneGain')}
                       />
                     </div>
 
-                    <button onClick={() => { setIsScreenSharing(!isScreenSharing); toast(isScreenSharing ? t('screenShareStopped') : t('screenShareStarted')); }} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${isScreenSharing ? 'bg-green-500 text-black border-green-500' : 'border-zinc-700 text-zinc-200'}`} title={t('toggleScreenShare')}>
-                      <ImageIcon className="w-5 h-5" />
-                    </button>
+                    <TrackToggle source={Track.Source.ScreenShare} aria-label="Toggle screen sharing" className="w-12 h-12 border-2 border-zinc-700 bg-zinc-950 flex items-center justify-center text-white hover:border-white" />
 
-                    <button onClick={() => { setSwappedCamera(!swappedCamera); toast(t('cameraSwapped')); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title={t('swapCamera')}>
-                      <ArrowLeft className="w-4 h-4" />
-                    </button>
-
-                    <button onClick={() => { setSpeakerOn(!speakerOn); toast(speakerOn ? t('speakerOff') : t('speakerOn')); }} className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${speakerOn ? 'border-white text-white' : 'border-zinc-700 text-zinc-200'}`} title={t('toggleSpeaker')}>
-                      <Headphones className="w-5 h-5" />
-                    </button>
-
-                    <button onClick={() => { setShowReactions(!showReactions); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title={t('reactions')}>
-                      <Smile className="w-5 h-5" />
-                    </button>
-
-                    <button onClick={() => { try { socketRef.current && socketRef.current.send(JSON.stringify({ type: 'mute_all', room_id: activeChat?.id })); } catch (e) {} ; toast(t('muteAllRequested')); }} className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200" title={t('muteAll')}>
-                      <MicOff className="w-5 h-5" />
-                    </button>
-
-                    <button onClick={endCall} className="px-6 py-4 rounded-full font-bold text-sm flex items-center gap-2 transition-colors shadow-lg" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>
+                    <button onClick={endCall} className="flex items-center gap-2 border-2 border-red-500 bg-red-500 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-red-400">
                       <PhoneOff className="w-5 h-5" /> End Call
                     </button>
-
-                    {showReactions && (
-                      <div className="absolute bottom-28 right-1/2 transform translate-x-1/2 bg-[var(--surface-strong)] border border-[var(--border)] p-2 rounded-xl flex gap-2 z-50">
-                        {['👍','❤️','🔥','😂','🎉'].map(r => (
-                          <button key={r} onClick={() => { try { if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: 'reaction', emoji: r, to: activeChat?.id })); } catch (e) {} toast.success(t('reacted', { emoji: r })); setShowReactions(false); }} className="p-2 text-xl">{r}</button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </LiveKitRoom>
               </div>
             )}
 
             <div className="flex flex-1 overflow-hidden relative">
-              <div className="flex-1 flex flex-col lg:border-r relative" style={{ backgroundColor: 'var(--surface)' , borderColor: 'var(--border)' }}>
+              <div className="flex-1 flex flex-col lg:border-r relative bg-black border-zinc-800">
                 
                 {/* Messages stream */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
+                <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 space-y-4 custom-scrollbar">
                   {messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                      <div className="w-20 h-20 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'var(--surface-alt)' }}>
-                        <MessageSquare className="w-8 h-8" style={{ color: 'var(--text-muted)' }} />
+                      <div className="w-20 h-20 border-2 border-zinc-800 bg-zinc-950 flex items-center justify-center mb-4">
+                        <MessageSquare className="w-8 h-8 text-zinc-600" />
                       </div>
-                      <h3 className="font-semibold text-lg mb-1" style={{ color: 'var(--text-primary)' }}>Say hello to {activeChat.name}!</h3>
-                      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('conversationEmpty')}</p>
+                      <h3 className="font-black text-sm uppercase tracking-widest text-white mb-1">Say hello to {activeChat.name}!</h3>
+                      <p className="text-xs text-zinc-500">{t('conversationEmpty')}</p>
                     </div>
                   ) : (
                     messages.map((msg, index) => {
-                      const isSystem = msg.sender === 'system';
-                      const isMissedCall = msg.type === 'missed_call';
+                      const isCallEvent = msg.messageKind === 'call_event' || msg.message_kind === 'call_event';
+                      const isSystem = msg.sender === 'system' || isCallEvent;
+                      const isMissedCall = isCallEvent && /missed|not answered/i.test(msg.text || '');
                       const isModel = msg.sender === 'model' || msg.sender === 'me';
-                      const isOutgoing = msg.sender === 'me';
                       const showAvatar = !isSystem && !isModel && (index === 0 || messages[index - 1]?.sender !== msg.sender);
                       const { quoted, text: parsedText } = parseMessageContent(msg.text || '');
 
@@ -1520,35 +1870,48 @@ export default function PrivateInbox() {
                         <React.Fragment key={msg.id}>
                           {firstUnreadId === msg.id && (
                             <div className="flex items-center justify-center pt-2">
-                              <div className="px-3 py-1.5 rounded-full text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400 bg-zinc-950 border border-zinc-800">
+                              <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-400 bg-zinc-950 border border-zinc-800">
                                 New messages
                               </div>
                             </div>
                           )}
-                          <div key={msg.id} className={`flex gap-3 max-w-[85%] md:max-w-[70%] ${isSystem ? 'self-center justify-center' : isModel ? 'self-end items-end ml-auto flex-row-reverse' : 'self-start items-end'}`}>
+                          <div
+                            ref={(element) => {
+                              if (element) messageRefs.current.set(msg.id, element);
+                              else messageRefs.current.delete(msg.id);
+                            }}
+                            className={`flex gap-3 max-w-[90%] md:max-w-[75%] ${isSystem ? 'self-center justify-center' : isModel ? 'self-end items-end ml-auto flex-row-reverse' : 'self-start items-end'}`}
+                          >
                           
                           {/* Avatar for partner */}
                           {!isSystem && !isModel && (
                             <div className="shrink-0 w-8 h-8 mb-1">
                               {showAvatar ? (
-                                <img src={activeChat.avatar} alt="avatar" className="w-8 h-8 rounded-full object-cover shadow-sm" />
+                                <img src={activeChat.avatar} alt="avatar" className="w-8 h-8 border border-zinc-700 object-cover" />
                               ) : <div className="w-8" />}
                             </div>
                           )}
 
                           <div className={`flex flex-col ${isSystem ? 'items-center' : isModel ? 'items-end' : 'items-start'}`}>
-                            <div className={`px-5 py-4 text-sm leading-relaxed flex flex-col gap-3 shadow-xl ${isSystem ? 'rounded-[32px] border' : 'rounded-[28px]'} ${isModel ? 'rounded-br-[12px] rounded-tl-[28px] rounded-tr-[28px] rounded-bl-[28px]' : isSystem ? 'rounded-[32px]' : 'rounded-bl-[12px] rounded-tr-[28px] rounded-br-[28px] rounded-tl-[28px]'}`}
+                            <div className={`px-4 py-3 text-sm leading-relaxed flex flex-col gap-3 border shadow-none ${
+                              isSystem ? 'border-zinc-700 bg-zinc-950 text-zinc-300' :
+                              isModel ? 'border-white bg-white text-black' :
+                              'border-zinc-700 bg-zinc-950 text-zinc-100'
+                            }`}
                               style={{
-                                backgroundColor: isSystem ? 'var(--surface-strong)' : isModel ? 'var(--accent)' : 'var(--surface-alt)',
-                                color: isSystem ? 'var(--text-primary)' : isModel ? 'var(--surface-strong)' : 'var(--text-primary)',
-                                borderColor: isMissedCall ? 'var(--accent)' : isSystem ? 'var(--border)' : 'transparent'
+                                borderColor: isMissedCall ? '#ef4444' : undefined
                               }}>
+                              {msg.isAIGenerated && (
+                                <span className="text-[9px] font-black uppercase tracking-widest text-yellow-600">
+                                  AI-generated reply
+                                </span>
+                              )}
                               {msg.media && (
                                 <div className="relative overflow-hidden rounded-xl" style={{ backgroundColor: 'var(--surface-muted)' }}>
                                   <img
                                     src={msg.media}
                                     alt="attachment"
-                                    className="w-full max-w-[260px] h-auto object-cover rounded-xl"
+                                    className="h-auto w-full max-w-[min(70vw,16rem)] object-cover rounded-xl"
                                     style={{ filter: (msg.nsfw || msg.flagged) && !revealedMediaIds.has(msg.id) ? 'blur(8px) grayscale(40%)' : 'none' }}
                                   />
                                   {(msg.nsfw || msg.flagged) && (
@@ -1563,10 +1926,10 @@ export default function PrivateInbox() {
                                   )}
                                 </div>
                               )}
-                              {(quoted || parsedText) && (
+                              {(quoted || (parsedText && !isCallEvent)) && (
                                 <div className="flex flex-col gap-3 text-left">
                                   {quoted && (
-                                    <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-300">
+                                    <div className="border-l-2 border-zinc-500 bg-black p-3 text-sm text-zinc-300">
                                       {quoted}
                                     </div>
                                   )}
@@ -1577,25 +1940,17 @@ export default function PrivateInbox() {
                                   )}
                                 </div>
                               )}
-                              {msg.type && ['missed_call','call_started','call_connected','call_ended'].includes(msg.type) && (
-                                <div className="whitespace-pre-wrap font-normal flex items-center justify-center gap-2 text-center">
-                                  {msg.type === 'missed_call' && <PhoneOff className="w-4 h-4 text-red-400" />}
-                                  {msg.type === 'call_started' && <Phone className="w-4 h-4 text-blue-400" />}
-                                  {msg.type === 'call_connected' && <Phone className="w-4 h-4 text-emerald-400" />}
-                                  {msg.type === 'call_ended' && <PhoneOff className="w-4 h-4 text-zinc-400" />}
+                              {isCallEvent && (
+                                <div className="whitespace-pre-wrap font-black uppercase tracking-wide flex items-center gap-2 text-center text-xs">
+                                  {msg.callMode === 'video' ? <Video className={`h-4 w-4 ${isMissedCall ? 'text-red-400' : 'text-yellow-400'}`} /> : <PhoneCall className={`h-4 w-4 ${isMissedCall ? 'text-red-400' : 'text-green-400'}`} />}
                                   <span>{msg.text}</span>
                                 </div>
                               )}
                               {isMissedCall && (
                                 <button
                                   type="button"
-                                  onClick={() => reconnectCall(msg.meta?.mode || 'audio')}
-                                  className="self-center inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-semibold transition-colors shadow-sm"
-                                  style={{
-                                    backgroundColor: 'var(--accent)',
-                                    color: 'var(--surface-strong)',
-                                    border: '1px solid var(--border)'
-                                  }}>
+                                  onClick={() => reconnectCall(msg.callMode || 'audio')}
+                                  className="self-center inline-flex items-center justify-center border border-zinc-700 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-white hover:text-white transition-colors">
                                   <RefreshCw className="w-3.5 h-3.5 mr-2" /> Reconnect
                                 </button>
                               )}
@@ -1605,14 +1960,31 @@ export default function PrivateInbox() {
                                 Replying to {replyingTo.sender === 'me' ? 'yourself' : activeChat.name}
                               </div>
                             )}
-                            <span className="text-[11px] font-medium mt-1.5 px-1 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                            <div className="mt-1 flex items-center justify-between gap-3">
+                            <span className="text-[10px] font-medium px-1 flex items-center gap-1 text-zinc-600">
                               {msg.time}
                               {isModel && (
                                 msg.status === 'sent'
                                   ? <Check className="w-3 h-3 text-zinc-400" />
-                                  : <CheckCheck className={`w-3 h-3 ${msg.status === 'read' ? 'text-blue-400' : 'text-zinc-400'}`} />
+                                  : <CheckCheck className={`w-3 h-3 ${msg.status === 'read' ? 'text-green-400' : 'text-zinc-500'}`} />
                               )}
                             </span>
+                            {!isSystem && (
+                              <button
+                                type="button"
+                                onClick={() => toggleDirectMessagePin(msg)}
+                                disabled={pinningMessageId === msg.id}
+                                aria-label={msg.isPinned ? 'Unpin message' : 'Pin message'}
+                                title={msg.isPinned ? 'Unpin message' : 'Pin message'}
+                                className={`inline-flex items-center gap-1 px-2 py-1 text-[9px] font-black uppercase tracking-widest transition-colors ${
+                                  msg.isPinned ? 'text-yellow-400' : 'text-zinc-600 hover:text-white'
+                                }`}
+                              >
+                                {pinningMessageId === msg.id ? <Loader2 className="h-3 w-3 animate-spin" /> : msg.isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+                                {msg.isPinned ? 'Pinned' : ''}
+                              </button>
+                            )}
+                            </div>
                           </div>
                         </div>
                         </React.Fragment>
@@ -1622,33 +1994,63 @@ export default function PrivateInbox() {
                   <div ref={messagesEndRef} className="h-2" />
                 </div>
 
-                {/* Suggestions Bar */}
-                <div className="p-3 flex items-center gap-3 overflow-x-auto custom-scrollbar shrink-0" style={{ backgroundColor: 'var(--surface-strong)', borderTop: '1px solid var(--border)' }}>
-                  <button 
-                    onClick={() => setAutoPilot(!autoPilot)}
-                    className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold transition-colors shrink-0 rounded-full shadow-sm
-                      ${autoPilot ? 'bg-blue-500 text-white' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800'}
-                    `}
-                  >
-                    <Bot className="w-4 h-4" /> {autoPilot ? 'Smart Assistant Active' : 'Smart Assistant Off'}
-                  </button>
-                  <div className="w-[1px] h-5 shrink-0" style={{ backgroundColor: 'var(--border)' }} />
-                  {smartSuggestions.map((sug, i) => (
-                    <button 
-                      key={i} onClick={() => setInputText(sug)}
-                      className="whitespace-nowrap px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs font-medium rounded-full hover:bg-zinc-800 hover:text-white transition-colors shadow-sm"
-                    >
-                      {sug}
-                    </button>
-                  ))}
-                </div>
+                {activeChat.type === 'dm' && (
+                  <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleGenerateAISuggestions}
+                        disabled={isGeneratingAISuggestions}
+                        className="flex items-center gap-2 border border-zinc-700 bg-black px-3 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:border-yellow-400 hover:text-white disabled:opacity-50"
+                      >
+                        {isGeneratingAISuggestions
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <Sparkles className="h-4 w-4" />}
+                        {isGeneratingAISuggestions ? 'Generating…' : 'Draft AI replies'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleToggleAIAutoReply}
+                        disabled={isLoadingAIAutoReply || isUpdatingAIAutoReply}
+                        aria-pressed={aiAutoReplyEnabled}
+                        className={`flex items-center gap-2 border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50 ${
+                          aiAutoReplyEnabled
+                            ? 'border-yellow-400 text-yellow-300'
+                            : 'border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white'
+                        }`}
+                      >
+                        <Bot className="h-4 w-4" />
+                        {isUpdatingAIAutoReply
+                          ? 'Saving…'
+                          : `AI auto-reply ${aiAutoReplyEnabled ? 'on' : 'off'} · 5h`}
+                      </button>
+                      <span className="text-[10px] text-zinc-500">
+                        Recent messages are sent to Gemini for drafts. Auto-replies are labeled AI.
+                      </span>
+                    </div>
+                    {aiSuggestions.length > 0 && (
+                      <div className="mt-2 flex gap-2 overflow-x-auto custom-scrollbar">
+                        {aiSuggestions.map((suggestion, index) => (
+                          <button
+                            type="button"
+                            key={`${index}-${suggestion}`}
+                            onClick={() => setInputText(suggestion)}
+                            className="max-w-[22rem] shrink-0 border border-zinc-800 bg-black px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:border-yellow-400 hover:text-white"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Chat Input Area */}
-                <div className="p-4 md:px-6 md:pb-6 shrink-0 relative z-30" style={{ backgroundColor: 'var(--surface)' }}>
+                <div className="p-4 md:px-6 md:pb-6 shrink-0 relative z-30 bg-black border-t border-zinc-800">
                   
                   {/* Emoji Picker Modal */}
                   {showEmojiPicker && (
-                    <div className="absolute bottom-[calc(100%+10px)] left-4 md:left-6 z-50 shadow-2xl rounded-2xl overflow-hidden" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+                    <div className="absolute bottom-[calc(100%+10px)] left-4 md:left-6 z-50 shadow-2xl border border-zinc-700 overflow-hidden">
                       <EmojiPicker 
                         theme={theme}
                         onEmojiClick={handleEmojiSelect} 
@@ -1664,38 +2066,37 @@ export default function PrivateInbox() {
                     
                     {/* Media Preview before send */}
                     {attachedMedia && (
-                      <div className="flex items-center gap-4 p-2.5 w-max rounded-2xl shadow-sm" style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)' }}>
+                      <div className="flex items-center gap-4 p-2.5 w-max border border-zinc-700 bg-zinc-950">
                         <div className="relative">
                           {attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? (
-                            <video src={attachedMedia} className="w-32 h-20 object-cover rounded-xl" controls muted />
+                            <video src={attachedMedia} className="aspect-video w-[clamp(6rem,20vw,8rem)] border border-zinc-700 object-cover" controls muted />
                           ) : (
-                            <img src={attachedMedia} alt="preview" className={`w-14 h-14 object-cover rounded-xl`} />
+                            <img src={attachedMedia} alt="preview" className="size-[clamp(3rem,8vw,3.5rem)] border border-zinc-700 object-cover" />
                           )}
                         </div>
                         <div className="flex flex-col pr-4">
-                          <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? 'Video attached' : 'Photo attached'}</span>
-                          <span className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{t('readyToSend')}</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-white">{attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? 'Video attached' : 'Photo attached'}</span>
+                          <span className="text-[10px] mt-0.5 text-zinc-500">{t('readyToSend')}</span>
                         </div>
                         <button 
                           onClick={() => { setAttachedMedia(null); setAttachedFile(null); }} 
-                          className="p-1.5 rounded-full transition-colors ml-2"
-                          style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-secondary)' }}
+                          className="p-1.5 border border-zinc-700 bg-black text-zinc-400 hover:text-white transition-colors ml-2"
                         >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                     )}
 
-                    <div className="flex items-end gap-2 rounded-3xl p-1.5 transition-colors shadow-sm" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
+                    <div className="flex items-end gap-2 border border-zinc-700 bg-zinc-950 p-1.5 transition-colors">
                       <div className="flex items-center gap-1 shrink-0 mb-1 pl-1">
                         <input ref={fileInputRef} onChange={handleFilePicked} type="file" accept="image/*,video/*" className="hidden" />
-                        <button onClick={() => fileInputRef.current?.click()} className="p-2.5 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }} title={t('attachMedia')}>
+                        <button onClick={() => fileInputRef.current?.click()} className="p-2.5 border border-transparent text-zinc-400 hover:border-zinc-700 hover:text-white transition-colors" title={t('attachMedia')} aria-label={t('attachMedia')}>
                           <ImageIcon className="w-5 h-5" />
                         </button>
-                        <button onClick={() => setShowMediaVault(true)} className="p-2.5 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }} title={t('vault')}>
+                        <button onClick={() => setShowMediaVault(true)} className="p-2.5 border border-transparent text-zinc-400 hover:border-zinc-700 hover:text-white transition-colors" style={{ color: 'var(--text-secondary)' }} title={t('vault')} aria-label={t('vault')}>
                           <Upload className="w-5 h-5" />
                         </button>
-                        <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="hidden md:block p-2.5 rounded-full transition-colors" style={{ color: 'var(--text-secondary)' }}>
+                        <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} aria-label="Choose emoji" className="hidden md:block p-2.5 border border-transparent text-zinc-400 hover:border-zinc-700 hover:text-white transition-colors">
                           <Smile className="w-5 h-5" />
                         </button>
                       </div>
@@ -1704,18 +2105,16 @@ export default function PrivateInbox() {
                         value={inputText} 
                         onChange={(e) => handleTyping(e)}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                        placeholder={autoPilot ? t('smartAssistantDrafting') : t('typeMessage')}
-                        disabled={autoPilot}
+                        placeholder={t('typeMessage')}
                         className="flex-1 bg-transparent py-3.5 px-2 font-normal text-sm resize-none outline-none custom-scrollbar disabled:opacity-50 placeholder:text-zinc-500"
                         rows="1"
-                        style={{ color: 'var(--text-primary)', minHeight: '48px', maxHeight: '120px' }}
+                        style={{ color: '#ffffff', minHeight: '48px', maxHeight: '120px' }}
                       />
                       
                       <button 
                         onClick={() => handleSendMessage()} 
-                        disabled={(!inputText.trim() && !attachedMedia) || autoPilot || isSending}
-                        className="h-[44px] w-[44px] md:w-auto md:px-6 mb-1 mr-1 font-semibold text-sm rounded-full disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-sm"
-                        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}
+                        disabled={(!inputText.trim() && !attachedMedia) || isSending}
+                        className="h-[44px] w-[44px] md:w-auto md:px-6 mb-1 mr-1 border-2 border-white bg-white text-black font-black uppercase tracking-widest text-[10px] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 hover:bg-zinc-200"
                       >
                         <span className="hidden md:inline">{t('send')}</span>
                         <Send className="w-4 h-4" />
@@ -1726,49 +2125,48 @@ export default function PrivateInbox() {
               </div>
 
               {/* Right Profile Panel (Desktop Only) */}
-              <div className="hidden lg:flex w-80 flex-col overflow-y-auto custom-scrollbar" style={{ backgroundColor: 'var(--surface-alt)' }}>
-                <div className="p-8 flex flex-col items-center text-center" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="hidden w-[clamp(14rem,22vw,20rem)] flex-col overflow-y-auto border-l border-zinc-800 bg-zinc-950 custom-scrollbar lg:flex">
+                <div className="p-8 flex flex-col items-center text-center border-b border-zinc-800">
                   <div className="relative mb-4">
                     <img 
                       src={activeChat.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'} 
                       alt="User" 
-                      className="w-32 h-32 object-cover rounded-full shadow-lg" 
-                      style={{ border: '4px solid var(--surface)' }}
+                      className="size-[clamp(6rem,14vw,8rem)] border-4 border-yellow-400 bg-black object-cover"
                     />
-                    <div className="absolute bottom-1 right-3 w-4 h-4 rounded-full" style={{ backgroundColor: 'var(--success)', border: '2px solid var(--surface)' }}></div>
+                    <div className={`absolute bottom-1 right-3 h-4 w-4 border-2 border-black ${partnerPresence === 'online' ? 'bg-green-400' : 'bg-zinc-600'}`} />
                   </div>
-                  <h2 className="text-xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{activeChat.name}</h2>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold mt-3 ${tier.bg} ${tier.text}`}>
+                  <h2 className="text-xl font-black uppercase tracking-wide text-white">{activeChat.name}</h2>
+                  <span className={`px-3 py-1 border text-[10px] font-black uppercase tracking-widest mt-3 ${tier.bg} ${tier.text} ${tier.color}`}>
                     {tier.label} User
                   </span>
                 </div>
                 
                 <div className="p-6 space-y-6">
                   <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>{t('about')}</h3>
-                    <p className="text-sm leading-relaxed p-4 rounded-2xl" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-zinc-500">{t('about')}</h3>
+                    <p className="text-sm leading-relaxed p-4 border border-zinc-800 bg-black text-zinc-300">
                       {activeChat.bio ? `"${activeChat.bio}"` : "No bio provided yet."}
                     </p>
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>{t('supportHistory')}</h3>
-                    <div className="p-4 rounded-2xl flex items-center gap-3" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(210, 79, 116, 0.1)', color: 'var(--accent)' }}>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-zinc-500">{t('supportHistory')}</h3>
+                    <div className="p-4 border border-zinc-800 bg-black flex items-center gap-3">
+                      <div className="w-10 h-10 border border-yellow-400/40 bg-yellow-400/10 text-yellow-400 flex items-center justify-center">
                         <Flame className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>${activeChat.lifetimeSpend}</div>
-                        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('lifetimeContribution')}</div>
+                        <div className="text-lg font-black text-white">${activeChat.lifetimeSpend}</div>
+                        <div className="text-xs text-zinc-500">{t('lifetimeContribution')}</div>
                       </div>
                     </div>
                   </div>
                   
                   <div className="pt-4 space-y-3">
-                    <button className="w-full py-3.5 text-sm font-semibold rounded-2xl transition-colors shadow-sm" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+                    <button className="w-full border border-zinc-700 bg-black py-3.5 text-[10px] font-black uppercase tracking-widest text-white transition-colors hover:border-white">
                       View Full Profile
                     </button>
-                    <button onClick={() => setShowBlockModal(true)} className="w-full py-3.5 bg-transparent text-sm font-semibold rounded-2xl hover:bg-red-500/10 transition-colors" style={{ color: 'var(--accent)' }}>
+                    <button onClick={() => setShowBlockModal(true)} className="w-full border border-red-500/50 bg-transparent py-3.5 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/10">
                       Block User
                     </button>
                   </div>
@@ -1809,14 +2207,14 @@ export default function PrivateInbox() {
       {contextMenuTarget && (
         <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center p-4">
           <div className="absolute inset-0 md:bg-transparent" onClick={() => setContextMenuTarget(null)} style={{ backgroundColor: 'rgba(24, 19, 16, 0.25)' }} />
-          <div className="relative w-full md:w-64 flex flex-col p-2 shadow-2xl rounded-2xl animate-in zoom-in-95 duration-100" style={{ backgroundColor: 'var(--surface-strong)', border: '1px solid var(--border)' }}>
-            <div className="p-3 mb-2" style={{ borderBottom: '1px solid var(--border)' }}>
-              <span className="text-sm font-semibold truncate block" style={{ color: 'var(--text-primary)' }}>{contextMenuTarget.name}</span>
+          <div className="relative flex w-full flex-col border border-zinc-700 bg-zinc-950 p-2 shadow-2xl animate-in zoom-in-95 duration-100 md:w-[clamp(12rem,24vw,18rem)]">
+            <div className="p-3 mb-2 border-b border-zinc-800">
+              <span className="text-sm font-black uppercase tracking-widest truncate block text-white">{contextMenuTarget.name}</span>
             </div>
-            <button onClick={() => handleToggleMute(contextMenuTarget.id)} className="w-full flex items-center gap-3 p-3 text-sm font-medium rounded-xl text-left transition-colors" style={{ color: 'var(--text-primary)' }}>
-              <BellOff className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} /> {contextMenuTarget.isMuted ? 'Unmute Chat' : 'Mute Notifications'}
+            <button onClick={() => handleToggleMute(contextMenuTarget.id)} className="w-full flex items-center gap-3 p-3 text-sm font-bold text-zinc-300 text-left transition-colors hover:bg-zinc-900 hover:text-white">
+              <BellOff className="w-4 h-4 text-zinc-500" /> {contextMenuTarget.isMuted ? 'Unmute Chat' : 'Mute Notifications'}
             </button>
-            <button onClick={() => { setShowDeleteModal(contextMenuTarget); setContextMenuTarget(null); }} className="w-full flex items-center gap-3 p-3 text-sm font-medium rounded-xl text-left transition-colors mt-1" style={{ color: 'var(--accent)' }}>
+            <button onClick={() => { setShowDeleteModal(contextMenuTarget); setContextMenuTarget(null); }} className="w-full flex items-center gap-3 p-3 text-sm font-bold text-red-400 text-left transition-colors hover:bg-red-500/10 mt-1">
               <Trash2 className="w-4 h-4" /> Delete Conversation
             </button>
           </div>
@@ -1827,68 +2225,58 @@ export default function PrivateInbox() {
   );
 }
 
-function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, micEnabled, micLevel }) {
+function InboxCallStage({ activeChat, callMode, callElapsedSec, micEnabled, micLevel }) {
+  const { t } = useI18n();
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const cameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
-  const localElRef = useRef(null);
-  
-  useEffect(() => {
-    if (localElRef.current && localStream) {
-      try { if (localElRef.current.srcObject !== localStream) localElRef.current.srcObject = localStream; } catch(e) {}
-    }
-  }, [localStream]);
-  
   const remoteParticipants = participants.filter((p) => p.identity !== localParticipant?.identity);
   const remotePrimary = remoteParticipants[0];
   const localCameraTrack = cameraTracks.find((t) => t.participant.identity === localParticipant?.identity);
   const remoteCameraTrack = cameraTracks.find((t) => t.participant.identity !== localParticipant?.identity);
   const connectedCount = remoteParticipants.length + 1;
+  const microphoneEnabled = localParticipant?.isMicrophoneEnabled ?? micEnabled;
 
   return (
-    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 p-6 items-center justify-center max-w-6xl mx-auto w-full">
-      <div className="col-span-full text-center text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-        {callMode === 'video' ? 'Video call' : 'Audio call'} • {connectedCount} participant{connectedCount === 1 ? '' : 's'} • {formatDuration(callElapsedSec)}
+    <div className="flex min-h-0 flex-1 grid-cols-1 grid w-full items-center justify-center gap-3 p-2 sm:gap-4 sm:p-3 md:grid-cols-2 lg:p-4">
+      <div className="col-span-full text-center text-[10px] font-black uppercase tracking-widest text-zinc-400">
+        {callMode === 'video' ? 'Video call' : 'Audio call'} · {connectedCount} participant{connectedCount === 1 ? '' : 's'} · {formatDuration(callElapsedSec)}
       </div>
-      <div className="w-full h-full max-h-[52vh] rounded-3xl flex flex-col items-center justify-center relative overflow-hidden shadow-2xl gap-4" style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)' }}>
-        {callMode === 'video' && (localCameraTrack || localStream) ? (
+      <div className="relative flex h-full w-full min-h-[min(35dvh,18rem)] max-h-full flex-col items-center justify-center gap-4 overflow-hidden border-2 border-zinc-700 bg-zinc-950">
+        {callMode === 'video' && localCameraTrack ? (
           <>
-            {localCameraTrack ? (
-              <VideoTrack trackRef={localCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
-            ) : (
-              <video ref={localElRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" />
-            )}
+            <VideoTrack trackRef={localCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
           </>
         ) : (
-          <div className="w-24 h-24 rounded-full flex items-center justify-center text-2xl font-bold z-10" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)' }}>
+          <div className="w-24 h-24 border-2 border-yellow-400 bg-black flex items-center justify-center text-2xl font-black text-white z-10">
             {(localParticipant?.name || 'You').charAt(0).toUpperCase()}
           </div>
         )}
-        <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg" style={{ color: 'var(--text-primary)', backgroundColor: 'rgba(0,0,0,0.45)' }}>{t('you')}</div>
-        <div className="text-xs z-10 flex flex-col gap-2" style={{ color: 'var(--text-muted)' }}>
-          {micEnabled ? (
+        <div className="text-[10px] font-black uppercase tracking-widest z-10 px-3 py-1.5 bg-black/70 text-white">{t('you')}</div>
+        <div className="text-xs z-10 flex flex-col gap-2 text-zinc-300">
+          {microphoneEnabled ? (
             <>
               <span>Mic on — {micLevel < 0.02 ? 'No sound' : micLevel < 0.1 ? 'Quiet' : micLevel < 0.25 ? 'Speaking softly' : micLevel < 0.5 ? 'Speaking' : 'Loud input'}</span>
               <div className="flex items-center gap-1">
                 {[0.05, 0.15, 0.3, 0.5].map((threshold, index) => {
                   const active = micLevel >= threshold;
                   return (
-                    <span key={index} className="inline-block h-2 rounded-full transition-all duration-150" style={{ width: `${6 + index * 4}px`, backgroundColor: active ? 'var(--success)' : 'rgba(100,116,139,0.3)' }} />
+                    <span key={index} className={`inline-block h-2 transition-all duration-150 ${active ? 'bg-green-400' : 'bg-zinc-700'}`} style={{ width: `${6 + index * 4}px` }} />
                   );
                 })}
               </div>
             </>
           ) : (
             <div className="inline-flex items-center gap-2">
-              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+              <span className="inline-flex h-2.5 w-2.5 bg-red-500" />
               <span>{t('micOff')}</span>
             </div>
           )}
         </div>
       </div>
 
-      <div className="w-full h-full max-h-[52vh] rounded-3xl flex flex-col items-center justify-center relative overflow-hidden shadow-2xl gap-4" style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)' }}>
+      <div className="relative flex h-full w-full min-h-[min(35dvh,18rem)] max-h-full flex-col items-center justify-center gap-4 overflow-hidden border-2 border-zinc-700 bg-zinc-950">
         {callMode === 'video' && remoteCameraTrack && (
           <>
             <VideoTrack trackRef={remoteCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
@@ -1898,14 +2286,14 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
         {remotePrimary ? (
           <>
             {(!remoteCameraTrack || callMode !== 'video') && (
-              <div className="w-24 h-24 rounded-full flex items-center justify-center text-2xl font-bold z-10" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)' }}>
+              <div className="w-24 h-24 border-2 border-green-400 bg-black flex items-center justify-center text-2xl font-black text-white z-10">
                 {(remotePrimary?.name || activeChat?.name || 'U').charAt(0).toUpperCase()}
               </div>
             )}
-            <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg" style={{ color: 'var(--text-primary)', backgroundColor: 'rgba(0,0,0,0.45)' }}>{remotePrimary?.name || activeChat?.name}</div>
-            <div className="text-xs z-10 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+            <div className="text-[10px] font-black uppercase tracking-widest z-10 px-3 py-1.5 bg-black/70 text-white">{remotePrimary?.name || activeChat?.name}</div>
+            <div className="text-xs z-10 flex items-center gap-2 text-zinc-300">
               <span>{remotePrimary?.isSpeaking ? 'Speaking' : 'Connected'}</span>
-              <span className="inline-block w-16 h-1 bg-zinc-800 rounded overflow-hidden">
+              <span className="inline-block w-16 h-1 bg-zinc-800 overflow-hidden">
                 <span className="block h-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round(((remotePrimary?.audioLevel ?? remotePrimary?.audio_level) || 0) * 200))}%`, transition: 'width 120ms linear' }} />
               </span>
             </div>
@@ -1913,14 +2301,14 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
         ) : (
           <>
             {activeChat?.avatar ? (
-              <img src={activeChat.avatar} alt={activeChat.name} className="w-24 h-24 rounded-full object-cover z-10" />
+              <img src={activeChat.avatar} alt={activeChat.name} className="w-24 h-24 border-2 border-green-400 object-cover z-10" />
             ) : (
-              <div className="w-24 h-24 rounded-full flex items-center justify-center text-2xl font-bold z-10" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--text-primary)' }}>
+              <div className="w-24 h-24 border-2 border-green-400 bg-black flex items-center justify-center text-2xl font-black text-white z-10">
                 {(activeChat?.name || 'U').charAt(0).toUpperCase()}
               </div>
             )}
-            <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg" style={{ color: 'var(--text-primary)', backgroundColor: 'rgba(0,0,0,0.45)' }}>{activeChat?.name}</div>
-            <div className="text-xs z-10" style={{ color: 'var(--text-muted)' }}>{t('ringing')}</div>
+            <div className="text-[10px] font-black uppercase tracking-widest z-10 px-3 py-1.5 bg-black/70 text-white">{activeChat?.name}</div>
+            <div className="text-xs z-10 text-yellow-400">{t('ringing')}</div>
           </>
         )}
       </div>

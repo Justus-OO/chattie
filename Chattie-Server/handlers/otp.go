@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"log"
 	"math/big"
 	"net/http"
@@ -48,12 +49,6 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	payload.Channel = strings.ToLower(strings.TrimSpace(payload.Channel))
 	payload.Target = strings.TrimSpace(payload.Target)
 
-	if payload.Target == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Target destination (phone or email) is required"})
-		return
-	}
-
 	if payload.Channel != "sms" && payload.Channel != "email" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Channel must be 'sms' or 'email'"})
@@ -64,6 +59,38 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	if !ok || userID == "" {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
+	}
+
+	if payload.Channel == "email" {
+		user, err := h.Repo.GetUserByID(r.Context(), userID)
+		if err != nil {
+			log.Printf("[OTP ERROR] Failed to load email destination for user %s: %v", userID, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Could not load account email"})
+			return
+		}
+		payload.Target = strings.TrimSpace(user.Email)
+		if payload.Target == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "No email address is set on this account"})
+			return
+		}
+		if h.Email == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Email delivery is unavailable"})
+			return
+		}
+	} else {
+		if payload.Target == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "A phone number is required"})
+			return
+		}
+		if h.SMS == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"error": "SMS delivery is unavailable"})
+			return
+		}
 	}
 
 	// 1. Generate Cryptographically Secure 6-Digit OTP
@@ -77,6 +104,11 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	// 2. Save OTP to DB (valid for 10 minutes)
 	expiresAt := time.Now().Add(10 * time.Minute)
 	if err := h.Repo.SaveOTP(r.Context(), userID, otpCode, expiresAt); err != nil {
+		if errors.Is(err, repository.ErrOTPRequestRateLimited) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Please wait 60 seconds before requesting another code"})
+			return
+		}
 		log.Printf("[OTP ERROR] Failed to save OTP for user %s: %v", userID, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to process OTP request"})

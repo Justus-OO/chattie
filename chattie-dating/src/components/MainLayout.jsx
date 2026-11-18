@@ -30,7 +30,7 @@ export default function MainLayout() {
   }, [isMobileMenuOpen]);
 
   return (
-    <div className="flex flex-col md:flex-row h-dvh w-full bg-black text-zinc-300 font-mono overflow-hidden">
+    <div className="flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-black font-mono text-zinc-300 md:flex-row">
       
       {/* MOBILE HEADER (Visible only on small screens) */}
       <header className="md:hidden flex items-center justify-between p-3 border-b-2 border-zinc-800 bg-zinc-950 shrink-0 z-20">
@@ -60,8 +60,8 @@ export default function MainLayout() {
 
       {/* SIDEBAR WRAPPER (Responsive) */}
       <div className={`
-        fixed inset-y-0 left-0 z-50 w-4/5 max-w-[320px] bg-black transform transition-transform duration-300 ease-out border-r-2 border-zinc-800
-        md:relative md:translate-x-0 md:w-80 md:flex md:shrink-0
+        fixed inset-y-0 left-0 z-50 w-[min(85vw,22rem)] bg-black transform transition-transform duration-300 ease-out border-r-2 border-zinc-800
+        md:relative md:translate-x-0 md:w-[clamp(14rem,22vw,20rem)] md:flex md:shrink-0
         ${isMobileMenuOpen ? 'translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.8)]' : '-translate-x-full'}
       `}>
         {/* Mobile Close Button (Inside Sidebar) */}
@@ -73,7 +73,7 @@ export default function MainLayout() {
         </button>
 
         {/* The Actual Sidebar Component */}
-        <div className="w-full h-full">
+        <div className="h-full min-h-0 w-full">
           <Sidebar 
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -88,7 +88,7 @@ export default function MainLayout() {
       </div>
       
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col w-full h-full overflow-hidden relative bg-black">
+      <main className="relative flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-black">
         <Outlet context={{ selectedRoom, selectedProfile }} />
       </main>
 

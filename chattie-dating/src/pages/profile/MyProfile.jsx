@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Camera, Save, Settings, X, Plus, Image as ImageIcon, 
@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 
 // Services
 import { ChattieService } from '../../api/chattie.service';
+import { settingsService } from '../../api/settings.service';
+import AIDraftAssistant from '../../components/AIDraftAssistant';
 import { useI18n } from '../../i18n';
 
 // ============================================================================
@@ -40,6 +42,17 @@ export default function MyProfile() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [uploadTarget, setUploadTarget] = useState(null);
+  const photoInputRef = useRef(null);
+  const subscriptionPlan = String(fullSettings.plan || 'NONE').toUpperCase();
+  const subscriptionStatus = String(fullSettings.sub_status || '').toUpperCase();
+  const subscriptionExpiry = fullSettings.expires_at ? new Date(fullSettings.expires_at) : null;
+  const hasActiveSubscription = ['ACTIVE', 'TRIALING'].includes(subscriptionStatus)
+    && (!subscriptionExpiry || subscriptionExpiry.getTime() > Date.now());
+  const formattedSubscriptionExpiry = subscriptionExpiry && !Number.isNaN(subscriptionExpiry.getTime())
+    ? subscriptionExpiry.toLocaleDateString()
+    : '';
 
   // ============================================================================
   // EFFECTS
@@ -59,7 +72,18 @@ export default function MyProfile() {
               const parsed = JSON.parse(ls);
               const appearsEmpty = !normalized.name && !normalized.avatar && (!Array.isArray(normalized.photos) || normalized.photos.every(p => !p));
               if (appearsEmpty && parsed && typeof parsed === 'object') {
-                normalized = { ...DEFAULT_PROFILE, ...parsed };
+                normalized = {
+                  ...DEFAULT_PROFILE,
+                  ...parsed,
+                  avatar: data.avatar || '',
+                  cover: data.cover || '',
+                  avatar_storage_url: data.avatar_storage_url || '',
+                  cover_storage_url: data.cover_storage_url || '',
+                  photos: Array.isArray(data.photos) ? data.photos : DEFAULT_PROFILE.photos,
+                  plan: data.plan,
+                  sub_status: data.sub_status,
+                  expires_at: data.expires_at,
+                };
               }
             }
           } catch (e) { /* ignore localStorage errors */ }
@@ -156,9 +180,64 @@ export default function MyProfile() {
     }));
   };
 
-  const handlePhotoUpload = (index) => {
-    // Future enhancement: Trigger file input upload here
-    toast(t('photoPicker'));
+  const handlePhotoUpload = (target) => {
+    setUploadTarget(target);
+    photoInputRef.current?.click();
+  };
+
+  const refreshProfileFromServer = async () => {
+    const fresh = await ChattieService.getSettings();
+    const normalized = { ...DEFAULT_PROFILE, ...fresh };
+    setFullSettings(normalized);
+    setProfile(prev => ({
+      ...prev,
+      avatar: normalized.avatar || '',
+      cover: normalized.cover || '',
+      photos: Array.isArray(normalized.photos) ? normalized.photos : DEFAULT_PROFILE.photos,
+    }));
+  };
+
+  const handlePhotoSelected = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !uploadTarget) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Choose an image file.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Choose an image smaller than 10 MB.');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    try {
+      const uploaded = await settingsService.uploadMedia(file);
+      if (!uploaded?.id || !uploaded?.url) {
+        throw new Error('The image upload returned incomplete media details.');
+      }
+
+      if (uploadTarget.type === 'cover') {
+        if (!uploaded.storage_url) {
+          throw new Error('The image upload did not return its storage URL.');
+        }
+        await ChattieService.updateSettings({
+          ...fullSettings,
+          cover: uploaded.url,
+          cover_storage_url: uploaded.storage_url,
+        });
+      } else if (uploadTarget.index === 0) {
+        await settingsService.setPrimaryMedia(uploaded.id);
+      }
+
+      await refreshProfileFromServer();
+      toast.success(uploadTarget.type === 'cover' ? 'Cover image updated.' : 'Profile image uploaded.');
+    } catch (error) {
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not upload this image.'));
+    } finally {
+      setIsUploadingPhoto(false);
+      setUploadTarget(null);
+    }
   };
 
   // ============================================================================
@@ -166,7 +245,7 @@ export default function MyProfile() {
   // ============================================================================
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center text-zinc-300 w-full h-full" style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}>
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-6 text-center text-zinc-300" style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}>
         <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
         <h2 className="text-sm text-white">{t('loadingProfile')}</h2>
       </div>
@@ -177,7 +256,7 @@ export default function MyProfile() {
   // RENDER
   // ============================================================================
   return (
-    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}>
       
       {/* =====================================================================
           HEADER
@@ -195,13 +274,26 @@ export default function MyProfile() {
       {/* =====================================================================
           MAIN SCROLLABLE CONTENT
           ===================================================================== */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-black">
-        <div className="max-w-3xl mx-auto w-full pb-12">
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handlePhotoSelected}
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar bg-black">
+        <div className="min-h-full w-full pb-4">
           
           {/* COVER & AVATAR SECTION */}
           <div className="relative mb-20 md:mb-24 border-b-2 border-zinc-800">
             {/* Cover Photo */}
-            <div className="h-48 md:h-64 w-full bg-zinc-950 relative group cursor-pointer border-b-2 border-zinc-800 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => handlePhotoUpload({ type: 'cover' })}
+              disabled={isUploadingPhoto}
+              className="relative aspect-[3/1] w-full cursor-pointer border-b-2 border-zinc-800 bg-zinc-950 flex items-center justify-center group disabled:cursor-wait"
+              aria-label="Upload or change cover image"
+            >
               {profile.cover ? (
                 <img src={profile.cover} alt="Cover" className="w-full h-full object-cover grayscale opacity-60 group-hover:opacity-40 transition-opacity" />
               ) : (
@@ -212,12 +304,18 @@ export default function MyProfile() {
                   <Camera className="w-4 h-4" /> Change Cover
                 </div>
               </div>
-            </div>
+            </button>
 
             {/* Avatar Profile */}
             <div className="absolute -bottom-16 md:-bottom-20 left-6 md:left-10 flex items-end gap-4">
-              <div className="relative group cursor-pointer">
-                <div className="w-32 h-32 md:w-40 md:h-40 bg-zinc-950 border-4 border-black overflow-hidden flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => handlePhotoUpload({ type: 'gallery', index: 0 })}
+                disabled={isUploadingPhoto}
+                className="relative group cursor-pointer disabled:cursor-wait"
+                aria-label="Upload or change profile photo"
+              >
+                <div className="size-[clamp(7rem,16vw,10rem)] overflow-hidden border-4 border-black bg-zinc-950 flex items-center justify-center">
                   {profile.avatar ? (
                     <img src={profile.avatar} alt="Avatar" className="w-full h-full object-cover grayscale" />
                   ) : (
@@ -227,7 +325,7 @@ export default function MyProfile() {
                 <div className="absolute inset-0 bg-black/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border-4 border-transparent">
                   <Camera className="w-6 h-6 text-white" />
                 </div>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -238,33 +336,32 @@ export default function MyProfile() {
               <h2 className="text-sm text-zinc-500 mb-4">{t('mediaGallery')}</h2>
               <div className="grid grid-cols-3 gap-3 md:gap-4">
                 {profile.photos.map((photo, idx) => (
-                  <div 
-                    key={idx} 
-                    onClick={() => handlePhotoUpload(idx)}
-                    className={`
-                      relative bg-black border-2 cursor-pointer group aspect-[3/4] transition-colors
-                      ${idx === 0 ? 'col-span-2 row-span-2 aspect-auto' : ''}
-                      ${photo ? 'border-zinc-800 hover:border-white' : 'border-dashed border-zinc-800 hover:border-zinc-500'}
-                    `}
-                  >
-                    {photo ? (
-                      <>
-                        <img src={photo} alt={`Gallery ${idx}`} className="w-full h-full object-cover grayscale group-hover:scale-105 transition-transform duration-500" />
-                        <div className="absolute bottom-2 right-2 w-8 h-8 bg-black border-2 border-zinc-800 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <X className="w-4 h-4 text-white" />
-                        </div>
-                      </>
-                    ) : (
+                  photo ? (
+                    <div
+                      key={idx}
+                      className={`relative bg-black border-2 border-zinc-800 aspect-[3/4] ${idx === 0 ? 'col-span-2 row-span-2 aspect-auto' : ''}`}
+                    >
+                      <img src={photo} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover grayscale" />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      key={idx}
+                      onClick={() => handlePhotoUpload({ type: 'gallery', index: idx })}
+                      disabled={isUploadingPhoto}
+                      aria-label={`Add gallery photo ${idx + 1}`}
+                      className={`relative bg-black border-2 border-dashed border-zinc-800 hover:border-zinc-500 cursor-pointer group aspect-[3/4] transition-colors disabled:cursor-wait ${idx === 0 ? 'col-span-2 row-span-2 aspect-auto' : ''}`}
+                    >
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600 hover:text-white hover:bg-zinc-900 transition-colors">
                         <Plus className="w-6 h-6 md:w-8 md:h-8 mb-2" />
                         <span className="text-sm hidden md:block">{t('addPhoto')}</span>
                       </div>
-                    )}
-                  </div>
+                    </button>
+                  )
                 ))}
               </div>
               <p className="text-xs text-zinc-500 mt-3">
-                Drag and drop to reorder. The first photo is your main profile picture.
+                Choose an empty slot to add a gallery photo. Use your profile picture above to change the main photo. Maximum 10 MB per image.
               </p>
             </section>
 
@@ -350,6 +447,13 @@ export default function MyProfile() {
                   placeholder="Write something..."
                   maxLength={500}
                 ></textarea>
+                <AIDraftAssistant
+                  type="profile-bio"
+                  draft={profile.bio}
+                  interests={profile.tags}
+                  disabled={isSaving}
+                  onSelect={(bio) => setProfile((current) => ({ ...current, bio }))}
+                />
               </div>
 
               <div>
@@ -405,7 +509,7 @@ export default function MyProfile() {
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-40" 
             onClick={() => setShowSettings(false)} 
           />
-          <aside className="fixed inset-y-0 right-0 z-50 w-full md:w-[400px] bg-black border-l-2 border-zinc-800 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col animate-in slide-in-from-right-full duration-300 rounded-none">
+          <aside className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l-2 border-zinc-800 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in slide-in-from-right-full duration-300 rounded-none md:w-[clamp(22rem,36vw,30rem)]">
             
             <div className="p-4 border-b-2 border-zinc-800 flex items-center justify-between bg-zinc-950 shrink-0">
               <h2 className="text-sm text-white flex items-center gap-2">
@@ -422,15 +526,23 @@ export default function MyProfile() {
               <div className="bg-black border-2 border-yellow-400 p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm text-yellow-400 flex items-center gap-2">
-                    Chattie Gold <Shield className="w-3.5 h-3.5" />
+                    Membership <Shield className="w-3.5 h-3.5" />
                   </h3>
-                  <span className="px-2 py-1 bg-yellow-400 text-black text-xs border-2 border-yellow-400">{t('active')}</span>
+                  <span className={`px-2 py-1 text-xs border-2 ${hasActiveSubscription ? 'bg-green-400 text-black border-green-400' : 'bg-black text-zinc-400 border-zinc-700'}`}>
+                    {hasActiveSubscription ? 'Active' : 'Inactive'}
+                  </span>
                 </div>
                 <p className="text-xs text-zinc-400 mb-6 leading-relaxed">
-                  Your premium subscription renews on Aug 14, 2026.
+                  Plan: {subscriptionPlan === 'NONE' ? 'No subscription' : subscriptionPlan}
+                  {subscriptionStatus && ` · Status: ${subscriptionStatus.toLowerCase()}`}
+                  {formattedSubscriptionExpiry && ` · Expires ${formattedSubscriptionExpiry}`}
                 </p>
-                <button className="w-full py-3 bg-black border-2 border-yellow-400 text-yellow-400 text-sm hover:bg-yellow-400 hover:text-black transition-colors">
-                  Manage Subscription
+                <button
+                  type="button"
+                  onClick={() => { setShowSettings(false); navigate('/upgrade'); }}
+                  className="w-full py-3 bg-black border-2 border-yellow-400 text-yellow-400 text-sm hover:bg-yellow-400 hover:text-black transition-colors"
+                >
+                  View Plans
                 </button>
               </div>
 

@@ -13,6 +13,7 @@ import { afterDarkService } from '../../api/afterdark.service';
 import { settingsService } from '../../api/settings.service';
 import { useI18n } from '../../i18n';
 import { PagePrivacyShield, usePageFocus } from '../../hooks/usePageFocus';
+import { useAppDialogs } from '../../components/modals/useAppDialogs';
 
 // ============================================================================
 // INLINE COMPONENT: CUSTOM TOGGLE SWITCH
@@ -43,6 +44,7 @@ export default function AfterDarkSettings() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useI18n();
+  const { confirm, prompt } = useAppDialogs();
   const currentUser = useAppStore(state => state.user) || { name: 'Creator', email: 'creator@example.com' };
   const storedCreatorStatus = useAppStore(state => state.isCreator);
   const setCreatorStatus = useAppStore(state => state.setCreatorStatus);
@@ -55,6 +57,7 @@ export default function AfterDarkSettings() {
   const storedSettings = {};
   const creatorTabs = [
     { id: 'profile', label: t('adPublicProfile'), icon: User },
+    { id: 'viewing', label: t('adViewingPreferences'), icon: EyeOff },
     { id: 'monetization', label: t('adMonetization'), icon: Wallet },
     { id: 'payouts', label: t('adPayouts'), icon: Wallet },
     { id: 'privacy', label: t('adPrivacyGeo'), icon: Globe },
@@ -64,6 +67,7 @@ export default function AfterDarkSettings() {
   ];
   const memberTabs = [
     { id: 'account', label: t('adAccount'), icon: User },
+    { id: 'viewing', label: t('adViewingPreferences'), icon: EyeOff },
     { id: 'privacy', label: t('adPrivacyContent'), icon: EyeOff },
     { id: 'security', label: t('adSecurity'), icon: Shield },
     { id: 'notifications', label: t('adNotifications'), icon: Bell },
@@ -91,8 +95,8 @@ export default function AfterDarkSettings() {
   React.useEffect(() => {
     const requested = searchParams.get('tab') || (hasCreatorProfile ? 'profile' : 'account');
     const validForRole = hasCreatorProfile
-      ? ['profile', 'monetization', 'payouts', 'privacy', 'security', 'notifications', 'danger'].includes(requested)
-      : ['account', 'privacy', 'security', 'notifications', 'danger'].includes(requested);
+      ? ['profile', 'viewing', 'monetization', 'payouts', 'privacy', 'security', 'notifications', 'danger'].includes(requested)
+      : ['account', 'viewing', 'privacy', 'security', 'notifications', 'danger'].includes(requested);
     setActiveTab(validForRole ? requested : (hasCreatorProfile ? 'profile' : 'account'));
   }, [searchParams, hasCreatorProfile]);
 
@@ -399,7 +403,11 @@ export default function AfterDarkSettings() {
   };
 
   const revokeSessions = async () => {
-    if (!window.confirm('Sign out all other devices?')) return;
+    if (!await confirm('Sign out all other devices?', {
+      title: 'Sign out other devices',
+      confirmLabel: 'Sign out',
+      tone: 'danger',
+    })) return;
     setIsRevokingSessions(true);
     try {
       const result = await settingsService.terminateOtherSessions();
@@ -462,7 +470,7 @@ export default function AfterDarkSettings() {
   // TAB RENDERING BLOCKS
   // ==========================================
   const renderProfileSettings = () => (
-    <div className="space-y-8 max-w-4xl animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
       {/* Media Uploads */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -480,7 +488,7 @@ export default function AfterDarkSettings() {
 
         <div className="flex min-w-0 flex-col space-y-4 lg:col-span-2">
           <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">{t('adCover')}</label>
-          <button type="button" aria-label={t('adUploadNewCover')} onClick={() => coverInputRef.current?.click()} className="relative flex min-h-40 w-full flex-1 flex-col items-center justify-center overflow-hidden border-2 border-dashed border-zinc-700 bg-black transition-colors hover:border-white hover:bg-zinc-900 group sm:min-h-52">
+          <button type="button" aria-label={t('adUploadNewCover')} onClick={() => coverInputRef.current?.click()} className="relative flex min-h-[clamp(10rem,28vw,13rem)] w-full flex-1 flex-col items-center justify-center overflow-hidden border-2 border-dashed border-zinc-700 bg-black transition-colors hover:border-white hover:bg-zinc-900 group">
             <img src={coverPreview || 'https://images.unsplash.com/photo-1616423640778-28d1b53229bd?w=800&q=80'} alt="cover preview" className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-20 transition-opacity grayscale" />
             <div className="relative z-10 flex flex-col items-center">
               <UploadCloud className="w-8 h-8 text-zinc-400 group-hover:text-white mb-2" />
@@ -514,7 +522,7 @@ export default function AfterDarkSettings() {
           <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('adBiography')}</label>
           <textarea 
             value={bio} onChange={e => setBio(e.target.value)}
-            className="w-full bg-black border-2 border-zinc-800 text-white p-4 text-xs font-bold outline-none focus:border-white uppercase transition-colors resize-none h-32 custom-scrollbar"
+            className="h-[min(30dvh,20rem)] w-full resize-none border-2 border-zinc-800 bg-black p-4 text-xs font-bold uppercase text-white outline-none transition-colors focus:border-white custom-scrollbar"
           />
         </div>
 
@@ -569,15 +577,30 @@ export default function AfterDarkSettings() {
     </div>
   );
 
+  const renderViewingSettings = () => (
+    <section className="space-y-4 border-2 border-zinc-800 bg-black p-4 sm:p-6">
+      <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adViewingPreferences')}</h2>
+      <CustomToggle
+        label={t('adExplicitPreference')}
+        description={t('adExplicitDescription')}
+        checked={showExplicitContent}
+        onChange={setShowExplicitContent}
+      />
+      <div className="border-2 border-zinc-800 bg-black p-4 text-[9px] font-bold leading-relaxed text-zinc-400">
+        {t('adAdultWarning')}
+      </div>
+    </section>
+  );
+
   const renderMemberSettings = () => (
-    <div className="max-w-4xl space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       <section className="space-y-5 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <div>
           <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adAccountTitle')}</h2>
           <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">{t('adAccountDescription')}</p>
         </div>
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-          <button type="button" aria-label={t('adChange')} onClick={() => avatarInputRef.current?.click()} className="relative h-24 w-24 shrink-0 overflow-hidden border-2 border-dashed border-zinc-800 hover:border-white">
+          <button type="button" aria-label={t('adChange')} onClick={() => avatarInputRef.current?.click()} className="relative size-[clamp(5rem,12vw,6rem)] shrink-0 overflow-hidden border-2 border-dashed border-zinc-800 hover:border-white">
             <img src={avatarPreview || currentUser.avatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=200&q=80'} alt="Profile preview" className="h-full w-full object-cover" />
             <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-[9px] font-black uppercase text-white"><Camera className="mr-1 h-4 w-4" /> {t('adChange')}</span>
           </button>
@@ -595,23 +618,11 @@ export default function AfterDarkSettings() {
         </div>
         <p className="text-[9px] leading-relaxed text-zinc-600">{t('adAccountPhotoDescription')}</p>
       </section>
-      <section className="space-y-4 border-2 border-zinc-800 bg-black p-4 sm:p-6">
-        <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adViewingPreferences')}</h2>
-        <CustomToggle
-          label={t('adExplicitPreference')}
-          description={t('adExplicitDescription')}
-          checked={showExplicitContent}
-          onChange={setShowExplicitContent}
-        />
-        <div className="border-2 border-zinc-800 bg-black p-4 text-[9px] font-bold leading-relaxed text-zinc-400">
-          {t('adAdultWarning')}
-        </div>
-      </section>
     </div>
   );
 
   const renderMonetizationSettings = () => (
-    <div className="space-y-8 max-w-4xl animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
       <div className="space-y-6 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <h3 className="text-xs font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-4 flex items-center gap-2">
@@ -635,7 +646,7 @@ export default function AfterDarkSettings() {
   );
 
   const renderPayoutSettings = () => (
-    <div className="space-y-8 max-w-4xl animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       <div className="space-y-6 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <h3 className="flex items-center gap-2 border-b-2 border-zinc-800 pb-4 text-xs font-black uppercase tracking-widest text-white">
           <RefreshCcw className="h-4 w-4" /> {t('adMpesaAutomation')}
@@ -771,7 +782,7 @@ export default function AfterDarkSettings() {
 
   const renderPrivacySettings = () => (
     hasCreatorProfile ? (
-    <div className="space-y-8 max-w-4xl animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
       <div className="space-y-6 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <h3 className="text-xs font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-4 flex items-center gap-2">
@@ -811,8 +822,12 @@ export default function AfterDarkSettings() {
           <div className="p-4 bg-black border-2 border-dashed border-zinc-700 flex flex-col items-center justify-center text-center">
             <EyeOff className="w-8 h-8 text-zinc-600 mb-2" />
             <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">{t('adRestrictedRegions')}</span>
-            <button onClick={() => {
-              const region = window.prompt(t('adRegionPrompt'));
+            <button onClick={async () => {
+              const region = await prompt(t('adRegionPrompt'), {
+                title: t('adAddCountryCity'),
+                inputLabel: t('adAddCountryCity'),
+                placeholder: t('adAddCountryCity'),
+              });
               if (region?.trim()) setBlockedRegions(current => [...new Set([...current, region.trim()])]);
             }} className="px-6 py-2 bg-zinc-900 text-white font-black uppercase text-[9px] tracking-widest border-2 border-zinc-700 hover:border-white transition-colors">
                 + {t('adAddCountryCity')}
@@ -857,7 +872,7 @@ export default function AfterDarkSettings() {
       <PagePrivacyShield active={!isPageFocused} message="Payout details are hidden while this window is inactive." />
     </div>
     ) : (
-      <div className="max-w-4xl space-y-8 animate-in fade-in duration-300">
+      <div className="space-y-8 animate-in fade-in duration-300">
         <section className="space-y-4 border-2 border-zinc-800 bg-black p-4 sm:p-6">
           <div>
             <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adViewerPrivacy')}</h2>
@@ -883,7 +898,7 @@ export default function AfterDarkSettings() {
   );
 
   const renderSecuritySettings = () => (
-    <div className="space-y-8 max-w-4xl animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
       <div className="space-y-6 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <h3 className="text-xs font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-4 flex items-center gap-2">
@@ -987,7 +1002,7 @@ export default function AfterDarkSettings() {
   );
 
   const renderNotificationSettings = () => (
-    <div className="space-y-8 max-w-4xl animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
       <div className="space-y-6 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <h3 className="text-xs font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-4 flex items-center gap-2">
@@ -1020,7 +1035,7 @@ export default function AfterDarkSettings() {
   );
 
   const renderDangerZone = () => (
-    <div className="space-y-8 max-w-4xl animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
       <div className="space-y-6 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <h3 className="text-xs font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-4 flex items-center gap-2">
@@ -1039,7 +1054,7 @@ export default function AfterDarkSettings() {
       {hasCreatorProfile ? (
         <div className="relative space-y-6 overflow-hidden border-2 border-red-900 bg-black p-4 sm:p-6 group">
           <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
-            <AlertTriangle className="w-48 h-48 text-red-500" />
+            <AlertTriangle className="size-[clamp(8rem,24vw,12rem)] text-red-500" />
           </div>
           <h3 className="text-xs font-black text-red-500 uppercase tracking-widest border-b-2 border-red-900/30 pb-4 flex items-center gap-2 relative z-10">
             <AlertCircle className="w-4 h-4" /> {t('adDangerZone')}
@@ -1050,9 +1065,13 @@ export default function AfterDarkSettings() {
                 <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1">{t('adPauseCreator')}</h4>
                 <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">{t('adPauseDescription')}</p>
               </div>
-              <button onClick={() => {
+              <button onClick={async () => {
                 const next = !paused;
-                if (!window.confirm(t(next ? 'adConfirmPause' : 'adConfirmResume'))) return;
+                if (!await confirm(t(next ? 'adConfirmPause' : 'adConfirmResume'), {
+                  title: next ? t('adPauseCreator') : t('adResume'),
+                  confirmLabel: next ? t('adPause') : t('adResume'),
+                  tone: next ? 'danger' : 'default',
+                })) return;
                 const request = next ? afterDarkService.pauseCreator() : afterDarkService.resumeCreator();
                 request.then(() => {
                   setPaused(next);
@@ -1069,8 +1088,12 @@ export default function AfterDarkSettings() {
                   {t('adDeactivateDescription')}
                 </p>
               </div>
-              <button onClick={() => {
-                if (!window.confirm(t('adConfirmDeactivate'))) return;
+              <button onClick={async () => {
+                if (!await confirm(t('adConfirmDeactivate'), {
+                  title: t('adDeactivateCreator'),
+                  confirmLabel: t('adDeactivate'),
+                  tone: 'danger',
+                })) return;
                 afterDarkService.deactivateCreator()
                   .then(() => {
                     setCreatorStatus(false);
@@ -1099,7 +1122,7 @@ export default function AfterDarkSettings() {
   // MAIN RENDER
   // ==========================================
   return (
-    <div className="flex min-h-0 flex-1 flex-col w-full overflow-hidden rounded-none bg-black font-mono text-zinc-300">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden rounded-none bg-black font-mono text-zinc-300">
       
       {/* HEADER */}
       <header className="z-20 shrink-0 border-b-2 border-zinc-800 bg-zinc-950">
@@ -1124,9 +1147,9 @@ export default function AfterDarkSettings() {
       </header>
 
       {/* LAYOUT BODY */}
-      <div className="custom-scrollbar flex-1 overflow-y-auto bg-black">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 pb-24 sm:p-6 md:gap-8 md:p-8 md:pb-24 lg:flex-row">
-          <aside className="w-full shrink-0 lg:w-64">
+      <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto bg-black">
+        <div className="flex min-h-full w-full flex-col gap-4 p-2 pb-4 sm:p-3 lg:flex-row lg:gap-4 lg:p-4">
+          <aside className="w-full shrink-0 lg:w-[clamp(13rem,22vw,18rem)]">
             <nav aria-label={t('adSettingsSections')} className="grid grid-cols-2 overflow-hidden border-2 border-zinc-800 bg-black sm:grid-cols-3 lg:flex lg:flex-col lg:border-0 lg:bg-transparent">
               {settingsTabs.map(tab => {
                 const isActive = activeTab === tab.id;
@@ -1154,9 +1177,10 @@ export default function AfterDarkSettings() {
           </aside>
 
           <main className="min-w-0 flex-1">
-            <div className="mx-auto w-full max-w-4xl pb-12">
+            <div className="w-full pb-4">
               {hasCreatorProfile && activeTab === 'profile' && renderProfileSettings()}
               {!hasCreatorProfile && activeTab === 'account' && renderMemberSettings()}
+              {activeTab === 'viewing' && renderViewingSettings()}
               {hasCreatorProfile && activeTab === 'monetization' && renderMonetizationSettings()}
               {hasCreatorProfile && activeTab === 'payouts' && renderPayoutSettings()}
               {activeTab === 'privacy' && renderPrivacySettings()}

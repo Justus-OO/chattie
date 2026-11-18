@@ -36,16 +36,35 @@ func (r *Repository) CreateUser(user *models.User) error {
 	return err
 }
 
+func (r *Repository) RecordSuccessfulLogin(ctx context.Context, userID string) error {
+	result, err := r.DB.ExecContext(ctx, `
+		UPDATE users
+		SET last_active = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, userID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // GetUserByEmail fetches a user for login authentication
 func (r *Repository) GetUserByEmail(email string) (*models.User, error) {
 	query := `
-       SELECT id, username, email, password_hash, role, created_at, provider, token_version
+       SELECT id, username, email, password_hash, role, status, created_at, provider, token_version
        FROM users 
        WHERE email = $1`
 
 	user := &models.User{}
 	err := r.DB.QueryRow(query, email).
-		Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.Role, &user.CreatedAt, &user.Provider, &user.TokenVersion)
+		Scan(&user.ID, &user.Username, &user.Email, &user.Password, &user.Role, &user.Status, &user.CreatedAt, &user.Provider, &user.TokenVersion)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -83,17 +102,28 @@ func (r *Repository) UpdatePasswordHash(ctx context.Context, userID string, pass
 }
 
 // generateRandomAlias creates a string like "User-4A2B"
-func generateRandomAlias() string {
-	bytes := make([]byte, 2)
-	if _, err := rand.Read(bytes); err != nil {
-		return "User-0000" // Fallback
+func generateRandomAlias() (string, error) {
+	randomBytes := make([]byte, 8)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("User-%s", strings.ToUpper(hex.EncodeToString(bytes)))
+	return fmt.Sprintf("User-%s", strings.ToUpper(hex.EncodeToString(randomBytes))), nil
 }
 
 // ProvisionAfterDarkViewer creates the default anonymous viewer profile
 func (r *Repository) ProvisionAfterDarkViewer(ctx context.Context, userID string) error {
-	alias := generateRandomAlias()
+	return provisionAfterDarkViewer(ctx, r.DB, userID)
+}
+
+type contextExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func provisionAfterDarkViewer(ctx context.Context, executor contextExecutor, userID string) error {
+	alias, err := generateRandomAlias()
+	if err != nil {
+		return err
+	}
 
 	// Create the viewer profile. Explicit consent and age verification are left NULL
 	// until the user actually interacts with the explicit gate.
@@ -102,6 +132,6 @@ func (r *Repository) ProvisionAfterDarkViewer(ctx context.Context, userID string
        VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT (user_id) DO NOTHING
     `
-	_, err := r.DB.ExecContext(ctx, query, userID, alias)
+	_, err = executor.ExecContext(ctx, query, userID, alias)
 	return err
 }

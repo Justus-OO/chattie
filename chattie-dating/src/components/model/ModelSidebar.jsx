@@ -12,31 +12,49 @@ import { useAppStore } from '../../store/useAppStore';
 import { getUserRole } from '../../utils/roles';
 import { useI18n } from '../../i18n';
 
-export default function ModelSidebar({ activeProfileId: propActiveProfileId, setActiveProfileId: propSetActiveProfileId }) {
+export default function ModelSidebar({
+  profiles: propProfiles,
+  setProfiles: propSetProfiles,
+  profilesLoading,
+  activeProfileId: propActiveProfileId,
+  setActiveProfileId: propSetActiveProfileId,
+  isGlobalOnline: propIsGlobalOnline,
+  setIsGlobalOnline: propSetIsGlobalOnline,
+}) {
   const sessionUser = useAppStore((state) => state.user);
   const role = getUserRole(sessionUser);
   const { t } = useI18n();
-  const [isGlobalOnline, setIsGlobalOnline] = useState(true);
+  const [localGlobalOnline, setLocalGlobalOnline] = useState(false);
+  const [isSavingGlobalOnline, setIsSavingGlobalOnline] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
   
-  const [profiles, setProfiles] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [localProfiles, setLocalProfiles] = useState([]);
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(propProfiles === undefined);
   
   // Local fallback state if parent layout didn't provide state props
   const [localProfileId, setLocalProfileId] = useState('');
   
   const activeProfileId = propActiveProfileId !== undefined ? propActiveProfileId : localProfileId;
   const setActiveProfileId = propSetActiveProfileId || setLocalProfileId;
+  const profiles = propProfiles ?? localProfiles;
+  const setProfiles = propSetProfiles || setLocalProfiles;
+  const isGlobalOnline = propIsGlobalOnline ?? localGlobalOnline;
+  const setIsGlobalOnline = propSetIsGlobalOnline || setLocalGlobalOnline;
+  const isLoading = profilesLoading ?? isLoadingProfiles;
   
   const location = useLocation();
 
   // --- FETCH MANAGED PROFILES FROM BACKEND ---
   useEffect(() => {
+    if (propProfiles !== undefined) {
+      setIsLoadingProfiles(false);
+      return undefined;
+    }
     const fetchProfiles = async () => {
       try {
         const data = await creatorService.getAssignedProfiles();
         const profileList = Array.isArray(data) ? data : [];
-        setProfiles(profileList);
+        setLocalProfiles(profileList);
 
         // If no active profile is set yet, default to the first one in the database
         if (profileList.length > 0 && !activeProfileId) {
@@ -46,12 +64,13 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
         console.error("Failed to load managed profiles:", error);
         toast.error(t('error'));
       } finally {
-        setIsLoading(false);
+        setIsLoadingProfiles(false);
       }
     };
 
-    fetchProfiles();
-  }, [activeProfileId, setActiveProfileId]);
+    void fetchProfiles();
+    return undefined;
+  }, [propProfiles, activeProfileId, setActiveProfileId, t]);
 
   // Derive active profile and network totals safely from state
   const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || { id: '', name: 'Select Profile', pending: 0, status: 'offline' };
@@ -80,9 +99,23 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
     }
   };
 
+  const toggleGlobalStatus = async () => {
+    if (isSavingGlobalOnline) return;
+    setIsSavingGlobalOnline(true);
+    try {
+      const result = await creatorService.toggleOnlineStatus(!isGlobalOnline);
+      setIsGlobalOnline(result.is_online === true);
+    } catch (error) {
+      console.error('Failed to update model availability:', error);
+      toast.error(t('error'));
+    } finally {
+      setIsSavingGlobalOnline(false);
+    }
+  };
+
   if (isLoading) {
     return (
-      <aside className="w-80 flex items-center justify-center h-full shrink-0" style={{ backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+      <aside className="flex h-full w-[clamp(12rem,23vw,20rem)] shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)', color: 'var(--text-muted)' }}>
         <Loader2 className="w-6 h-6 animate-spin" />
       </aside>
     );
@@ -90,7 +123,7 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
 
   return (
     <aside
-      className="w-80 flex flex-col justify-between h-full text-zinc-300 relative shrink-0 overflow-hidden"
+      className="relative flex h-full w-[clamp(12rem,23vw,20rem)] shrink-0 flex-col justify-between overflow-hidden text-zinc-300"
       style={{
         background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))',
         borderRight: '1px solid var(--border)',
@@ -128,7 +161,10 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
               </button>
 
               <button
-                onClick={() => setIsGlobalOnline(!isGlobalOnline)}
+                type="button"
+                onClick={toggleGlobalStatus}
+                disabled={isSavingGlobalOnline}
+                aria-pressed={isGlobalOnline}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] border transition-all"
                 style={{
                   background: isGlobalOnline ? 'rgba(42, 156, 107, 0.08)' : 'rgba(210, 79, 116, 0.08)',
@@ -136,7 +172,7 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
                   borderColor: isGlobalOnline ? 'rgba(42, 156, 107, 0.35)' : 'rgba(210, 79, 116, 0.35)'
                 }}
               >
-                <Power className="w-3 h-3" />
+                {isSavingGlobalOnline ? <Loader2 className="w-3 h-3 animate-spin" /> : <Power className="w-3 h-3" />}
                 {isGlobalOnline ? t('online') : t('offline')}
               </button>
             </div>
@@ -172,7 +208,7 @@ export default function ModelSidebar({ activeProfileId: propActiveProfileId, set
           </button>
 
           {showSwitcher && (
-            <div className="absolute top-full left-0 right-0 z-50 shadow-2xl max-h-72 overflow-y-auto custom-scrollbar" style={{ background: 'linear-gradient(180deg, var(--surface-strong), var(--surface))', borderBottom: '1px solid var(--border)', borderTop: '1px solid var(--border)' }}>
+            <div className="absolute top-full left-0 right-0 z-50 max-h-[60dvh] overflow-y-auto shadow-2xl custom-scrollbar" style={{ background: 'linear-gradient(180deg, var(--surface-strong), var(--surface))', borderBottom: '1px solid var(--border)', borderTop: '1px solid var(--border)' }}>
               <div className="px-3 py-2.5 flex items-center justify-between" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
                 <span className="text-[9px] font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>{t('selectProfile')}</span>
                 <span className="px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.12em]" style={{ background: 'rgba(210,79,116,0.14)', color: 'var(--accent)' }}>{totalNetworkPending} {t('pending')}</span>

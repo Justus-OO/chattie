@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 // Services
 import { discoveryService } from '../../api/discovery.service';
+import { usePremiumStatus } from '../../hooks/usePremiumStatus';
 import './discovery.css';
 import { useI18n } from '../../i18n';
 
@@ -19,6 +20,7 @@ const GRID_PAGE_SIZE = 24;
 export default function GridBrowse() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const isPremium = usePremiumStatus();
   const translateRef = useRef(t);
   translateRef.current = t;
 
@@ -150,25 +152,40 @@ export default function GridBrowse() {
   // ============================================================================
   // INTERACTION HANDLERS
   // ============================================================================
+  const handleInteractionError = (error, fallbackMessage) => {
+    if (error.status === 402 || error.code === 'UPGRADE_REQUIRED') {
+      toast.error(t('dailyLimit'));
+      navigate('/upgrade');
+      return;
+    }
+    toast.error(error.message || fallbackMessage);
+  };
+
   const handleQuickFlirt = async (e, user) => {
     e.stopPropagation();
     try {
-      await discoveryService.sendInteraction(user.id, 'FLIRT');
+      const response = await discoveryService.sendInteraction(user.id, 'FLIRT');
+      setUsers(prev => prev.filter(profile => profile.id !== user.id));
+      if (response.is_match) {
+        navigate(`/messages/${user.id}`);
+        return;
+      }
       toast.success(t('flirtSent', { name: user.display_name }));
     } catch (error) {
-      toast.error(error.message || t('flirtFailed'));
+      handleInteractionError(error, t('flirtFailed'));
     }
   };
 
   const handleModalInteract = async (user, actionType) => {
     try {
-      await discoveryService.sendInteraction(user.id, actionType);
+      const response = await discoveryService.sendInteraction(user.id, actionType);
       toast.success(`${actionType} SENT TO ${user.display_name.toUpperCase()}`);
       setSelectedProfile(null);
       // Remove from grid view locally so they don't click again
       setUsers(prev => prev.filter(u => u.id !== user.id));
+      if (response.is_match) navigate(`/messages/${user.id}`);
     } catch (error) {
-      toast.error(error.message || t('interactionGridFailed'));
+      handleInteractionError(error, t('interactionGridFailed'));
     }
   };
 
@@ -182,12 +199,12 @@ export default function GridBrowse() {
   // RENDER
   // ============================================================================
   return (
-    <div className="discovery-shell flex-1 flex flex-col w-full h-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="discovery-shell flex h-full min-h-0 min-w-0 flex-1 flex-col w-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
 
       {/* =====================================================================
           STICKY HEADER & CONTROLS
           ===================================================================== */}
-      <header className="discovery-header sticky top-0 z-20 p-4 md:p-6 border-b-2 flex flex-col md:flex-row md:items-start justify-between gap-4 shrink-0">
+      <header className="discovery-header sticky top-0 z-20 shrink-0 border-b-2 p-2 sm:p-3 lg:p-4 flex flex-col md:flex-row md:items-start justify-between gap-3">
 
         {/* Title */}
         <div className="flex items-center gap-3">
@@ -209,7 +226,7 @@ export default function GridBrowse() {
         <div className="flex flex-col md:flex-row items-center gap-2 w-full md:w-auto mt-2 md:mt-0">
 
           {/* Debounced Search Bar */}
-          <div className="relative w-full md:w-64">
+          <div className="relative w-full md:w-[clamp(12rem,24vw,18rem)]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input
               type="text"
@@ -231,7 +248,7 @@ export default function GridBrowse() {
             </button>
 
             {showSort && (
-              <div className="absolute top-full right-0 mt-2 w-48 bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] z-30 animate-in fade-in duration-200">
+              <div className="absolute right-0 top-full z-30 mt-2 w-[clamp(12rem,24vw,16rem)] border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in fade-in duration-200">
                 {[
                   { id: 'match', label: t('topMatches') },
                   { id: 'distance', label: t('nearestFirst') },
@@ -275,7 +292,7 @@ export default function GridBrowse() {
       {/* =====================================================================
           MAIN GRID AREA
           ===================================================================== */}
-      <div className="discovery-content flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar relative">
+      <div className="discovery-content min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4 custom-scrollbar relative">
 
         {loading ? (
           <div className="h-full flex items-center justify-center">
@@ -326,7 +343,7 @@ export default function GridBrowse() {
                       <img
                         src={user.images?.[0] || 'https://images.unsplash.com/photo-1500000000000?auto=format&fit=crop&w=400&q=80'}
                         alt={user.display_name}
-                        className="w-full h-full object-cover grayscale transition-transform duration-700 group-hover:scale-105"
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                       />
 
                       {/* Match Badge */}
@@ -351,7 +368,7 @@ export default function GridBrowse() {
                           {user.display_name}, {user.age}
                         </h3>
                         {user.is_verified && (
-                          <BadgeCheck className="w-4 h-4 text-blue-500 shrink-0" title={t('verifiedProfile')} />
+                          <BadgeCheck className="w-4 h-4 text-amber-400 shrink-0" title={t('verifiedProfile')} />
                         )}
                       </div>
                     </div>
@@ -398,7 +415,7 @@ export default function GridBrowse() {
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
 
-          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col max-h-[85vh] animate-in slide-in-from-bottom-10 md:zoom-in-95 duration-200 rounded-none">
+          <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in slide-in-from-bottom-10 md:zoom-in-95 duration-200 rounded-none">
 
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="font-bold text-sm tracking-normal text-white flex items-center gap-2 uppercase">
@@ -525,14 +542,16 @@ export default function GridBrowse() {
             </button>
 
             {/* Profile Image Area */}
-            <div className="w-full md:w-1/2 h-[40vh] md:h-[70vh] relative bg-zinc-950 border-b-2 md:border-b-0 md:border-r-2 border-zinc-800 overflow-y-auto custom-scrollbar flex flex-col snap-y snap-mandatory">
+            <div className="relative flex h-[40dvh] w-full snap-y snap-mandatory flex-col overflow-y-auto border-b-2 border-zinc-800 bg-zinc-950 custom-scrollbar md:h-[70dvh] md:w-1/2 md:border-b-0 md:border-r-2">
               {(selectedProfile.images && selectedProfile.images.length > 0) ? (
                 selectedProfile.images.map((img, idx) => (
-                  <div key={idx} className="w-full min-h-[40vh] md:min-h-[70vh] shrink-0 snap-start relative border-b-2 border-zinc-800 last:border-b-0">
+                  <div key={idx} className="relative min-h-[40dvh] w-full shrink-0 snap-start border-b-2 border-zinc-800 last:border-b-0 md:min-h-[70dvh]">
                     <img
                       src={img}
                       alt={`${selectedProfile.display_name} - ${idx + 1}`}
-                      className="w-full h-full object-cover grayscale"
+                      className={`w-full h-full object-cover transition-[filter,transform] duration-300 ${
+                        !isPremium && idx >= 2 ? 'blur-md scale-105' : ''
+                      }`}
                     />
                   </div>
                 ))
@@ -540,7 +559,7 @@ export default function GridBrowse() {
                 <img
                   src="https://images.unsplash.com/photo-1500000000000?auto=format&fit=crop&w=400&q=80"
                   alt="placeholder"
-                  className="w-full h-full object-cover grayscale snap-start"
+                  className="w-full h-full object-cover snap-start"
                 />
               )}
 

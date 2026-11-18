@@ -84,10 +84,6 @@
   background: var(--surface-alt) !important;
 }
 
-.discovery-card-image img {
-  filter: saturate(0.82) contrast(1.02) !important;
-}
-
 .discovery-chip {
   background: var(--surface-strong) !important;
   border: 1px solid var(--border) !important;
@@ -122,13 +118,13 @@
   box-shadow: 0 28px 70px rgba(67, 51, 36, 0.2) !important;
 }
 
-.discovery-swipe-card > div:first-child {
-  background: var(--surface-strong) !important;
+.discovery-swipe-profile-accent {
+  color: var(--warning);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
 }
 
-.discovery-swipe-info {
-  background: linear-gradient(180deg, transparent, rgba(17, 12, 10, 0.92)) !important;
-  border-top: 0 !important;
+.discovery-swipe-card > div:first-child {
+  background: var(--surface-strong) !important;
 }
 
 .discovery-action {

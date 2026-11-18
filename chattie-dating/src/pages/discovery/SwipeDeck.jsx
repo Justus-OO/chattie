@@ -8,8 +8,26 @@ import { toast } from 'sonner';
 
 // Services
 import { discoveryService } from '../../api/discovery.service';
+import { usePremiumStatus } from '../../hooks/usePremiumStatus';
 import './discovery.css';
 import { useI18n } from '../../i18n';
+
+const IDLE_DRAG = {
+  startX: 0,
+  currentX: 0,
+  startY: 0,
+  currentY: 0,
+  isDragging: false,
+  photoNavigationSide: null,
+};
+
+const countryCodeToFlag = (countryCode) => {
+  const normalizedCode = countryCode?.trim().toUpperCase();
+  if (!normalizedCode || !/^[A-Z]{2}$/.test(normalizedCode)) return '';
+  return String.fromCodePoint(
+    ...Array.from(normalizedCode, character => character.codePointAt(0) + 127397)
+  );
+};
 
 // ============================================================================
 // MAIN COMPONENT
@@ -17,12 +35,14 @@ import { useI18n } from '../../i18n';
 export default function SwipeDeck() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const isPremium = usePremiumStatus();
 
   // --- CORE STATE ---
   const [deck, setDeck] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [photoIndex, setPhotoIndex] = useState(0);
+  const loadedFullProfilesRef = useRef(new Set());
   
   // --- UI TOGGLES ---
   const [showProfile, setShowProfile] = useState(false);
@@ -32,12 +52,18 @@ export default function SwipeDeck() {
   const [reportReason, setReportReason] = useState('INAPPROPRIATE CONTENT');
 
   // --- PHYSICS & DRAG STATE ---
-  const [drag, setDrag] = useState({ startX: 0, currentX: 0, startY: 0, currentY: 0, isDragging: false });
-  const cardRef = useRef(null);
+  const [drag, setDrag] = useState(IDLE_DRAG);
+  const dragRef = useRef(IDLE_DRAG);
+  const actionInProgressRef = useRef(false);
   const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
-  const swipeThreshold = windowWidth * 0.25;
+  const swipeThreshold = Math.max(40, Math.min(windowWidth * 0.2, 96));
 
   const activeUser = deck[0];
+  const activeCountryFlag = countryCodeToFlag(activeUser?.country_code);
+  const resetDrag = useCallback(() => {
+    dragRef.current = IDLE_DRAG;
+    setDrag(IDLE_DRAG);
+  }, []);
 
   // --- FETCH SWIPE DECK ON MOUNT ---
   useEffect(() => {
@@ -60,39 +86,56 @@ export default function SwipeDeck() {
   // GESTURE & PHYSICS CALCULATIONS
   // ============================================================================
   const onPointerDown = (e) => {
-    if (showProfile || matchModal.show || reportModal) return;
-    if (e.target.setPointerCapture) {
-      try { e.target.setPointerCapture(e.pointerId); } catch (err) {}
-    }
-    setDrag({
+    if (!e.isPrimary || e.button !== 0 || showProfile || matchModal.show || reportModal) return;
+    if (e.target instanceof Element && e.target.closest('button, a, input, select, textarea')) return;
+    const photoNavigationSide = e.target instanceof Element
+      ? e.target.closest('[data-photo-navigation]')?.getAttribute('data-photo-navigation')
+      : null;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const nextDrag = {
       startX: e.clientX,
       currentX: e.clientX,
       startY: e.clientY,
       currentY: e.clientY,
-      isDragging: true
-    });
+      isDragging: true,
+      photoNavigationSide,
+    };
+    dragRef.current = nextDrag;
+    setDrag(nextDrag);
   };
 
   const onPointerMove = (e) => {
-    if (!drag.isDragging) return;
-    setDrag(prev => ({
-      ...prev,
+    if (!dragRef.current.isDragging) return;
+    const nextDrag = {
+      ...dragRef.current,
       currentX: e.clientX,
       currentY: e.clientY
-    }));
+    };
+    dragRef.current = nextDrag;
+    setDrag(nextDrag);
   };
 
-  const onPointerUp = () => {
-    if (!drag.isDragging) return;
-    const deltaX = drag.currentX - drag.startX;
+  const onPointerUp = (e) => {
+    const currentDrag = dragRef.current;
+    if (!currentDrag.isDragging) return;
+    const deltaX = e.clientX - currentDrag.startX;
+    resetDrag();
 
     if (deltaX > swipeThreshold) {
       handleAction('right');
     } else if (deltaX < -swipeThreshold) {
       handleAction('left');
-    } else {
-      setDrag({ startX: 0, currentX: 0, startY: 0, currentY: 0, isDragging: false });
+    } else if (
+      currentDrag.photoNavigationSide &&
+      Math.abs(deltaX) < 10 &&
+      Math.abs(e.clientY - currentDrag.startY) < 10
+    ) {
+      handlePhotoTap(e, currentDrag.photoNavigationSide);
     }
+  };
+
+  const onPointerCancel = () => {
+    resetDrag();
   };
 
   const deltaX = drag.isDragging ? drag.currentX - drag.startX : 0;
@@ -113,10 +156,11 @@ export default function SwipeDeck() {
   // ACTION HANDLERS
   // ============================================================================
   const handleAction = useCallback(async (direction) => {
-    if (!activeUser) return;
+    if (!activeUser || actionInProgressRef.current) return;
 
+    actionInProgressRef.current = true;
     const targetUser = activeUser;
-    setDrag({ startX: 0, currentX: 0, startY: 0, currentY: 0, isDragging: false });
+    resetDrag();
     setShowProfile(false);
     setPhotoIndex(0);
 
@@ -138,15 +182,22 @@ export default function SwipeDeck() {
         setMatchModal({ show: true, user: targetUser });
       }
     } catch (error) {
+      setHistory(prev => prev.filter(user => user.id !== targetUser.id));
+      if (error.code !== 'ALREADY_INTERACTED') {
+        setDeck(prev => prev.some(user => user.id === targetUser.id) ? prev : [targetUser, ...prev]);
+      }
+
       // Handle Daily Limits or Upgrades
-      if (error.response?.status === 402 || error.response?.data?.error === 'UPGRADE_REQUIRED') {
+      if (error.status === 402 || error.code === 'UPGRADE_REQUIRED') {
         toast.error(t('dailyLimit'));
         navigate('/upgrade');
       } else {
         toast.error(error.message || t('interactionFailed'));
       }
+    } finally {
+      actionInProgressRef.current = false;
     }
-  }, [activeUser, navigate]);
+  }, [activeUser, navigate, resetDrag, t]);
 
   const handleUndo = useCallback(async () => {
     try {
@@ -159,14 +210,14 @@ export default function SwipeDeck() {
       setPhotoIndex(0);
       toast.success(t('actionUndone'));
     } catch (error) {
-      if (error.response?.status === 403 || error.response?.data?.error === 'UPGRADE_REQUIRED') {
+      if (error.status === 403 || error.code === 'UPGRADE_REQUIRED') {
         toast.error(t('rewindRequired'));
         navigate('/upgrade');
       } else {
         toast.error(error.message || t('nothingToUndo'));
       }
     }
-  }, [history, navigate]);
+  }, [history, navigate, t]);
 
   const handleReportSubmit = async () => {
     if (!activeUser) return;
@@ -191,24 +242,13 @@ export default function SwipeDeck() {
     }
   };
 
-  // PROFILE DRAWER HANDLER (Triggers Backend View Tracking)
-  const toggleProfile = async (e) => {
-    if (e) e.stopPropagation();
-    
-    if (showProfile) {
-      setShowProfile(false);
-      return;
-    }
+  const loadFullProfile = async (targetUser) => {
+    if (loadedFullProfilesRef.current.has(targetUser.id)) return targetUser;
 
-    setShowProfile(true);
-    if (!activeUser) return;
-
+    setIsLoadingProfile(true);
     try {
-      setIsLoadingProfile(true);
-      // Fetch full profile to get all images, bio, and trigger DB 'profile_views' insert
-      const fullData = await discoveryService.getFullProfile(activeUser.id);
-      
-      // Merge fullData into the current active user in the deck
+      const fullData = await discoveryService.getFullProfile(targetUser.id);
+      loadedFullProfilesRef.current.add(targetUser.id);
       setDeck(prev => {
         const newDeck = [...prev];
         if (newDeck[0]?.id === fullData.id) {
@@ -216,11 +256,27 @@ export default function SwipeDeck() {
         }
         return newDeck;
       });
-    } catch (err) {
-      console.error("Failed to load full profile data", err);
+      return { ...targetUser, ...fullData };
+    } catch (error) {
+      toast.error(error.message || t('profileLoadFailed'));
+      return targetUser;
     } finally {
       setIsLoadingProfile(false);
     }
+  };
+
+  // PROFILE DRAWER HANDLER (Triggers Backend View Tracking)
+  const toggleProfile = async (e) => {
+    if (e) e.stopPropagation();
+
+    if (showProfile) {
+      setShowProfile(false);
+      return;
+    }
+
+    setShowProfile(true);
+    if (!activeUser) return;
+    await loadFullProfile(activeUser);
   };
 
   useEffect(() => {
@@ -252,14 +308,22 @@ export default function SwipeDeck() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleAction, handleUndo, matchModal.show, reportModal, showProfile]);
 
-  const handlePhotoTap = (e, side) => {
+  const handlePhotoTap = async (e, side) => {
     e.stopPropagation();
-    if (!activeUser?.images) return;
-    if (side === 'left' && photoIndex > 0) {
-      setPhotoIndex(prev => prev - 1);
-    } else if (side === 'right' && photoIndex < activeUser.images.length - 1) {
-      setPhotoIndex(prev => prev + 1);
-    }
+    if (!activeUser || isLoadingProfile) return;
+
+    const profile = await loadFullProfile(activeUser);
+    const imageCount = Array.isArray(profile.images) ? profile.images.length : 0;
+    if (imageCount === 0) return;
+    setPhotoIndex(current => side === 'left'
+      ? Math.max(0, current - 1)
+      : Math.min(imageCount - 1, current + 1));
+  };
+
+  const handlePhotoNavigationKeyDown = (e, side) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    handlePhotoTap(e, side);
   };
 
   // ============================================================================
@@ -267,7 +331,7 @@ export default function SwipeDeck() {
   // ============================================================================
   if (loading) {
     return (
-      <div className="discovery-shell flex-1 flex flex-col items-center justify-center p-6 text-center font-mono text-zinc-300 w-full h-full border-l-2 md:border-zinc-800 rounded-none">
+      <div className="discovery-shell flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center p-2 text-center font-mono text-zinc-300 border-l-2 md:border-zinc-800 rounded-none sm:p-3 lg:p-4">
         <Loader2 className="w-8 h-8 text-white animate-spin mb-4" />
         <p className="text-zinc-500 text-xs uppercase tracking-widest animate-pulse">{t('scanningNetwork')}</p>
       </div>
@@ -279,7 +343,7 @@ export default function SwipeDeck() {
   // ============================================================================
   if (deck.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-black p-6 text-center font-mono text-zinc-300 w-full h-full border-l-2 md:border-zinc-800 rounded-none">
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-2 text-center font-mono text-zinc-300 border-l-2 md:border-zinc-800 rounded-none sm:p-3 lg:p-4">
         <div className="w-24 h-24 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center mb-6">
           <Flame className="w-10 h-10 text-zinc-600" />
         </div>
@@ -309,10 +373,10 @@ export default function SwipeDeck() {
   // MAIN RENDER
   // ============================================================================
   return (
-    <div className="discovery-shell flex-1 flex flex-col relative overflow-hidden font-mono text-zinc-300 w-full h-full rounded-none border-l-2 md:border-zinc-800">
+    <div className="discovery-shell flex h-full min-h-0 min-w-0 flex-1 flex-col relative overflow-hidden font-mono text-zinc-300 w-full rounded-none border-l-2 md:border-zinc-800">
       
       {/* HEADER BAR */}
-      <div className="discovery-header w-full p-4 md:p-6 border-b-2 flex justify-between items-center z-10 shrink-0">
+      <div className="discovery-header w-full shrink-0 border-b-2 p-2 sm:p-3 lg:p-4 flex justify-between items-center z-10">
         <div className="flex items-center gap-3">
           <div>
             <p className="discovery-kicker mb-1">{t('curatedForYou')}</p>
@@ -335,7 +399,7 @@ export default function SwipeDeck() {
       </div>
 
       {/* SWIPE DECK AREA */}
-      <div className="discovery-content flex-1 w-full flex flex-col items-center justify-center p-4 md:p-8 relative overflow-hidden">
+      <div className="discovery-content min-h-0 flex-1 w-full flex flex-col items-center justify-center p-0.5 sm:p-1 lg:p-2 relative overflow-hidden">
         
         {/* Keyboard Hint (Top Left) */}
         <div className="absolute top-8 left-8 z-10 hidden lg:block text-zinc-600 text-[10px] font-bold uppercase tracking-widest">
@@ -346,13 +410,12 @@ export default function SwipeDeck() {
 
         {/* DRAGGABLE CARD CONTAINER */}
         <div 
-          ref={cardRef}
-          className="w-full max-w-[400px] aspect-[3/4] max-h-[70vh] relative cursor-grab active:cursor-grabbing touch-none z-20"
+          className="relative z-20 aspect-[2/3] max-h-[78dvh] w-full max-w-[min(94vw,30rem)] cursor-grab touch-none active:cursor-grabbing"
           style={cardStyle}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={onPointerCancel}
         >
           <div className="discovery-swipe-card absolute inset-0 overflow-hidden flex flex-col">
             
@@ -361,21 +424,35 @@ export default function SwipeDeck() {
               <img 
                 src={activeUser.images?.[photoIndex] || 'https://images.unsplash.com/photo-1500000000000?auto=format&fit=crop&w=400&q=80'} 
                 alt={activeUser.display_name} 
-                className="w-full h-full object-cover grayscale select-none pointer-events-none" 
+                className={`w-full h-full object-cover select-none pointer-events-none transition-[filter,transform] duration-300 ${
+                  !isPremium && photoIndex >= 2 ? 'blur-md scale-105' : ''
+                }`}
                 draggable="false"
               />
               
-              {/* Online Pulse Status */}
-              {activeUser.status === 'online' && (
-                <div className="absolute top-4 left-4 bg-black border-2 border-zinc-800 px-3 py-1.5 flex items-center gap-2 z-10">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                  <span className="text-[10px] font-bold text-white uppercase tracking-widest">{t('online')}</span>
+              {/* Photo Navigation Overlays */}
+              <div
+                data-photo-navigation="left"
+                role="button"
+                tabIndex={0}
+                aria-label="Previous profile photo"
+                onKeyDown={e => handlePhotoNavigationKeyDown(e, 'left')}
+                className="absolute inset-y-0 left-0 z-20 w-1/2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
+              />
+              <div
+                data-photo-navigation="right"
+                role="button"
+                tabIndex={0}
+                aria-label="Next profile photo"
+                onKeyDown={e => handlePhotoNavigationKeyDown(e, 'right')}
+                className="absolute inset-y-0 right-0 z-20 w-1/2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
+              />
+              {!showProfile && isLoadingProfile && (
+                <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/30" aria-live="polite">
+                  <Loader2 className="h-7 w-7 animate-spin text-white" />
+                  <span className="sr-only">Loading profile photos</span>
                 </div>
               )}
-
-              {/* Photo Navigation Overlays */}
-              <div className="absolute inset-y-0 left-0 w-1/3 z-20" onClick={(e) => handlePhotoTap(e, 'left')} />
-              <div className="absolute inset-y-0 right-0 w-1/3 z-20" onClick={(e) => handlePhotoTap(e, 'right')} />
 
               {/* Progress Bars */}
               <div className="absolute top-3 inset-x-3 flex gap-1.5 z-30">
@@ -385,40 +462,78 @@ export default function SwipeDeck() {
               </div>
 
               {/* Dynamic Action Stamps */}
-              <div className="absolute inset-0 z-10 flex items-center justify-between px-8 pointer-events-none">
-                <div style={{ opacity: likeOpacity }} className="border-4 border-white text-white bg-black font-bold text-4xl p-3 rotate-12 tracking-widest uppercase shadow-lg">
-                  {t('like')}
-                </div>
-                <div style={{ opacity: nopeOpacity }} className="border-4 border-red-500 text-red-500 bg-black font-bold text-4xl p-3 -rotate-12 tracking-widest uppercase shadow-lg">
+              <div className="pointer-events-none absolute inset-0 z-10">
+                <div style={{ opacity: nopeOpacity }} className="absolute left-6 top-8 rotate-12 border-4 border-red-500 bg-black p-3 text-4xl font-bold uppercase tracking-widest text-red-500 shadow-lg">
                   {t('pass')}
+                </div>
+                <div style={{ opacity: likeOpacity }} className="absolute right-6 top-8 -rotate-12 border-4 border-white bg-black p-3 text-4xl font-bold uppercase tracking-widest text-white shadow-lg">
+                  {t('like')}
                 </div>
               </div>
 
-              {/* Basic Info Overlay */}
-              <div className="discovery-swipe-info absolute bottom-0 inset-x-0 p-4 z-20 pointer-events-none">
-                <div className="flex items-end justify-between">
-                  <div>
-                    <div className="flex items-center gap-3 mb-1">
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-2xl font-bold text-white uppercase tracking-widest">
-                          {activeUser.display_name}
-                        </h2>
-                        {activeUser.is_verified && (
-                          <BadgeCheck className="w-5 h-5 text-blue-500 shrink-0" title={t('verifiedProfile')} />
-                        )}
-                      </div>
-                      <span className="text-xl text-zinc-500">{activeUser.age}</span>
-                    </div>
-                    <p className="text-zinc-400 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest">
-                      <MapPin className="w-3.5 h-3.5 text-zinc-500" /> {activeUser.city} ({activeUser.distance} KM)
-                    </p>
+              <button
+                onClick={toggleProfile}
+                aria-label={t('profileShortcut')}
+                className="pointer-events-auto absolute right-4 top-8 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <Info className="h-5 w-5" />
+              </button>
+
+              <div className="pointer-events-none absolute inset-x-0 bottom-5 z-40 flex flex-col items-center gap-2 px-4 text-center">
+                <div className="max-w-full">
+                  <div className="flex items-center justify-center gap-2">
+                    <h2 className="discovery-swipe-profile-accent truncate text-xl font-bold">
+                      {activeUser.display_name}, {activeUser.age}
+                    </h2>
+                    {activeUser.is_verified && (
+                      <BadgeCheck className="h-5 w-5 shrink-0 text-amber-400" title={t('verifiedProfile')} />
+                    )}
                   </div>
-                  
-                  <button 
-                    onClick={toggleProfile}
-                    className="w-10 h-10 bg-zinc-900 border-2 border-zinc-700 hover:border-white text-white flex items-center justify-center transition-colors pointer-events-auto"
+                  <div className="discovery-swipe-profile-accent flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs">
+                    <span className="flex items-center gap-1.5">
+                      {activeCountryFlag && (
+                        <span role="img" aria-label={`${activeUser.country_code} flag`} title={activeUser.country_code}>
+                          {activeCountryFlag}
+                        </span>
+                      )}
+                      <MapPin className="h-3.5 w-3.5" />
+                      {activeUser.city} · {activeUser.distance} km
+                    </span>
+                    {activeUser.status === 'online' && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                        {t('online')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pointer-events-auto flex items-center justify-center gap-5">
+                  <button
+                    onClick={() => handleAction('left')}
+                    aria-label={t('pass')}
+                    title={t('pass')}
+                    className="flex size-14 items-center justify-center rounded-full bg-transparent text-white shadow-none transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
-                    <Info className="w-5 h-5" />
+                    <X className="h-7 w-7 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]" />
+                  </button>
+
+                  <button
+                    onClick={() => handleAction('super')}
+                    aria-label={t('superLike')}
+                    title={t('superLike')}
+                    className="flex size-12 items-center justify-center rounded-full bg-transparent text-white shadow-none transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    <Star className="h-6 w-6 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]" />
+                  </button>
+
+                  <button
+                    onClick={() => handleAction('right')}
+                    aria-label={t('like')}
+                    title={t('like')}
+                    className="flex size-14 items-center justify-center rounded-full bg-transparent text-white shadow-none transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    <Heart className="h-7 w-7 fill-current drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]" />
                   </button>
                 </div>
               </div>
@@ -431,7 +546,7 @@ export default function SwipeDeck() {
                 <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
                   {t('aboutProfile', { name: activeUser.display_name })}
                   {activeUser.is_verified && (
-                    <BadgeCheck className="w-3 h-3 text-blue-500" title={t('verifiedProfile')} />
+                    <BadgeCheck className="w-3 h-3 text-amber-400" title={t('verifiedProfile')} />
                   )}
                   {isLoadingProfile && <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />}
                 </h3>
@@ -483,29 +598,6 @@ export default function SwipeDeck() {
           </div>
         </div>
 
-        {/* SWIPE ACTION CONTROLS */}
-        <div className="absolute bottom-6 md:bottom-10 inset-x-0 flex justify-center items-center gap-4 z-10 px-4">
-          <button 
-            onClick={() => handleAction('left')}
-            className="discovery-action w-16 h-16 border-2 flex items-center justify-center text-zinc-500 transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
-          
-          <button 
-            onClick={() => handleAction('super')}
-            className="discovery-action w-12 h-12 border-2 flex items-center justify-center text-zinc-500 transition-colors"
-          >
-            <Star className="w-5 h-5" />
-          </button>
-
-          <button 
-            onClick={() => handleAction('right')}
-            className="discovery-primary discovery-action w-16 h-16 border-2 flex items-center justify-center transition-colors"
-          >
-            <Heart className="w-6 h-6 fill-black" />
-          </button>
-        </div>
       </div>
 
       {/* ============================================================================
@@ -525,7 +617,7 @@ export default function SwipeDeck() {
 
             <div className="flex justify-center items-center gap-4 relative py-4">
               <div className="w-28 h-28 border-2 border-white z-10 bg-zinc-950">
-                <img src={matchModal.user.images?.[0]} alt="Match" className="w-full h-full object-cover grayscale" />
+                <img src={matchModal.user.images?.[0]} alt="Match" className="w-full h-full object-cover" />
               </div>
               <div className="w-28 h-28 border-2 border-white z-0 bg-black flex items-center justify-center">
                 <span className="text-white text-xs font-bold uppercase tracking-widest">YOU</span>

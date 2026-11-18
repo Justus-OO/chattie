@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,17 +20,28 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
+	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
 type RoomHandler struct {
-	Repo   *repository.RoomRepository
-	Events *services.EventHandler // <-- Injected the notification engine
+	Repo       *repository.RoomRepository
+	Events     *services.EventHandler // <-- Injected the notification engine
+	RoomClient *lksdk.RoomServiceClient
 }
 
 func NewRoomHandler(repo *repository.RoomRepository, events *services.EventHandler) *RoomHandler {
+	apiKey := os.Getenv("LIVEKIT_API_KEY")
+	apiSecret := os.Getenv("LIVEKIT_API_SECRET")
+	livekitURL := os.Getenv("LIVEKIT_URL")
+	var roomClient *lksdk.RoomServiceClient
+	if apiKey != "" && apiSecret != "" && livekitURL != "" {
+		roomClient = lksdk.NewRoomServiceClient(livekitURL, apiKey, apiSecret)
+	}
 	return &RoomHandler{
-		Repo:   repo,
-		Events: events,
+		Repo:       repo,
+		Events:     events,
+		RoomClient: roomClient,
 	}
 }
 
@@ -69,6 +83,24 @@ func (h *RoomHandler) GetRooms(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *RoomHandler) GetMyRooms(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	rooms, err := h.Repo.GetMyRooms(r.Context(), userID)
+	if err != nil {
+		log.Printf("[GET MY ROOMS] DB Error: %v", err)
+		http.Error(w, "Failed to fetch joined rooms", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(rooms); err != nil {
+		log.Printf("[GET MY ROOMS] Failed to encode response: %v", err)
+	}
+}
+
 func (h *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -104,6 +136,14 @@ func (h *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		if err == repository.ErrRoomAgeRestricted {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if err == repository.ErrInvalidRoomSettings {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		log.Printf("[CREATE ROOM] Error: %v\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedCreateRoom", "Failed to create room")})
@@ -133,7 +173,7 @@ func (h *RoomHandler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 
 	roomID := chi.URLParam(r, "roomId")
 
-	var payload models.Room
+	var payload models.RoomUpdate
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidPayloadShort", "Invalid payload")})
@@ -144,6 +184,14 @@ func (h *RoomHandler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		if err == repository.ErrUnauthorized {
 			w.WriteHeader(http.StatusForbidden)
 			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrOnlyAdminsEditRoom", "Only admins can edit this room")})
+			return
+		}
+		if err == repository.ErrRoomAgeRestricted {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if err == repository.ErrInvalidRoomSettings {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -188,6 +236,23 @@ func (h *RoomHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(room)
 }
 
+func (h *RoomHandler) JoinRoomByID(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	room, err := h.Repo.JoinRoom(r.Context(), userID, chi.URLParam(r, "roomId"))
+	if err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(room); err != nil {
+		log.Printf("[JOIN ROOM] Failed to encode response: %v", err)
+	}
+}
+
 // PRO ADDITION: Allow users to explicitly leave a room
 func (h *RoomHandler) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -200,8 +265,7 @@ func (h *RoomHandler) LeaveRoom(w http.ResponseWriter, r *http.Request) {
 	roomID := chi.URLParam(r, "roomId")
 
 	if err := h.Repo.LeaveRoom(r.Context(), roomID, userID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeRoomError(w, err)
 		return
 	}
 
@@ -236,13 +300,48 @@ func (h *RoomHandler) GenerateVoiceToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	isMember, err := h.Repo.IsRoomMember(r.Context(), req.RoomID, userID)
+	if err != nil {
+		log.Printf("[LIVEKIT] Failed to validate room membership for user %s: %v", userID, err)
+		http.Error(w, "Unable to validate room access", http.StatusInternalServerError)
+		return
+	}
+	if !isMember {
+		http.Error(w, "Room membership required", http.StatusForbidden)
+		return
+	}
+
 	// 3. ENFORCE DAILY TRIALS: Check if free user hit their limit
+	roomDetails, err := h.Repo.GetRoomDetails(r.Context(), req.RoomID, userID)
+	if err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	if !roomDetails.IsVoiceRoom {
+		http.Error(w, "Voice is not enabled for this room", http.StatusBadRequest)
+		return
+	}
+
+	voiceSession, err := h.Repo.GetRoomVoiceSession(r.Context(), req.RoomID)
+	if err != nil {
+		log.Printf("[LIVEKIT] Failed to validate active voice session for room %s: %v", req.RoomID, err)
+		http.Error(w, "Unable to validate voice session", http.StatusInternalServerError)
+		return
+	}
+	if !voiceSession.Active {
+		http.Error(w, "The room host has not started a voice session", http.StatusConflict)
+		return
+	}
+
 	if err := h.Repo.CheckAndConsumeVoiceTrial(r.Context(), userID); err != nil {
 		if err == repository.ErrVoiceLimitReached {
 			w.WriteHeader(http.StatusPaymentRequired) // 402
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		log.Printf("[LIVEKIT] Failed to validate voice eligibility for user %s: %v", userID, err)
+		http.Error(w, "Unable to validate voice eligibility", http.StatusInternalServerError)
+		return
 	}
 
 	// 4. Load Keys
@@ -254,7 +353,13 @@ func (h *RoomHandler) GenerateVoiceToken(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 5. Create the VIP Ticket
-	canPublish := true
+	role, err := h.Repo.GetRoomMemberRole(r.Context(), req.RoomID, userID)
+	if err != nil {
+		log.Printf("[LIVEKIT] Failed to load room role for user %s: %v", userID, err)
+		http.Error(w, "Unable to validate voice permissions", http.StatusInternalServerError)
+		return
+	}
+	canPublish := role == "creator" || role == "admin" || role == "moderator" || role == "speaker"
 	canSubscribe := true
 	grant := &auth.VideoGrant{
 		RoomJoin:     true,
@@ -264,7 +369,7 @@ func (h *RoomHandler) GenerateVoiceToken(w http.ResponseWriter, r *http.Request)
 	}
 
 	at := auth.NewAccessToken(apiKey, apiSecret)
-	at.AddGrant(grant).SetIdentity(userID).SetValidFor(time.Hour * 4)
+	at.AddGrant(grant).SetIdentity(userID).SetValidFor(time.Minute * 10)
 	if req.ParticipantName != "" {
 		at.SetName(req.ParticipantName)
 	}
@@ -281,6 +386,193 @@ func (h *RoomHandler) GenerateVoiceToken(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
 
+func (h *RoomHandler) GenerateDirectCallToken(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	targetID := chi.URLParam(r, "target_id")
+	if targetID == "" || targetID == userID {
+		http.Error(w, "A conversation partner is required", http.StatusBadRequest)
+		return
+	}
+	chatUserID := userID
+	if profileID := r.URL.Query().Get("profile_id"); profileID != "" {
+		var err error
+		chatUserID, err = repository.NewChatRepository(h.Repo.DB).ResolveManagedProfileChatIdentity(r.Context(), profileID, userID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "Assigned profile not found", http.StatusForbidden)
+				return
+			}
+			log.Printf("[LIVEKIT] Could not validate profile call for %s: %v", profileID, err)
+			http.Error(w, "Unable to validate profile access", http.StatusInternalServerError)
+			return
+		}
+	}
+	if targetID == chatUserID {
+		http.Error(w, "A conversation partner is required", http.StatusBadRequest)
+		return
+	}
+	var targetExists bool
+	if err := h.Repo.DB.QueryRowContext(r.Context(),
+		`SELECT EXISTS (SELECT 1 FROM users WHERE id::text = $1)`, targetID,
+	).Scan(&targetExists); err != nil {
+		log.Printf("[LIVEKIT] Failed to validate direct call target %s: %v", targetID, err)
+		http.Error(w, "Unable to validate call participant", http.StatusInternalServerError)
+		return
+	}
+	if !targetExists {
+		http.Error(w, "Call participant not found", http.StatusNotFound)
+		return
+	}
+
+	var request struct {
+		ParticipantName string `json:"participant_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid call token request", http.StatusBadRequest)
+		return
+	}
+
+	participants := []string{chatUserID, targetID}
+	sort.Strings(participants)
+	roomID := "dm_call_" + strings.Join(participants, "_")
+	apiKey := os.Getenv("LIVEKIT_API_KEY")
+	apiSecret := os.Getenv("LIVEKIT_API_SECRET")
+	if apiKey == "" || apiSecret == "" {
+		apiKey = "devkey"
+		apiSecret = "secret"
+	}
+	canPublish := true
+	canSubscribe := true
+	grant := &auth.VideoGrant{
+		RoomJoin:     true,
+		Room:         roomID,
+		CanPublish:   &canPublish,
+		CanSubscribe: &canSubscribe,
+	}
+	accessToken := auth.NewAccessToken(apiKey, apiSecret)
+	accessToken.AddGrant(grant).SetIdentity(chatUserID).SetValidFor(10 * time.Minute)
+	if request.ParticipantName != "" {
+		accessToken.SetName(request.ParticipantName)
+	}
+	token, err := accessToken.ToJWT()
+	if err != nil {
+		log.Printf("[LIVEKIT] Failed to create direct call token for user %s: %v", chatUserID, err)
+		http.Error(w, "Failed to generate secure call token", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"token": token, "room_id": roomID}); err != nil {
+		log.Printf("[LIVEKIT] Failed to encode direct call token response for user %s: %v", chatUserID, err)
+	}
+}
+
+func (h *RoomHandler) GetRoomVoiceSession(w http.ResponseWriter, r *http.Request) {
+	h.writeRoomVoiceSession(w, r)
+}
+
+func (h *RoomHandler) StartRoomVoiceSession(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	roomID := chi.URLParam(r, "roomId")
+	details, err := h.Repo.GetRoomDetails(r.Context(), roomID, userID)
+	if err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	if !details.IsMember || (details.UserRole != "creator" && details.UserRole != "admin") {
+		http.Error(w, "Only room admins can start voice", http.StatusForbidden)
+		return
+	}
+	if !details.IsVoiceRoom {
+		http.Error(w, "Voice is not enabled for this room", http.StatusBadRequest)
+		return
+	}
+	session, err := h.Repo.StartRoomVoiceSession(r.Context(), roomID, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrVoiceSessionUnavailable) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		log.Printf("[LIVEKIT] Failed to start voice session for room %s: %v", roomID, err)
+		http.Error(w, "Unable to start voice session", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(session); err != nil {
+		log.Printf("[LIVEKIT] Failed to encode voice session for room %s: %v", roomID, err)
+	}
+}
+
+func (h *RoomHandler) EndRoomVoiceSession(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	roomID := chi.URLParam(r, "roomId")
+	details, err := h.Repo.GetRoomDetails(r.Context(), roomID, userID)
+	if err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	if !details.IsMember || (details.UserRole != "creator" && details.UserRole != "admin") {
+		http.Error(w, "Only room admins can end voice", http.StatusForbidden)
+		return
+	}
+	if err := h.Repo.EndRoomVoiceSession(r.Context(), roomID, userID); err != nil {
+		if errors.Is(err, repository.ErrVoiceSessionNotActive) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		log.Printf("[LIVEKIT] Failed to end voice session for room %s: %v", roomID, err)
+		http.Error(w, "Unable to end voice session", http.StatusInternalServerError)
+		return
+	}
+	if h.RoomClient != nil {
+		if _, err := h.RoomClient.DeleteRoom(r.Context(), &livekit.DeleteRoomRequest{Room: roomID}); err != nil {
+			log.Printf("[LIVEKIT] Failed to close LiveKit room %s after host ended voice: %v", roomID, err)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(&models.RoomVoiceSession{Active: false})
+}
+
+func (h *RoomHandler) writeRoomVoiceSession(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	roomID := chi.URLParam(r, "roomId")
+	isMember, err := h.Repo.IsRoomMember(r.Context(), roomID, userID)
+	if err != nil {
+		log.Printf("[LIVEKIT] Failed to validate voice session access for user %s: %v", userID, err)
+		http.Error(w, "Unable to validate room access", http.StatusInternalServerError)
+		return
+	}
+	if !isMember {
+		http.Error(w, "Room membership required", http.StatusForbidden)
+		return
+	}
+	session, err := h.Repo.GetRoomVoiceSession(r.Context(), roomID)
+	if err != nil {
+		log.Printf("[LIVEKIT] Failed to load voice session for room %s: %v", roomID, err)
+		http.Error(w, "Unable to load voice session", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(session); err != nil {
+		log.Printf("[LIVEKIT] Failed to encode voice session for room %s: %v", roomID, err)
+	}
+}
+
 // ============================================================================
 // PARTICIPANTS & ROOM MANAGEMENT
 // ============================================================================
@@ -290,6 +582,15 @@ func (h *RoomHandler) GetRoomParticipants(w http.ResponseWriter, r *http.Request
 	roomID := chi.URLParam(r, "roomId")
 
 	userID, _ := r.Context().Value(middlewares.UserIDKey).(string)
+	isMember, err := h.Repo.IsRoomMember(r.Context(), roomID, userID)
+	if err != nil {
+		http.Error(w, "Unable to validate room access", http.StatusInternalServerError)
+		return
+	}
+	if !isMember {
+		http.Error(w, "Room membership required", http.StatusForbidden)
+		return
+	}
 
 	participants, err := h.Repo.GetRoomParticipants(r.Context(), roomID, userID)
 	if err != nil {
@@ -324,17 +625,47 @@ func (h *RoomHandler) RequestAccess(w http.ResponseWriter, r *http.Request) {
 
 	var payload struct {
 		RoomCode string `json:"room_code"`
+		RoomID   string `json:"room_id"`
 	}
-	json.NewDecoder(r.Body).Decode(&payload)
-
-	if err := h.Repo.RequestJoinPrivateRoom(r.Context(), userID, payload.RoomCode); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedRequestAccess", "Failed to request access")})
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
+	var err error
+	if payload.RoomID != "" {
+		err = h.Repo.RequestJoinPrivateRoomByID(r.Context(), userID, payload.RoomID)
+	} else if payload.RoomCode != "" {
+		err = h.Repo.RequestJoinPrivateRoom(r.Context(), userID, payload.RoomCode)
+	} else {
+		http.Error(w, "room_id or room_code is required", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		writeRoomError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgJoinRequestSent", "Join request sent. Waiting for admin approval.")})
+}
+
+func (h *RoomHandler) GetRoomJoinRequests(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	requests, err := h.Repo.GetPendingJoinRequests(r.Context(), chi.URLParam(r, "roomId"), userID)
+	if err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(requests); err != nil {
+		log.Printf("[ROOM REQUESTS] Failed to encode response: %v", err)
+	}
 }
 
 // ManageJoinRequest lets admins approve/reject pending users
@@ -347,7 +678,10 @@ func (h *RoomHandler) ManageJoinRequest(w http.ResponseWriter, r *http.Request) 
 		TargetID string `json:"target_id"`
 		Approve  bool   `json:"approve"`
 	}
-	json.NewDecoder(r.Body).Decode(&payload)
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.TargetID == "" {
+		http.Error(w, "target_id and approve are required", http.StatusBadRequest)
+		return
+	}
 
 	if err := h.Repo.HandleJoinRequest(r.Context(), userID, roomID, payload.TargetID, payload.Approve); err != nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -419,4 +753,111 @@ func (h *RoomHandler) KickOrBanParticipant(w http.ResponseWriter, r *http.Reques
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": localizedMessage(r.Context(), "TplUserSuccessfullyAction", "User successfully %s", map[string]interface{}{"Action": action})})
+}
+
+func (h *RoomHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var payload struct {
+		MessageID string `json:"message_id"`
+		Pinned    bool   `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.MessageID == "" {
+		http.Error(w, "message_id is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.PinRoomMessage(r.Context(), chi.URLParam(r, "roomId"), userID, payload.MessageID, payload.Pinned); err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *RoomHandler) ToggleMessageReaction(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var payload struct {
+		MessageID string `json:"message_id"`
+		Emoji     string `json:"emoji"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.MessageID == "" || payload.Emoji == "" || len(payload.Emoji) > 16 {
+		http.Error(w, "message_id and emoji are required", http.StatusBadRequest)
+		return
+	}
+	added, err := h.Repo.ToggleRoomMessageReaction(r.Context(), chi.URLParam(r, "roomId"), userID, payload.MessageID, payload.Emoji)
+	if err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]bool{"added": added}); err != nil {
+		log.Printf("[ROOM REACTION] Failed to encode response: %v", err)
+	}
+}
+
+func (h *RoomHandler) SetMemberRole(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var payload struct {
+		TargetID string `json:"target_id"`
+		Role     string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.TargetID == "" {
+		http.Error(w, "target_id and role are required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.SetRoomMemberRole(r.Context(), chi.URLParam(r, "roomId"), userID, payload.TargetID, payload.Role); err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *RoomHandler) SetMemberMuted(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var payload struct {
+		TargetID string `json:"target_id"`
+		Muted    bool   `json:"muted"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.TargetID == "" {
+		http.Error(w, "target_id is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.SetRoomMemberMuted(r.Context(), chi.URLParam(r, "roomId"), userID, payload.TargetID, payload.Muted); err != nil {
+		writeRoomError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeRoomError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	switch err {
+	case repository.ErrUnauthorized:
+		status = http.StatusForbidden
+	case repository.ErrRoomNotFound, repository.ErrInvalidRoomCode:
+		status = http.StatusNotFound
+	case repository.ErrRoomPrivate, repository.ErrRoomBanned, repository.ErrRoomAgeRestricted,
+		repository.ErrRoomMuted, repository.ErrRoomReadOnly, repository.ErrRoomMediaDisabled,
+		repository.ErrRoomLinksDisabled, repository.ErrRoomSlowMode:
+		status = http.StatusForbidden
+	case repository.ErrRoomCreatorRequired:
+		status = http.StatusConflict
+	case repository.ErrInvalidRoomSettings:
+		status = http.StatusBadRequest
+	}
+	http.Error(w, err.Error(), status)
 }

@@ -44,7 +44,7 @@ const TransactionRow = ({ tx }) => {
         </div>
       </div>
 
-      <div className="flex items-center justify-between sm:justify-end gap-6 sm:w-48 shrink-0 border-t-2 border-zinc-900 sm:border-0 pt-4 sm:pt-0">
+      <div className="flex items-center justify-between gap-6 border-t-2 border-zinc-900 pt-4 sm:w-[clamp(9rem,18vw,12rem)] sm:shrink-0 sm:justify-end sm:border-0 sm:pt-0">
         <span className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest border ${
           tx.status === 'completed' || tx.status === 'cleared' ? 'bg-zinc-900 border-zinc-700 text-zinc-300' : 
           tx.status === 'pending' ? 'bg-zinc-950 border-zinc-700 text-zinc-400' : 
@@ -90,6 +90,8 @@ export default function AfterDarkWallet() {
 
   // Derived Data
   const filteredTransactions = transactions;
+  const selectedPayoutMethod = payoutMethods.find(method => String(method.id || method.payout_method_id) === String(payoutMethodId));
+  const isMpesaPayout = selectedPayoutMethod?.provider === 'mpesa';
 
   const loadWallet = useCallback(async () => {
     const [walletResponse, transactionResponse, methodsResponse, withdrawalsResponse] = await Promise.all([
@@ -136,8 +138,12 @@ export default function AfterDarkWallet() {
   const handleTransaction = async (type) => {
     const val = Number(amountInput);
     const minimum = type === 'withdraw' ? 1000 : 100;
-    if (!val || val < minimum) {
+    if (!Number.isFinite(val) || !val || val < minimum) {
       toast.error(`Minimum ${type === 'withdraw' ? 'withdrawal' : 'deposit'} is KES ${minimum}.`);
+      return;
+    }
+    if (Math.abs(val * 100 - Math.round(val * 100)) > 1e-7) {
+      toast.error('Enter an amount with no more than two decimal places.');
       return;
     }
 
@@ -151,7 +157,6 @@ export default function AfterDarkWallet() {
       return;
     }
 
-    const selectedPayoutMethod = payoutMethods.find(method => String(method.id || method.payout_method_id) === String(payoutMethodId));
     if (type === 'withdraw' && selectedPayoutMethod?.provider === 'mpesa' && !Number.isInteger(val)) {
       toast.error('M-Pesa payouts must be a whole number of Kenyan shillings.');
       return;
@@ -211,7 +216,7 @@ export default function AfterDarkWallet() {
   // RENDER BLOCKS
   // ==========================================
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300">
       
       {/* HEADER */}
       <header className="z-20 flex shrink-0 flex-col justify-between gap-4 border-b-2 border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center md:p-6">
@@ -244,15 +249,15 @@ export default function AfterDarkWallet() {
       </header>
 
       {/* SCROLLABLE CONTENT */}
-      <div className="min-h-0 flex-1 overflow-y-auto bg-black p-4 custom-scrollbar sm:p-6 md:p-8">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 md:gap-8">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-black p-2 custom-scrollbar sm:p-3 lg:p-4">
+        <div className="flex min-h-0 w-full flex-1 flex-col gap-4 md:gap-5">
           {loadError && <p role="alert" className="border-2 border-red-900 bg-black p-4 text-xs text-red-500">{loadError}</p>}
           
           {/* BALANCE CARDS */}
           <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 ${isCreator ? 'lg:grid-cols-3' : ''}`}>
             <div className="group relative min-w-0 overflow-hidden border-2 border-zinc-800 bg-black p-4 sm:p-6">
               <div className="absolute top-0 right-0 p-4 opacity-5">
-                <Wallet className="w-32 h-32 text-white" />
+                <Wallet className="size-[clamp(6rem,14vw,8rem)] text-white" />
               </div>
               <div className="relative z-10">
                 <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
@@ -315,8 +320,8 @@ export default function AfterDarkWallet() {
           )}
 
           {/* TRANSACTION HISTORY */}
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b-2 border-zinc-800 pb-4">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="mb-3 flex flex-col justify-between gap-3 border-b-2 border-zinc-800 pb-3 sm:flex-row sm:items-center">
               <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <History className="w-5 h-5 text-zinc-400" /> TRANSACTION LEDGER
               </h3>
@@ -338,12 +343,12 @@ export default function AfterDarkWallet() {
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
               {isLoading ? (
-                <p role="status" className="py-8 text-center text-xs text-zinc-500">Loading transactions…</p>
+                <p role="status" className="flex min-h-32 flex-1 items-center justify-center text-center text-xs text-zinc-500">Loading transactions…</p>
               ) : filteredTransactions.length === 0 ? (
-                <div className="flex flex-col items-center justify-center border-2 border-dashed border-zinc-800 bg-black py-16 text-center">
-                  <Filter className="w-8 h-8 text-zinc-600 mb-4" />
+                <div className="flex min-h-[clamp(8rem,20vh,14rem)] flex-1 flex-col items-center justify-center border-2 border-dashed border-zinc-800 bg-black p-4 text-center">
+                  <Filter className="w-8 h-8 text-zinc-600 mb-3" />
                   <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-1">NO TRANSACTIONS FOUND</h3>
                   <p className="text-[9px] font-bold text-zinc-500 uppercase">Try adjusting your filters.</p>
                 </div>
@@ -465,18 +470,23 @@ export default function AfterDarkWallet() {
               <div>
                 <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2 flex justify-between">
                   <span>Withdrawal Amount</span>
-                  <button onClick={() => setAmountInput(balance.toString())} className="text-white underline-offset-4 hover:underline">MAX</button>
+                  <button onClick={() => setAmountInput((isMpesaPayout ? Math.floor(balance) : balance).toFixed(isMpesaPayout ? 0 : 2))} className="text-white underline-offset-4 hover:underline">MAX</button>
                 </label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-zinc-500 font-bold">KES</span>
                   <input 
-                    type="number" value={amountInput} onChange={(e) => setAmountInput(e.target.value)}
+                    type="number" min="1000" step={isMpesaPayout ? '1' : '0.01'} value={amountInput} onChange={(e) => setAmountInput(e.target.value)}
                     placeholder="1000"
                     className="w-full border-2 border-zinc-700 bg-black p-4 pl-14 text-xl font-black text-white outline-none transition-colors focus:border-white"
                   />
                 </div>
                 <p className="mt-2 text-[8px] font-bold uppercase tracking-widest text-zinc-600">
-                  Minimum withdrawal: KES 1,000. Funds are sent automatically to your selected M-Pesa or Paystack destination.
+                  Minimum withdrawal: KES 1,000. Destination: {selectedPayoutMethod?.account_number || selectedPayoutMethod?.phone_number || 'select a saved method'}.
+                </p>
+                <p className="mt-2 border-2 border-zinc-800 bg-zinc-950 p-3 text-[9px] font-bold uppercase tracking-widest text-zinc-400">
+                  {isMpesaPayout
+                    ? `KES 50 fee is deducted from the amount. Net payout: KES ${Math.max(0, Number(amountInput || 0) - 50).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+                    : `No fixed payout fee is deducted by Chattie for this Paystack method. Net payout: KES ${Number(amountInput || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`}
                 </p>
               </div>
 

@@ -96,13 +96,13 @@ export default function Guidelines() {
   // RENDER
   // ============================================================================
   return (
-    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-hidden font-mono text-zinc-300 rounded-none">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden font-mono text-zinc-300 rounded-none">
       
       {/* =====================================================================
           HEADER (Brutalist)
           ===================================================================== */}
-      <header className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 shrink-0">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <header className="shrink-0 border-b-2 border-zinc-800 bg-zinc-950 p-2 sm:p-3 lg:p-4">
+        <div className="flex w-full flex-col justify-between gap-4 md:flex-row md:items-end">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-zinc-100 border-2 border-zinc-100 flex items-center justify-center shrink-0">
               <ShieldCheck className="w-6 h-6 text-black" />
@@ -117,7 +117,7 @@ export default function Guidelines() {
             </div>
           </div>
           
-          <div className="relative w-full md:w-72 shrink-0">
+          <div className="relative w-full shrink-0 md:w-[clamp(14rem,22vw,18rem)]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input 
               type="text" 
@@ -133,11 +133,11 @@ export default function Guidelines() {
       {/* =====================================================================
           MAIN CONTENT AREA
           ===================================================================== */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6 relative bg-black">
-        <div className="max-w-5xl mx-auto flex flex-col lg:flex-row gap-6 lg:gap-8 pb-24">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 lg:p-4 relative bg-black">
+        <div className="flex min-h-full w-full flex-col gap-4 pb-24 lg:flex-row lg:gap-6">
           
           {/* LEFT: Quick Links & Actions (Sticky on Desktop) */}
-          <aside className="lg:w-64 shrink-0 order-2 lg:order-1">
+          <aside className="shrink-0 order-2 lg:order-1 lg:w-[clamp(13rem,20vw,17rem)]">
             <div className="sticky top-0 space-y-6">
               
               <div className="bg-zinc-950 border-2 border-zinc-800 p-4">
@@ -228,7 +228,7 @@ export default function Guidelines() {
                             <h2 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
                               <span className="text-zinc-500">0{index + 1}.</span> {rule.title}
                             </h2>
-                            {!isExpanded && <p className="text-[10px] text-zinc-500 uppercase tracking-widest truncate max-w-[200px] md:max-w-md mt-0.5 font-bold">{rule.short}</p>}
+                            {!isExpanded && <p className="mt-0.5 max-w-[clamp(10rem,30vw,28rem)] truncate text-[10px] font-bold uppercase tracking-widest text-zinc-500">{rule.short}</p>}
                           </div>
                         </div>
                         <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-white' : 'text-zinc-600'}`} />
@@ -271,8 +271,8 @@ export default function Guidelines() {
       {/* =====================================================================
           STICKY ACKNOWLEDGMENT BAR (Bottom)
           ===================================================================== */}
-      <div className="absolute bottom-0 inset-x-0 p-4 bg-black border-t-2 border-zinc-800 flex justify-center z-20">
-        <div className="w-full max-w-5xl flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="absolute bottom-0 inset-x-0 z-20 flex justify-center border-t-2 border-zinc-800 bg-black p-2 sm:p-3">
+        <div className="flex w-full flex-col items-center justify-between gap-3 md:flex-row">
           <div className="flex items-center gap-4">
             <div className={`w-10 h-10 border-2 flex items-center justify-center shrink-0 transition-colors ${hasAgreed ? 'bg-green-500 border-green-500 text-black' : 'bg-black border-zinc-700 text-zinc-700'}`}>
               <CheckCircle2 className="w-5 h-5" />

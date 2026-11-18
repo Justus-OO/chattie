@@ -9,6 +9,7 @@ import {
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
+import { useAppDialogs } from '../modals/useAppDialogs';
 
 // ============================================================================
 // INLINE COMPONENT: CUSTOM VIDEO PLAYER
@@ -118,12 +119,13 @@ const CustomVideoPlayer = ({ src, poster, isUnlocked, watermark, creatorName }) 
 // ============================================================================
 export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscribe, onMessageCreator, onOpenCreator }) {
   const navigate = useNavigate();
+  const { confirm } = useAppDialogs();
   const currentUser = useAppStore(state => state.user);
   
   // Destructure with robust defaults (replaces the old `const p = {}` object)
   const {
     id,
-    creator = { name: 'Unknown', avatar: '', isVerified: false },
+    creator = { name: 'Creator', avatar: '', isVerified: false },
     mediaUrl = '',
     mediaType = 'image',
     caption = 'Exclusive content.',
@@ -139,15 +141,18 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
   const [isUnlocked, setIsUnlocked] = useState(post.isUnlocked || pricingStrategy === 'free');
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
+  const [isLikePending, setIsLikePending] = useState(false);
+  const [commentsCount, setCommentsCount] = useState(post.commentsCount ?? post.comment_count ?? post.comments?.length ?? 0);
   
   // Interactive UI States
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [explicitAcknowledged, setExplicitAcknowledged] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(Boolean(post.isFollowing ?? post.is_following));
+  const [isFollowPending, setIsFollowPending] = useState(false);
 
   // Comments State
-  const [comments, setComments] = useState(post.comments || []);
+  const [comments, setComments] = useState(Array.isArray(post.comments) ? post.comments : []);
   const [commentInput, setCommentInput] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
 
@@ -155,17 +160,34 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
     setIsUnlocked(post.isUnlocked || pricingStrategy === 'free');
   }, [post.isUnlocked, pricingStrategy]);
 
+  useEffect(() => {
+    setIsLiked(Boolean(post.isLiked ?? post.is_liked));
+    setLikesCount(Number(post.likesCount ?? post.like_count ?? 0));
+    setCommentsCount(Number(post.commentsCount ?? post.comment_count ?? post.comments_count ?? post.comments?.length ?? 0));
+    setIsFollowing(Boolean(post.isFollowing ?? post.is_following));
+  }, [post.id, post.isLiked, post.is_liked, post.likesCount, post.like_count, post.commentsCount, post.comment_count, post.comments_count, post.comments, post.isFollowing, post.is_following]);
+
   // ==========================================
   // HANDLERS
   // ==========================================
-  const handleLike = () => {
-    afterDarkService.toggleLike(id)
-      .then(result => {
-        const liked = Boolean(result?.liked);
-        setIsLiked(liked);
+  const handleLike = async () => {
+    if (isLikePending) return;
+    setIsLikePending(true);
+    try {
+      const result = await afterDarkService.toggleLike(id);
+      const liked = Boolean(result?.liked);
+      setIsLiked(liked);
+      const currentLikeCount = Number(result?.like_count);
+      if (Number.isFinite(currentLikeCount)) {
+        setLikesCount(currentLikeCount);
+      } else {
         setLikesCount(count => Math.max(0, count + (liked === isLiked ? 0 : liked ? 1 : -1)));
-      })
-      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update your like.')));
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update your like.'));
+    } finally {
+      setIsLikePending(false);
+    }
   };
 
   const handleUnlockClick = () => {
@@ -196,6 +218,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
     try {
       const newComment = await afterDarkService.addComment(id, commentInput.trim());
       setComments(current => [newComment, ...current]);
+      setCommentsCount(count => count + 1);
       setCommentInput('');
     } catch (error) {
       toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not post your comment.'));
@@ -204,13 +227,16 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
     }
   };
 
-  const handleReport = () => {
-    if (window.confirm('Report this post for review?')) {
-      afterDarkService.submitReport({ target_type: 'post', target_id: id, reason: 'User report' })
-        .then(() => toast.success('Report submitted for review.'))
-        .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not submit the report.')));
-    }
+  const handleReport = async () => {
     setShowMenu(false);
+    if (!await confirm('Report this post for review?', {
+      title: 'Report post',
+      confirmLabel: 'Submit report',
+      tone: 'danger',
+    })) return;
+    afterDarkService.submitReport({ target_type: 'post', target_id: id, reason: 'User report' })
+      .then(() => toast.success('Report submitted for review.'))
+      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not submit the report.')));
   };
 
   const toggleComments = () => {
@@ -222,14 +248,24 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
       .then(result => {
         const records = Array.isArray(result) ? result : result?.comments || result?.items || [];
         setComments(records);
+        if (result?.total_count !== undefined || result?.total !== undefined) {
+          setCommentsCount(Number(result.total_count ?? result.total));
+        }
       })
       .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load comments.')));
   };
 
-  const handleFollow = () => {
-    afterDarkService.toggleFollow(creator.id)
-      .then(result => setIsFollowing(Boolean(result?.following ?? result?.is_following)))
-      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update your follow.')));
+  const handleFollow = async () => {
+    if (isFollowPending) return;
+    setIsFollowPending(true);
+    try {
+      const result = await afterDarkService.toggleFollow(creator.id);
+      setIsFollowing(Boolean(result?.following ?? result?.is_following));
+    } catch (error) {
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update your follow.'));
+    } finally {
+      setIsFollowPending(false);
+    }
   };
 
   const copyPostLink = async () => {
@@ -273,7 +309,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
 
         <div className="flex items-center gap-2">
           {!isUnlocked && pricingStrategy === 'subscriber' && (
-            <button onClick={handleFollow} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 border-2 border-zinc-700 text-[9px] font-black text-white uppercase tracking-widest hover:border-white transition-colors">
+            <button onClick={handleFollow} disabled={isFollowPending} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 border-2 border-zinc-700 text-[9px] font-black text-white uppercase tracking-widest hover:border-white transition-colors disabled:opacity-50">
               <UserPlus className="w-3 h-3" /> {isFollowing ? 'Following' : 'Follow'}
             </button>
           )}
@@ -288,7 +324,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 {/* Click-away backdrop */}
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 {/* Menu Dropdown */}
-                <div className="absolute right-0 top-full mt-2 w-48 bg-black border-2 border-zinc-700 shadow-[4px_4px_0px_rgba(255,255,255,0.1)] z-20 flex flex-col animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 top-full z-20 mt-2 flex w-[clamp(12rem,24vw,16rem)] flex-col border-2 border-zinc-700 bg-black shadow-[4px_4px_0px_rgba(255,255,255,0.1)] animate-in fade-in zoom-in-95 duration-100">
                   <button onClick={handleUnlockClick} className="px-4 py-3 text-left text-[10px] font-black text-white uppercase tracking-widest hover:bg-zinc-900 flex items-center gap-2 transition-colors">
                     <UserPlus className="w-4 h-4" /> Subscribe
                   </button>
@@ -431,8 +467,9 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
         <div className="flex items-center gap-6">
           <button 
             onClick={handleLike}
+            disabled={isLikePending}
             aria-label={isLiked ? "Unlike" : "Like"}
-            className={`flex items-center gap-2 transition-colors ${isLiked ? 'text-red-500' : 'text-zinc-400 hover:text-white'}`}
+            className={`flex items-center gap-2 transition-colors disabled:opacity-50 ${isLiked ? 'text-red-500' : 'text-zinc-400 hover:text-white'}`}
           >
             <Heart className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
             <span className="text-[10px] font-black uppercase">{likesCount}</span>
@@ -444,7 +481,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
             className={`flex items-center gap-2 transition-colors ${showComments ? 'text-white' : 'text-zinc-400 hover:text-white'}`}
           >
             <MessageSquare className="w-5 h-5" />
-            <span className="text-[10px] font-black uppercase">{comments.length}</span>
+            <span className="text-[10px] font-black uppercase">{commentsCount}</span>
           </button>
           
           <button onClick={copyPostLink} aria-label="Copy post link" className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors">
@@ -504,29 +541,45 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
           </div>
 
           {/* Comment List */}
-          <div className="p-4 space-y-4 max-h-60 overflow-y-auto custom-scrollbar">
+          <div className="max-h-[40dvh] overflow-y-auto p-4 space-y-4 custom-scrollbar">
             {comments.length === 0 ? (
               <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest text-center py-4">No comments yet. Be the first.</p>
             ) : (
-              comments.map((comment) => (
-                <div key={comment.id} className="flex gap-3 group">
-                  <img 
-                    src={comment.user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&q=80'} 
-                    alt={comment.user.name} 
-                    className="w-6 h-6 object-cover border border-zinc-700 grayscale mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-[10px] font-black text-white uppercase tracking-widest">{comment.user.name}</span>
-                      <span className="text-[8px] font-bold text-zinc-600 uppercase">{comment.timestamp}</span>
+              comments.filter(Boolean).map((comment, index) => {
+                const user = comment.user && typeof comment.user === 'object' ? comment.user : {};
+                const isCurrentUser = Boolean(comment.user_id && currentUser?.id
+                  && String(comment.user_id) === String(currentUser.id));
+                const userName = user.name || user.display_name || user.username
+                  || comment.user_name || comment.username
+                  || (isCurrentUser ? currentUser?.name || currentUser?.username : '')
+                  || 'Member';
+                const userAvatar = user.avatar || user.avatar_url || comment.avatar_url
+                  || (isCurrentUser ? currentUser?.avatar : '')
+                  || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&q=80';
+                const timestamp = comment.timestamp || (comment.created_at
+                  ? new Date(comment.created_at).toLocaleString()
+                  : '');
+
+                return (
+                  <div key={comment.id || `${comment.user_id || 'comment'}-${index}`} className="flex gap-3 group">
+                    <img
+                      src={userAvatar}
+                      alt={userName}
+                      className="w-6 h-6 object-cover border border-zinc-700 grayscale mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-[10px] font-black text-white uppercase tracking-widest">{userName}</span>
+                        <span className="text-[8px] font-bold text-zinc-600 uppercase">{timestamp}</span>
+                      </div>
+                      <p className="text-[10px] font-bold text-zinc-400 leading-relaxed">{comment.text ?? comment.content ?? ''}</p>
                     </div>
-                    <p className="text-[10px] font-bold text-zinc-400 leading-relaxed">{comment.text}</p>
+                    <button aria-label="Report comment" className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all">
+                      <Flag className="w-3 h-3" />
+                    </button>
                   </div>
-                  <button aria-label="Report comment" className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all">
-                    <Flag className="w-3 h-3" />
-                  </button>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

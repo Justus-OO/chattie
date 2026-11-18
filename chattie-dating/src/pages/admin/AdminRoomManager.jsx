@@ -136,7 +136,7 @@ export default function AdminRoomManager() {
   });
 
   return (
-    <div className="flex-1 bg-black min-h-screen text-zinc-300 font-mono flex flex-col rounded-none overflow-hidden relative" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -167,7 +167,7 @@ export default function AdminRoomManager() {
       {/* =========================================
           MAIN HEADER & TABS
           ========================================= */}
-      <div className="p-6 md:p-8 border-b-2 border-zinc-800 bg-black shrink-0 flex flex-col gap-6 z-10 relative">
+      <div className="shrink-0 border-b-2 border-zinc-800 bg-black p-3 sm:p-4 flex flex-col gap-4 z-10 relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
@@ -205,7 +205,7 @@ export default function AdminRoomManager() {
       {/* =========================================
           TAB CONTENT AREA
           ========================================= */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar relative">
         
         {isLoading ? (
           <div className="flex items-center justify-center h-full w-full p-20">
@@ -217,7 +217,7 @@ export default function AdminRoomManager() {
                 TAB 1: DIRECTORY (ROOM MANAGER)
                 ========================================= */}
             {activeTab === 'DIRECTORY' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 
                 {/* Filters & Search */}
                 <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-zinc-950 p-4 border-2 border-zinc-800">
@@ -228,7 +228,7 @@ export default function AdminRoomManager() {
                       placeholder="SEARCH ROOM ID, NAME, OR HOST..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-transparent border-none outline-none text-xs font-bold text-white uppercase tracking-widest w-full md:w-80 placeholder:text-zinc-600"
+                      className="w-full border-none bg-transparent text-xs font-bold uppercase tracking-widest text-white outline-none placeholder:text-zinc-600 md:w-[clamp(16rem,26vw,20rem)]"
                     />
                   </div>
 
@@ -298,7 +298,7 @@ export default function AdminRoomManager() {
                         <div className="mt-auto pt-4 border-t-2 border-zinc-800 flex justify-between items-end">
                           <div>
                             <span className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Host / Creator</span>
-                            <span className="text-xs font-bold text-white uppercase truncate max-w-[150px] block">{room.host}</span>
+                            <span className="block max-w-[clamp(8rem,16vw,12rem)] truncate text-xs font-bold uppercase text-white">{room.host}</span>
                           </div>
                           <div className="text-right">
                             <span className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1 flex items-center justify-end gap-1"><Users className="w-3 h-3" /> Capacity</span>
@@ -318,7 +318,7 @@ export default function AdminRoomManager() {
                 TAB 2: GLOBAL KNOCKS (ACCESS QUEUE)
                 ========================================= */}
             {activeTab === 'KNOCKS' && (
-              <div className="p-6 md:p-8 space-y-6 max-w-5xl mx-auto">
+              <div className="w-full p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="mb-6 bg-zinc-950 border-2 border-zinc-800 p-6 flex items-start gap-4">
                   <KeyRound className="w-8 h-8 text-blue-500 shrink-0" />
                   <div>
@@ -383,7 +383,7 @@ export default function AdminRoomManager() {
                 TAB 3: LOAD BALANCER (TELEMETRY)
                 ========================================= */}
             {activeTab === 'BALANCER' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b-2 border-zinc-800 pb-6">
                   <div>
                     <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
@@ -399,7 +399,7 @@ export default function AdminRoomManager() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[500px]">
+                <div className="grid h-[min(60dvh,42rem)] min-h-[35dvh] grid-cols-1 gap-6 lg:grid-cols-3">
                   
                   <div className="border-2 border-zinc-800 bg-zinc-950 flex flex-col overflow-hidden relative">
                     <div className="p-4 bg-black border-b-2 border-zinc-800 flex justify-between items-center z-10 relative">
@@ -417,7 +417,7 @@ export default function AdminRoomManager() {
 
                   <div className="hidden lg:flex flex-col items-center justify-center relative">
                     <div className="w-full h-0.5 bg-zinc-800 absolute top-1/2 -translate-y-1/2 -z-10"></div>
-                    <div className="w-32 h-32 rounded-full border-4 border-zinc-800 bg-black flex flex-col items-center justify-center z-10 relative shadow-[0_0_50px_rgba(59,130,246,0.1)]">
+                    <div className="relative z-10 flex size-[clamp(6rem,12vw,8rem)] flex-col items-center justify-center rounded-full border-4 border-zinc-800 bg-black shadow-[0_0_50px_rgba(59,130,246,0.1)]">
                       <Server className="w-8 h-8 text-blue-500 mb-2 animate-pulse" />
                       <span className="text-[10px] font-black text-white uppercase tracking-widest">ROUTER_X1</span>
                     </div>

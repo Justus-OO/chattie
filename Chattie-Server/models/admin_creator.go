@@ -42,16 +42,28 @@ type PersonaMetric struct {
 	ManagerID       string  `json:"manager_id"`
 	Revenue         float64 `json:"earnings"` // Matched to FE
 	ActiveChats     int     `json:"activeChats"`
+	PendingReplies  int     `json:"pendingReplies"`
 	Unread          int     `json:"unread"`
 	MediaVault      int     `json:"mediaVault"`
 	AutoPilotActive bool    `json:"autoPilotActive"`
+	LastActivity    string  `json:"lastActivity"`
 }
 
-// CreatePersonaRequest represents the payload from the Admin Panel to create a new unassigned persona
+// CreatePersonaRequest contains the discovery-ready data for a new managed persona.
 type CreatePersonaRequest struct {
-	Name      string `json:"name"`
-	Archetype string `json:"archetype"`
-	AvatarURL string `json:"avatarUrl"`
+	Name        string   `json:"name"`
+	Archetype   string   `json:"archetype"`
+	AvatarURL   string   `json:"avatarUrl"`
+	Bio         string   `json:"bio"`
+	Gender      string   `json:"gender"`
+	DateOfBirth string   `json:"dateOfBirth"`
+	Height      int      `json:"height"`
+	City        string   `json:"city"`
+	Country     string   `json:"country"`
+	CountryCode string   `json:"countryCode"`
+	Latitude    *float64 `json:"latitude"`
+	Longitude   *float64 `json:"longitude"`
+	Interests   []string `json:"interests"`
 }
 
 // AdminCreateCreatorRequest represents the payload sent from the admin panel to provision a creator

@@ -114,6 +114,56 @@ func (s *StripeGateway) CreateSubscriptionForCustomer(ctx context.Context, email
 	}, nil
 }
 
+func (s *StripeGateway) CreateADCheckout(ctx context.Context, email, userID, intentID string, amountMinor int64, paymentType, returnURL string) (*CheckoutSession, error) {
+	if s == nil || strings.TrimSpace(s.PublishableKey) == "" {
+		return nil, fmt.Errorf("Stripe publishable key is not configured")
+	}
+	if amountMinor < 1 || userID == "" || intentID == "" || strings.TrimSpace(returnURL) == "" {
+		return nil, fmt.Errorf("invalid After Dark Stripe checkout details")
+	}
+
+	productName := "After Dark purchase"
+	if paymentType != "" {
+		productName = fmt.Sprintf("After Dark %s", strings.ReplaceAll(paymentType, "_", " "))
+	}
+	params := &stripe.CheckoutSessionParams{
+		ClientReferenceID: stripe.String(userID),
+		Mode:              stripe.String(string(stripe.CheckoutSessionModePayment)),
+		UIMode:            stripe.String("embedded"),
+		ReturnURL:         stripe.String(returnURL),
+		CustomerEmail:     stripe.String(email),
+		CustomerCreation:  stripe.String(string(stripe.CheckoutSessionCustomerCreationAlways)),
+		LineItems: []*stripe.CheckoutSessionLineItemParams{{
+			PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
+				Currency: stripe.String("usd"),
+				ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
+					Name: stripe.String(productName),
+				},
+				UnitAmount: stripe.Int64(amountMinor),
+			},
+			Quantity: stripe.Int64(1),
+		}},
+		Metadata: map[string]string{
+			"user_id":      userID,
+			"intent_id":    intentID,
+			"payment_type": paymentType,
+		},
+	}
+	params.Context = ctx
+
+	checkout, err := session.New(params)
+	if err != nil {
+		return nil, fmt.Errorf("Stripe After Dark checkout creation failed: %w", err)
+	}
+	return &CheckoutSession{
+		Provider:     "stripe",
+		SessionID:    checkout.ID,
+		ClientSecret: checkout.ClientSecret,
+		PublicKey:    s.PublishableKey,
+		PaymentURL:   checkout.URL,
+	}, nil
+}
+
 func (s *StripeGateway) VerifyPayment(ctx context.Context, sessionID string) (bool, error) {
 	verification, err := s.VerifyPaymentDetails(ctx, sessionID)
 	if err != nil {

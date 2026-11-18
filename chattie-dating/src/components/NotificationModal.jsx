@@ -135,7 +135,7 @@ export default function NotificationModal() {
             </div>
             <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto">
               {isLoading ? (
-                <div className="flex h-40 items-center justify-center" style={{ color: 'var(--text-muted)' }}><RefreshCw className="h-5 w-5 animate-spin" /></div>
+                <div className="flex h-[min(35dvh,20rem)] items-center justify-center" style={{ color: 'var(--text-muted)' }}><RefreshCw className="h-5 w-5 animate-spin" /></div>
               ) : loadError ? (
                 <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>{t('unableLoadNotifications')}</div>
               ) : notifications.length === 0 ? (

@@ -2,20 +2,23 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 
 	"chattie-backend/middlewares"
 	"chattie-backend/models" // ADDED: needed for the empty array fallback
 	"chattie-backend/repository"
+	"chattie-backend/services"
 )
 
 type DiscoverHandler struct {
-	Repo *repository.Repository
+	Repo          *repository.Repository
+	UploadService *services.UploadService
 }
 
-func NewDiscoverHandler(repo *repository.Repository) *DiscoverHandler {
-	return &DiscoverHandler{Repo: repo}
+func NewDiscoverHandler(repo *repository.Repository, uploadService *services.UploadService) *DiscoverHandler {
+	return &DiscoverHandler{Repo: repo, UploadService: uploadService}
 }
 
 func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +55,16 @@ func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
 	// This ensures we send `[]` instead of `null` in the JSON response.
 	if profiles == nil {
 		profiles = []models.DiscoverProfile{}
+	}
+	for i := range profiles {
+		for j := range profiles[i].Images {
+			profiles[i].Images[j], err = presignMediaURL(r.Context(), h.UploadService, profiles[i].Images[j])
+			if err != nil {
+				log.Printf("[DISCOVERY MEDIA] Could not sign profile image for user %s: %v", profiles[i].ID, err)
+				http.Error(w, "Could not load profile images", http.StatusBadGateway)
+				return
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

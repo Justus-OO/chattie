@@ -3,7 +3,9 @@ package middlewares
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -19,8 +21,6 @@ const (
 	RoleKey      ContextKey = "role"
 	SessionIDKey ContextKey = "session_id"
 )
-
-var jwtSecret = []byte("super_secret_chattie_key_do_not_leak")
 
 // AuthMiddleware validates the JWT token and injects user_id and role into context
 func AuthMiddleware(next http.Handler) http.Handler {
@@ -52,13 +52,19 @@ func authMiddleware(next http.Handler, db *sql.DB) http.Handler {
 		}
 		tokenString := parts[1]
 
+		jwtSecret, err := configuredJWTSecret()
+		if err != nil {
+			http.Error(w, "Authentication is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
 		// 3. Parse and validate the token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, http.ErrAbortHandler
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, errors.New("unexpected signing method")
 			}
 			return jwtSecret, nil
-		})
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 
 		if err != nil || !token.Valid {
 			println("AUTH ERROR Failed to parse token:", err)
@@ -81,8 +87,13 @@ func authMiddleware(next http.Handler, db *sql.DB) http.Handler {
 					return
 				}
 				var currentVersion int64
-				if err := db.QueryRowContext(r.Context(), `SELECT token_version FROM users WHERE id = $1`, userID).Scan(&currentVersion); err != nil || int64(tokenVersion) != currentVersion {
+				var accountStatus string
+				if err := db.QueryRowContext(r.Context(), `SELECT token_version, status FROM users WHERE id = $1`, userID).Scan(&currentVersion, &accountStatus); err != nil || int64(tokenVersion) != currentVersion {
 					http.Error(w, "Unauthorized: Session expired", http.StatusUnauthorized)
+					return
+				}
+				if accountStatus == "banned" && r.URL.Path != "/api/account-review" {
+					http.Error(w, "Account restricted: review required", http.StatusForbidden)
 					return
 				}
 				if sessionID, ok := claims["session_id"].(string); ok && sessionID != "" {
@@ -131,6 +142,10 @@ func GenerateAuthToken(userID, role string, tokenVersion int64) (string, error) 
 }
 
 func GenerateAuthTokenWithSession(userID, role string, tokenVersion int64, sessionID string) (string, error) {
+	jwtSecret, err := configuredJWTSecret()
+	if err != nil {
+		return "", err
+	}
 	claims := jwt.MapClaims{
 		"user_id":       userID,
 		"role":          role,
@@ -142,6 +157,99 @@ func GenerateAuthTokenWithSession(userID, role string, tokenVersion int64, sessi
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(jwtSecret)
+}
+
+func ParseAuthToken(tokenString string) (string, string, error) {
+	jwtSecret, err := configuredJWTSecret()
+	if err != nil {
+		return "", "", err
+	}
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("unexpected signing method")
+		}
+		return jwtSecret, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	if err != nil || token == nil || !token.Valid {
+		if err == nil {
+			err = errors.New("invalid token")
+		}
+		return "", "", err
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", "", errors.New("invalid token claims")
+	}
+	userID, ok := claims["user_id"].(string)
+	if !ok || userID == "" {
+		return "", "", errors.New("token is missing user_id")
+	}
+	role, _ := claims["role"].(string)
+	return userID, role, nil
+}
+
+func ParseAuthTokenWithDB(ctx context.Context, tokenString string, db *sql.DB) (string, string, error) {
+	userID, role, err := ParseAuthToken(tokenString)
+	if err != nil {
+		return "", "", err
+	}
+
+	jwtSecret, err := configuredJWTSecret()
+	if err != nil {
+		return "", "", err
+	}
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	if err != nil || token == nil || !token.Valid {
+		return "", "", errors.New("invalid token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", "", errors.New("invalid token claims")
+	}
+	tokenVersion, ok := claims["token_version"].(float64)
+	if !ok {
+		return "", "", errors.New("token is missing token_version")
+	}
+
+	var currentVersion int64
+	var accountStatus string
+	if err := db.QueryRowContext(ctx, `SELECT token_version, status FROM users WHERE id = $1`, userID).Scan(&currentVersion, &accountStatus); err != nil {
+		return "", "", err
+	}
+	if int64(tokenVersion) != currentVersion {
+		return "", "", errors.New("session expired")
+	}
+	if accountStatus == "banned" {
+		return "", "", errors.New("account restricted")
+	}
+
+	if sessionID, ok := claims["session_id"].(string); ok && sessionID != "" {
+		var active bool
+		if err := db.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM auth_sessions
+				WHERE id = $1 AND user_id = $2 AND token_version = $3
+				  AND revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+			)
+		`, sessionID, userID, int64(tokenVersion)).Scan(&active); err != nil {
+			return "", "", err
+		}
+		if !active {
+			return "", "", errors.New("session revoked or expired")
+		}
+	}
+	return userID, role, nil
+}
+
+func configuredJWTSecret() ([]byte, error) {
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if len([]byte(secret)) < 32 {
+		return nil, errors.New("JWT_SECRET must contain at least 32 bytes")
+	}
+	return []byte(secret), nil
 }
 
 // RequireRole ensures the authenticated user has the specified role (e.g., 'model')

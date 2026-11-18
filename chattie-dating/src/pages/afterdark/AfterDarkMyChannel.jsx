@@ -10,6 +10,9 @@ import {
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
+import { useAppDialogs } from '../../components/modals/useAppDialogs';
+import AIDraftAssistant from '../../components/AIDraftAssistant';
+import { normalizeMediaType } from '../../utils/mediaType';
 
 // ============================================================================
 // DATA NORMALIZATION
@@ -17,7 +20,7 @@ import { afterDarkService } from '../../api/afterdark.service';
 const normalizeVaultPost = post => ({
   ...post,
   id: post.id || post.post_id,
-  type: post.type || post.media_type || 'image',
+  type: normalizeMediaType(post.type || post.media_type),
   url: post.url || post.media_url || post.preview_url || '',
   strategy: post.strategy || post.pricing_strategy || post.access_type || post.accessType || 'free',
   price: Number(post.price ?? post.price_cents ?? 0) / (post.price_cents !== undefined ? 100 : 1),
@@ -67,6 +70,7 @@ const SubscriberAvatar = ({ name, src, className = '' }) => {
 // ============================================================================
 const EditPostModal = ({ post, onClose, onSave }) => {
   const [caption, setCaption] = useState(post?.caption ?? '');
+  const [captionContext, setCaptionContext] = useState('');
   const [price, setPrice] = useState(post?.price ?? 0);
   const [strategy, setStrategy] = useState(post?.strategy ?? 'free');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,6 +78,7 @@ const EditPostModal = ({ post, onClose, onSave }) => {
   useEffect(() => {
     if (!post) return;
     setCaption(post.caption);
+    setCaptionContext('');
     setPrice(post.price ?? 0);
     setStrategy(post.strategy ?? 'free');
   }, [post]);
@@ -139,10 +144,27 @@ const EditPostModal = ({ post, onClose, onSave }) => {
 
           <div>
             <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Caption</label>
+            <label htmlFor="edit-caption-context" className="mb-2 block text-[9px] font-bold uppercase tracking-widest text-zinc-600">Caption direction (optional)</label>
+            <input
+              id="edit-caption-context"
+              value={captionContext}
+              onChange={(event) => setCaptionContext(event.target.value)}
+              maxLength={500}
+              placeholder="What should the caption mention?"
+              className="mb-3 w-full border-2 border-zinc-800 bg-black px-3 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-white"
+            />
             <textarea 
               value={caption} 
               onChange={(e) => setCaption(e.target.value)}
-              className="w-full min-h-[96px] bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-xs font-bold text-white focus:outline-none focus:border-white transition-colors resize-none"
+              maxLength={2200}
+              className="min-h-[clamp(6rem,15vh,8rem)] w-full resize-none border-2 border-zinc-800 bg-black px-4 py-3 text-xs font-bold text-white transition-colors focus:outline-none focus:border-white rounded-none"
+            />
+            <AIDraftAssistant
+              type="creator-caption"
+              context={captionContext}
+              draft={caption}
+              disabled={isSubmitting}
+              onSelect={setCaption}
             />
           </div>
 
@@ -275,7 +297,7 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
         role="dialog" 
         aria-modal="true" 
         aria-label={`Conversation with ${subscriberName}`} 
-        className="relative z-10 flex h-[min(640px,85vh)] w-full max-w-lg flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] rounded-none animate-in zoom-in-95 duration-200 overflow-hidden"
+        className="relative z-10 flex h-[85dvh] min-h-0 w-full max-w-lg flex-col overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] rounded-none animate-in zoom-in-95 duration-200"
       >
         <header className="flex items-center justify-between border-b-2 border-zinc-800 bg-zinc-950 p-4 shrink-0">
           <div className="flex items-center gap-3">
@@ -342,16 +364,26 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
 };
 
 // ============================================================================
-// INLINE COMPONENT: WITHDRAW MODAL (MATCHES BLUEPRINT)
+// INLINE COMPONENT: WITHDRAW MODAL
+
 // ============================================================================
-const WithdrawModal = ({ balance, pending, payoutMethodId, onClose, onSuccess }) => {
+const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) => {
   const [amount, setAmount] = useState('');
+  const [payoutMethodId, setPayoutMethodId] = useState(payoutMethods[0]?.id || payoutMethods[0]?.payout_method_id || '');
   const [isProcessing, setIsProcessing] = useState(false);
+  const selectedPayoutMethod = payoutMethods.find(method => String(method.id || method.payout_method_id) === String(payoutMethodId));
+  const provider = selectedPayoutMethod?.provider || '';
+  const isMpesa = provider === 'mpesa';
+  const amountKes = Number(amount) || 0;
+  const feeKes = isMpesa ? 50 : 0;
+  const payoutKes = Math.max(0, amountKes - feeKes);
 
   const handleWithdraw = async () => {
     const val = Number(amount);
     if (!val || val < 1000) return toast.error('Minimum withdrawal is KES 1,000');
     if (val > balance) return toast.error('Insufficient available balance');
+    if (!Number.isFinite(val) || Math.abs(val * 100 - Math.round(val * 100)) > 1e-7) return toast.error('Enter an amount with no more than two decimal places.');
+    if (isMpesa && !Number.isInteger(val)) return toast.error('M-Pesa payouts must be a whole number of Kenyan shillings.');
 
     if (!payoutMethodId) return toast.error('Add a payout method before withdrawing.');
     setIsProcessing(true);
@@ -376,7 +408,7 @@ const WithdrawModal = ({ balance, pending, payoutMethodId, onClose, onSuccess })
         
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
-            <Smartphone className="w-4 h-4 text-green-500" /> Withdraw to M-Pesa
+            <Smartphone className="w-4 h-4 text-green-500" /> Withdraw via {isMpesa ? 'M-Pesa' : provider === 'paystack_bank' ? 'Paystack bank' : provider === 'paystack_mobile_money' ? 'Paystack mobile money' : 'payout'}
           </h2>
           <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors rounded-none">
             <X className="w-4 h-4" />
@@ -396,15 +428,32 @@ const WithdrawModal = ({ balance, pending, payoutMethodId, onClose, onSuccess })
           </div>
 
           <div>
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Payout method</label>
+            {payoutMethods.length ? (
+              <select value={payoutMethodId} onChange={event => setPayoutMethodId(event.target.value)} className="w-full bg-black border-2 border-zinc-800 p-3 text-xs font-bold text-white focus:outline-none focus:border-white">
+                {payoutMethods.map(method => (
+                  <option key={method.id || method.payout_method_id} value={method.id || method.payout_method_id}>
+                    {(method.provider || 'Payout').replaceAll('_', ' ')} · {method.account_number || method.phone_number || 'destination'}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="border-2 border-zinc-800 bg-zinc-950 p-3 text-[10px] font-bold uppercase text-zinc-400">Add a payout method before withdrawing.</p>
+            )}
+          </div>
+
+          <div>
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2 flex justify-between">
               <span>Amount to Withdraw</span>
-              <button type="button" onClick={() => setAmount(balance.toString())} className="text-white hover:underline">MAX</button>
+              <button type="button" onClick={() => setAmount((isMpesa ? Math.floor(balance) : balance).toFixed(isMpesa ? 0 : 2))} className="text-white hover:underline">MAX</button>
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-zinc-500 font-bold text-xs">KES</span>
-              <input 
-                type="number" 
-                value={amount} 
+              <input
+                type="number"
+                min="1000"
+                step={isMpesa ? '1' : '0.01'}
+                value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="1000"
                 className="w-full bg-black border-2 border-zinc-800 rounded-none p-4 pl-14 text-lg font-bold text-white focus:outline-none focus:border-white transition-colors"
@@ -415,17 +464,22 @@ const WithdrawModal = ({ balance, pending, payoutMethodId, onClose, onSuccess })
           <div className="bg-zinc-950 border-2 border-zinc-800 p-4 flex items-start gap-3 rounded-none">
             <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
             <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-relaxed">
-              Funds will be sent to your registered Safaricom number within 24 hours. A standard B2C network fee of KES 50 applies.
+              {selectedPayoutMethod
+                ? `Destination: ${selectedPayoutMethod.account_number || selectedPayoutMethod.phone_number || 'saved payout method'}. `
+                : 'Select a saved payout destination. '}
+              {isMpesa
+                ? `Your KES ${feeKes.toLocaleString()} fee is deducted from the withdrawal amount; KES ${payoutKes.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} will be sent.`
+                : 'No fixed payout fee is deducted by Chattie for this Paystack method.'}
             </p>
           </div>
 
           <button 
             type="button"
             onClick={handleWithdraw} 
-            disabled={isProcessing || !amount || Number(amount) < 1000 || Number(amount) > balance}
+            disabled={isProcessing || !payoutMethodId || !amount || amountKes < 1000 || amountKes > balance || (isMpesa && !Number.isInteger(amountKes))}
             className="w-full py-4 bg-white text-black font-bold uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 disabled:opacity-50 transition-colors rounded-none"
           >
-            {isProcessing ? 'Processing...' : `Confirm KES ${Number(amount || 0).toLocaleString()} Payout`}
+            {isProcessing ? 'Processing...' : `Confirm KES ${amountKes.toLocaleString()} Withdrawal`}
           </button>
         </div>
 
@@ -439,6 +493,7 @@ const WithdrawModal = ({ balance, pending, payoutMethodId, onClose, onSuccess })
 // MAIN COMPONENT: MY CHANNEL STUDIO (USERSETTINGS BLUEPRINT)
 // ============================================================================
 export default function AfterDarkMyChannel() {
+  const { confirm } = useAppDialogs();
   const location = useLocation();
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
@@ -657,7 +712,18 @@ export default function AfterDarkMyChannel() {
                     <Video className="w-8 h-8 text-white" />
                   </div>
                 ) : null}
-                <img src={post.url} alt="media" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity rounded-none" />
+                {post.type === 'video' ? (
+                  <video
+                    src={post.url}
+                    controls
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <img src={post.url} alt="media" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity rounded-none" />
+                )}
                 
                 <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-20">
                   <span className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest border-2 bg-black rounded-none ${
@@ -724,7 +790,11 @@ export default function AfterDarkMyChannel() {
                   <button 
                     type="button"
                     onClick={async () => {
-                      if (!window.confirm('Delete this media from your vault?')) return;
+                      if (!await confirm('Delete this media from your vault?', {
+                        title: 'Delete media',
+                        confirmLabel: 'Delete',
+                        tone: 'danger',
+                      })) return;
                       try {
                         await afterDarkService.deletePost(post.id);
                         setVaultPosts(current => current.filter(item => item.id !== post.id));
@@ -804,32 +874,32 @@ export default function AfterDarkMyChannel() {
       </div>
 
       <div className="w-full overflow-x-auto custom-scrollbar border-2 border-zinc-800 bg-black rounded-none">
-        <table className="w-full text-left border-collapse min-w-[750px]">
+        <table className="w-full min-w-full text-left border-collapse">
           <thead>
             <tr className="bg-zinc-950 border-b-2 border-zinc-800">
-              <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Customer</th>
-              <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Tier</th>
-              <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
-              <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Joined / Expires</th>
-              <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Lifetime Value</th>
-              <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center">Message</th>
+              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Customer</th>
+              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Tier</th>
+              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Status</th>
+              <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:table-cell lg:p-4">Joined / Expires</th>
+              <th className="hidden p-2 text-right text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:table-cell lg:p-4">Lifetime Value</th>
+              <th className="p-2 text-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Message</th>
             </tr>
           </thead>
           <tbody>
             {visibleSubscribers.map((sub) => (
               <tr key={sub.id} className="border-b-2 border-zinc-800 last:border-b-0 hover:bg-zinc-950 transition-colors">
-                <td className="p-4">
+                <td className="p-2 sm:p-3 lg:p-4">
                   <div className="flex items-center gap-3">
                     <SubscriberAvatar name={sub.user?.name} src={sub.user?.avatar} className="h-9 w-9 border-2 border-zinc-700 grayscale" />
                     <span className="text-xs font-bold text-white uppercase tracking-widest">@{sub.user.name}</span>
                   </div>
                 </td>
-                <td className="p-4">
+                <td className="p-2 sm:p-3 lg:p-4">
                   <span className={`text-[10px] font-bold uppercase tracking-widest ${sub.tier === 'Diamond' ? 'text-yellow-400' : 'text-zinc-400'}`}>
                     {sub.tier}
                   </span>
                 </td>
-                <td className="p-4">
+                <td className="p-2 sm:p-3 lg:p-4">
                   <span className={`px-2 py-1 text-[9px] font-bold uppercase tracking-widest border-2 rounded-none ${
                     sub.status === 'active' 
                       ? 'bg-black border-green-500 text-green-500' 
@@ -838,16 +908,16 @@ export default function AfterDarkMyChannel() {
                     {sub.status}
                   </span>
                 </td>
-                <td className="p-4">
+                <td className="hidden p-2 sm:p-3 lg:table-cell lg:p-4">
                   <div className="flex flex-col gap-0.5 text-[10px] font-bold uppercase tracking-widest">
                     <span className="text-zinc-300">{sub.joinedAt || '--'}</span>
                     <span className="text-zinc-500">{sub.expiresAt || '--'}</span>
                   </div>
                 </td>
-                <td className="p-4 text-right">
+                <td className="hidden p-2 text-right sm:p-3 lg:table-cell lg:p-4">
                   <span className="text-xs font-bold text-green-500 tracking-widest">KES {sub.lifetimeValue.toLocaleString()}</span>
                 </td>
-                <td className="p-4 text-center">
+                <td className="p-2 text-center sm:p-3 lg:p-4">
                   <button 
                     type="button"
                     onClick={() => setSelectedSubscriber(sub)} 
@@ -927,30 +997,30 @@ export default function AfterDarkMyChannel() {
         </h3>
         
         <div className="w-full overflow-x-auto custom-scrollbar border-2 border-zinc-800 bg-black rounded-none">
-          <table className="w-full text-left border-collapse min-w-[650px]">
+          <table className="w-full min-w-full text-left border-collapse">
             <thead>
               <tr className="bg-zinc-950 border-b-2 border-zinc-800">
-                <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Date</th>
-                <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Reference ID</th>
-                <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Method</th>
-                <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
-                <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Amount (KES)</th>
-                <th className="p-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center">Receipt</th>
+                <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Date</th>
+                <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:table-cell sm:p-3 lg:p-4">Reference ID</th>
+                <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest md:table-cell md:p-3 lg:p-4">Method</th>
+                <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Status</th>
+                <th className="p-2 text-right text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Amount (KES)</th>
+                <th className="p-2 text-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Receipt</th>
               </tr>
             </thead>
             <tbody>
               {payouts.map((tx) => (
                 <tr key={tx.id} className="border-b-2 border-zinc-800 last:border-b-0 hover:bg-zinc-950 transition-colors">
-                  <td className="p-4 text-xs font-bold text-zinc-300 uppercase tracking-widest">{tx.date}</td>
-                  <td className="p-4 text-xs font-bold text-white tracking-widest">{tx.ref}</td>
-                  <td className="p-4 text-xs font-bold text-zinc-400 uppercase tracking-widest">{tx.method}</td>
-                  <td className="p-4">
+                  <td className="p-2 text-[10px] font-bold text-zinc-300 uppercase tracking-widest sm:p-3 sm:text-xs lg:p-4">{tx.date}</td>
+                  <td className="hidden p-2 text-xs font-bold text-white tracking-widest sm:table-cell sm:p-3 lg:p-4">{tx.ref}</td>
+                  <td className="hidden p-2 text-xs font-bold text-zinc-400 uppercase tracking-widest md:table-cell md:p-3 lg:p-4">{tx.method}</td>
+                  <td className="p-2 sm:p-3 lg:p-4">
                     <span className="px-2 py-1 text-[9px] font-bold uppercase tracking-widest border-2 bg-black border-green-500 text-green-500 rounded-none">
                       {tx.status}
                     </span>
                   </td>
-                  <td className="p-4 text-right text-xs font-bold text-white tracking-widest">{tx.amount.toLocaleString()}</td>
-                  <td className="p-4 text-center">
+                  <td className="p-2 text-right text-[10px] font-bold text-white tracking-widest sm:p-3 sm:text-xs lg:p-4">{tx.amount.toLocaleString()}</td>
+                  <td className="p-2 text-center sm:p-3 lg:p-4">
                     <button 
                       type="button"
                       onClick={() => downloadReceipt(tx)} 
@@ -977,7 +1047,7 @@ export default function AfterDarkMyChannel() {
   );
 
   const renderSettingsTab = () => (
-    <div className="max-w-3xl space-y-8">
+    <div className="space-y-8">
       <section className="space-y-3">
         <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Subscription Settings</h2>
         <div className="bg-black border-2 border-zinc-800 p-4 md:p-6 space-y-6 rounded-none">
@@ -1005,7 +1075,7 @@ export default function AfterDarkMyChannel() {
               value={welcomeMessage} 
               onChange={event => setWelcomeMessage(event.target.value)}
               placeholder="Welcome to my VIP room..."
-              className="w-full min-h-[100px] bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white transition-colors resize-none custom-scrollbar"
+              className="min-h-[clamp(6rem,15vh,9rem)] w-full resize-none border-2 border-zinc-800 bg-black px-4 py-3 text-sm font-bold text-white transition-colors focus:outline-none focus:border-white rounded-none custom-scrollbar"
             />
           </div>
 
@@ -1063,13 +1133,13 @@ export default function AfterDarkMyChannel() {
   if (!isCreator) return <Navigate to="/afterdark/feed" replace />;
 
   return (
-    <div className="flex-1 flex flex-col bg-black w-full h-full relative overflow-y-auto custom-scrollbar text-zinc-300 rounded-none font-mono">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden text-zinc-300 rounded-none font-mono">
       
       {/* HERO HEADER: Cover & Profile Summary */}
       <div className="relative shrink-0 border-b-2 border-zinc-800 bg-zinc-950 rounded-none">
         
         {/* Cover Photo */}
-        <div className="h-44 md:h-56 w-full bg-black border-b-2 border-zinc-800 relative group overflow-hidden rounded-none">
+        <div className="relative aspect-[4/1] w-full overflow-hidden border-b-2 border-zinc-800 bg-black rounded-none group">
           {creatorProfile.cover_url || creatorProfile.cover ? (
             <img src={creatorProfile.cover_url || creatorProfile.cover} alt="Creator cover" className="w-full h-full object-cover opacity-60 grayscale group-hover:opacity-40 transition-opacity rounded-none" />
           ) : (
@@ -1098,10 +1168,10 @@ export default function AfterDarkMyChannel() {
                 <img 
                   src={creatorProfile.avatar_url || currentUser.avatar} 
                   alt="avatar" 
-                  className="w-24 h-24 md:w-32 md:h-32 object-cover border-2 border-zinc-600 bg-black rounded-none" 
+                  className="size-[clamp(5.5rem,12vw,8rem)] object-cover border-2 border-zinc-600 bg-black rounded-none"
                 />
               ) : (
-                <div className="w-24 h-24 md:w-32 md:h-32 border-2 border-zinc-600 bg-black flex items-center justify-center text-xl font-bold text-white rounded-none">
+                <div className="size-[clamp(5.5rem,12vw,8rem)] border-2 border-zinc-600 bg-black flex items-center justify-center text-xl font-bold text-white rounded-none">
                   {(creatorProfile.display_name || creatorAlias || currentUser?.name || 'C').slice(0, 1).toUpperCase()}
                 </div>
               )}
@@ -1151,7 +1221,7 @@ export default function AfterDarkMyChannel() {
                 key={tab.id}
                 type="button"
                 onClick={() => changeChannelTab(tab.id)}
-                className={`flex-1 min-w-[150px] py-3.5 px-4 text-xs font-bold uppercase tracking-widest transition-colors border-r-2 border-zinc-800 last:border-r-0 flex items-center justify-center gap-2 rounded-none focus:outline-none ${
+                className={`min-w-[clamp(7rem,15vw,9rem)] flex-1 py-3.5 px-4 text-xs font-bold uppercase tracking-widest transition-colors border-r-2 border-zinc-800 last:border-r-0 flex items-center justify-center gap-2 rounded-none focus:outline-none ${
                   isActive 
                     ? 'bg-white text-black' 
                     : 'bg-black text-zinc-500 hover:text-white hover:bg-zinc-950'
@@ -1166,8 +1236,8 @@ export default function AfterDarkMyChannel() {
       </div>
 
       {/* TAB CONTENT AREA */}
-      <div className="flex-1 p-4 md:p-8 bg-black pb-24">
-        <div className="max-w-6xl mx-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-black p-2 sm:p-3 lg:p-4">
+        <div className="w-full">
           {channelError && (
             <div role="alert" className="mb-6 border-2 border-red-900 bg-black p-4 text-xs font-bold uppercase tracking-widest text-red-500 rounded-none">
               {channelError}
@@ -1204,7 +1274,7 @@ export default function AfterDarkMyChannel() {
         <WithdrawModal 
           balance={balance}
           pending={channelStats.pendingClearance}
-          payoutMethodId={payoutMethods[0]?.id || payoutMethods[0]?.payout_method_id || ''}
+          payoutMethods={payoutMethods}
           onClose={() => setIsWithdrawOpen(false)}
           onSuccess={async () => {
             setIsWithdrawOpen(false);

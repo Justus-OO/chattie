@@ -19,7 +19,6 @@ import (
 	"chattie-backend/services"
 	"chattie-backend/workers"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -29,7 +28,10 @@ func main() {
 	// =======================================================
 	// 1. LOAD CONFIGURATION, LOCALIZATION & DATABASE
 	// =======================================================
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Invalid server configuration: %v", err)
+	}
 
 	if err := services.InitI18n(); err != nil {
 		log.Fatalf("Failed to load translations: %v", err)
@@ -38,7 +40,9 @@ func main() {
 	db := database.ConnectDB(cfg.DBUrl)
 	defer db.Close()
 
-	handlers.ReloadFilters(db)
+	if err := handlers.ReloadFilters(db); err != nil {
+		log.Printf("Failed to load moderation filters: %v", err)
+	}
 
 	// =======================================================
 	// 2. INITIALIZE ALL REPOSITORIES FIRST
@@ -47,6 +51,8 @@ func main() {
 	settingsRepo := repository.NewSettingsRepository(db)
 	roomRepo := repository.NewRoomRepository(db)
 	chatRepo := repository.NewChatRepository(db)
+	aiChatRepo := repository.NewAIChatRepository(db)
+	supportRepo := repository.NewSupportRepository(db)
 	adminTSRepo := repository.NewAdminRepository(db)
 
 	// After Dark Repositories
@@ -67,17 +73,31 @@ func main() {
 	// Storage Service (Backblaze B2)
 	uploadService := services.NewUploadService()
 
-	// AWS SDK Configuration (Required for Rekognition)
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
-	if err != nil {
-		log.Fatalf("CRITICAL: Failed to load AWS config for Verification Service: %v", err)
+	plaidIdentityVerificationService := services.NewPlaidIdentityVerificationService(
+		os.Getenv("PLAID_CLIENT_ID"),
+		os.Getenv("PLAID_SECRET"),
+		os.Getenv("PLAID_IDV_TEMPLATE_ID"),
+		os.Getenv("PLAID_IDV_COUNTRY_CODE"),
+		os.Getenv("PLAID_ENV"),
+	)
+	if !plaidIdentityVerificationService.Available() {
+		log.Printf("[KYC] Plaid Identity Verification is not configured; identity verification requests will be unavailable")
 	}
-	verificationService := services.NewVerificationService(awsCfg)
 
 	// Chat & WebSockets
 	chatHub := handlers.NewHub(chatRepo)
 	go chatHub.Run()
-	chatHandler := handlers.NewWebSocketHandler(chatHub, chatRepo)
+	chatHandler := handlers.NewWebSocketHandler(chatHub, chatRepo, roomRepo)
+	geminiService := services.NewGeminiService(os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_MODEL"))
+	aiChatHandler := handlers.NewAIChatHandler(chatRepo, aiChatRepo, repo, geminiService)
+	aiWritingHandler := handlers.NewAIWritingHandler(geminiService, adMediaRepo)
+	supportHandler := handlers.NewSupportHandler(supportRepo, geminiService)
+	if geminiService.Available() {
+		workers.NewAIReplyWorker(aiChatRepo, chatRepo, geminiService, chatHub).Start(context.Background())
+		workers.NewAITriageWorker(db, geminiService).Start(context.Background())
+	} else {
+		log.Println("[AI] Gemini features disabled because GEMINI_API_KEY is not configured")
+	}
 
 	// Email Engine
 	emailClient := services.NewEmailClient()
@@ -109,8 +129,10 @@ func main() {
 
 	cronWorker := workers.NewCronWorker(repo, notifService)
 	cronWorker.Start(context.Background())
-	adCreatorApplicationWorker := workers.NewADCreatorApplicationWorker(adPerformerRepo)
-	adCreatorApplicationWorker.Start(context.Background())
+	adPayoutRecoveryWorker := workers.NewADPayoutRecoveryWorker(adFinanceRepo)
+	adPayoutRecoveryWorker.Start(context.Background())
+	creatorProfileAssignmentWorker := workers.NewCreatorProfileAssignmentWorker(repo, eventHandler)
+	creatorProfileAssignmentWorker.Start(context.Background())
 
 	// =======================================================
 	// 5. INITIALIZE HTTP HANDLERS
@@ -123,30 +145,37 @@ func main() {
 	authHandler.SMS = smsClient
 
 	// Core Handlers
-	discoverHandler := handlers.NewDiscoverHandler(repo)
-	gridHandler := handlers.NewGridHandler(repo)
-	interactionHandler := handlers.NewInteractionHandler(repo, eventHandler)
+	discoverHandler := handlers.NewDiscoverHandler(repo, uploadService)
+	gridHandler := handlers.NewGridHandler(repo, uploadService)
+	interactionHandler := handlers.NewInteractionHandler(repo, eventHandler, uploadService)
 	roomHandler := handlers.NewRoomHandler(roomRepo, eventHandler)
 	notificationHandler := handlers.NewNotificationHandler(repo, eventHandler.Push)
 
 	// Settings & Billing Handlers
 	billingHandler := handlers.NewBillingHandler(repo, billingRouter, eventHandler)
 	extrasHandler := handlers.NewExtrasHandler(repo, eventHandler)
-	settingsHandler := handlers.NewSettingsHandler(settingsRepo, uploadService, emailHandler, eventHandler, verificationService)
+	settingsHandler := handlers.NewSettingsHandler(
+		settingsRepo,
+		uploadService,
+		emailHandler,
+		eventHandler,
+		plaidIdentityVerificationService,
+	)
 	creatorHandler := handlers.NewCreatorHandler(repo, eventHandler)
 
 	// After Dark Handlers
 	adPerformerHandler := handlers.NewADPerformerHandler(adPerformerRepo)
-	adProfileHandler := handlers.NewADProfileHandler(adProfileRepo)
+	adminPerformerHandler := handlers.NewAdminPerformerHandler(adPerformerRepo)
+	adProfileHandler := handlers.NewADProfileHandler(adProfileRepo, uploadService)
 	adMediaHandler := handlers.NewADMediaHandler(adMediaRepo, uploadService)
-	adDiscoveryHandler := handlers.NewADDiscoveryHandler(adDiscoveryRepo)
+	adDiscoveryHandler := handlers.NewADDiscoveryHandler(adDiscoveryRepo, uploadService)
 	adBillingHandler := handlers.NewADBillingHandler(adBillingRepo)
 	adInteractionsHandler := handlers.NewADInteractionsHandler(adInteractionsRepo, eventHandler)
 	adChatHandler := handlers.NewADChatHandler(adChatRepo, adMediaRepo, uploadService, chatHub, eventHandler)
 	adFinanceHandler := handlers.NewADFinanceHandler(adFinanceRepo, mpesaGateway, paystackGateway)
 	adSubscriptionHandler := handlers.NewADSubscriptionHandler(adSubscriptionRepo)
-	adLiveHandler := handlers.NewADLiveHandler(adLiveRepo, adFinanceRepo)
-	adPaymentsHandler := handlers.NewADPaymentsHandler(adFinanceRepo, repo, eventHandler, paystackGateway, mpesaGateway, adLiveHandler.RoomClient)
+	adLiveHandler := handlers.NewADLiveHandler(adLiveRepo, adFinanceRepo, uploadService)
+	adPaymentsHandler := handlers.NewADPaymentsHandler(adFinanceRepo, repo, eventHandler, stripeGateway, paystackGateway, mpesaGateway, adLiveHandler.RoomClient)
 	adSettingsHandler := handlers.NewADSettingsHandler(adSettingsRepo)
 	// adMediaHandler := handlers.NewADMediaHandler(adMediaRepo, uploadService) // Ready for Phase 2 completion
 
@@ -157,6 +186,7 @@ func main() {
 	adminRoomHandler := handlers.NewAdminRoomHandler(repo, chatHub)
 	pdfHandler := handlers.NewPDFHandler(repo)
 	adminTSHandler := handlers.NewAdminHandler(adminTSRepo, eventHandler)
+	adminAfterDarkHandler := handlers.NewAdminAfterDarkHandler(adminTSRepo, uploadService)
 
 	// =======================================================
 	// 6. SETUP ROUTER & MIDDLEWARES
@@ -174,6 +204,7 @@ func main() {
 	}))
 	// Security & Localization Middlewares
 	r.Use(middlewares.IPBanMiddleware(db))
+	r.Use(middlewares.RegionalAccessMiddleware(db))
 	r.Use(services.I18nMiddleware)
 
 	// Public API Routes
@@ -188,15 +219,18 @@ func main() {
 	r.Post("/api/subscriptions/mpesa/callback", billingHandler.MpesaCallback)
 	r.Post("/api/afterdark/payments/mpesa/callback", adPaymentsHandler.MpesaCallback)
 	r.Post("/api/afterdark/payments/paystack/webhook", adPaymentsHandler.PaystackWebhook)
+	r.Post("/api/afterdark/payments/stripe/webhook", adPaymentsHandler.StripeWebhook)
 	r.Post("/api/afterdark/payouts/mpesa/result", adFinanceHandler.MpesaB2CResult)
 	r.Post("/api/afterdark/payouts/mpesa/timeout", adFinanceHandler.MpesaB2CTimeout)
-
 	// Protected API Routes (Requires JWT Authentication)
 	r.Group(func(r chi.Router) {
 		r.Use(middlewares.AuthMiddlewareWithDB(db))
+		r.Use(middlewares.RegionalUserMiddleware(db))
 		r.Get("/api/auth/two-factor", authHandler.GetTwoFactorSettings)
 		r.Post("/api/auth/two-factor/setup", authHandler.RequestTwoFactorChange)
 		r.Post("/api/auth/two-factor/verify", authHandler.VerifyTwoFactorChange)
+		r.Get("/api/account-review", adminTSHandler.GetMyAccountReview)
+		r.Post("/api/account-review", adminTSHandler.CreateMyAccountReview)
 
 		// -----------------------------------------------------
 		// AFTER DARK (AD) ROUTES
@@ -205,6 +239,7 @@ func main() {
 			// Onboarding & Consents
 			r.Post("/me/creator-application", adPerformerHandler.SubmitApplication)
 			r.Get("/me/creator-application", adPerformerHandler.GetMyApplication)
+			r.Post("/assistant/captions", aiWritingHandler.GenerateCreatorCaptions)
 
 			// Creator Profile Management
 			r.Get("/me/creator-profile", adProfileHandler.GetMyPerformerProfile)
@@ -223,6 +258,7 @@ func main() {
 			r.Get("/wallet", adBillingHandler.GetWallet)
 			r.Post("/checkout-intents", adBillingHandler.UnlockPostWithWallet)
 			r.Post("/payments/checkout", adPaymentsHandler.CreateCheckout)
+			r.Get("/payments/config", adPaymentsHandler.GetCheckoutConfig)
 			r.Get("/payments/{intentId}", adPaymentsHandler.GetPaymentStatus)
 			r.Get("/checkout-intents/{intentId}", adFinanceHandler.GetCheckoutIntent)
 
@@ -236,6 +272,10 @@ func main() {
 			r.Post("/conversations/{conversationId}/attachments", adChatHandler.UploadAttachment)
 			r.Get("/conversations/{conversationId}/messages", adChatHandler.GetMessages)
 			r.Post("/conversations/{conversationId}/messages", adChatHandler.SendMessage)
+			r.Post("/conversations/{conversationId}/messages/pin", adChatHandler.PinMessage)
+			r.Post("/conversations/{conversationId}/messages/reactions", adChatHandler.ToggleMessageReaction)
+			r.Post("/conversations/{conversationId}/voice-token", adChatHandler.GenerateCallToken)
+			r.Post("/conversations/{conversationId}/call-events", adChatHandler.RecordCallEvent)
 			r.Post("/conversations/{conversationId}/block", adChatHandler.SetConversationBlock)
 			r.Post("/conversations/{conversationId}/unlock", adChatHandler.UnlockChat)
 
@@ -280,12 +320,7 @@ func main() {
 
 			r.Get("/me/earnings", adFinanceHandler.GetEarnings)
 
-			// 2. Fix for 405 on /wallet/withdrawals
 			r.Get("/wallet/withdrawals", adFinanceHandler.GetWithdrawals)
-			// Note: You should already have r.Post("/wallet/withdrawals", ...) defined.
-			// The 405 means the POST exists but the GET is missing. Ensure both are there.
-
-			// 3. Fix for 404 on /me/subscribers
 			r.Get("/me/subscribers", adProfileHandler.GetSubscribers)
 
 			// r.Post("/uploads", adMediaHandler.ReserveUpload)
@@ -294,7 +329,16 @@ func main() {
 			// r.Post("/me/posts", adMediaHandler.CreatePost)
 		})
 
+		r.Route("/api/support/tickets", func(r chi.Router) {
+			r.Get("/", supportHandler.ListMyTickets)
+			r.Post("/", supportHandler.CreateTicket)
+			r.Get("/{ticket_id}/messages", supportHandler.GetTicketMessages)
+			r.Post("/{ticket_id}/messages", supportHandler.AddUserMessage)
+			r.Post("/{ticket_id}/handoff", supportHandler.RequestHuman)
+		})
+
 		// Profile & Onboarding Routes
+		r.Post("/api/assistant/profile-bio", aiWritingHandler.GenerateProfileBios)
 		r.Route("/api/profile", func(r chi.Router) {
 			r.Post("/request-otp", otpHandler.RequestOTP)
 			r.Post("/verify-otp", onboardingHandler.VerifyOTP)
@@ -312,8 +356,9 @@ func main() {
 			r.Post("/password", authHandler.ChangePassword)
 			r.Delete("/account", settingsHandler.DeleteAccount)
 
-			r.Get("/verification-config", settingsHandler.GetVerificationConfig)
-			r.Post("/verify", settingsHandler.VerifyProfile)
+			r.Post("/identity-verification/link-token", settingsHandler.CreatePlaidIdentityVerificationLinkToken)
+			r.Post("/identity-verification/complete", settingsHandler.CompletePlaidIdentityVerification)
+			r.Get("/identity-verification/{attemptID}/status", settingsHandler.GetPlaidIdentityVerificationStatus)
 			r.Post("/request-data", settingsHandler.RequestDataDownload)
 			r.Post("/terminate-sessions", settingsHandler.TerminateOtherSessions)
 			r.Get("/sessions", settingsHandler.GetActiveSessions)
@@ -354,16 +399,26 @@ func main() {
 		// Rooms Routes
 		r.Route("/api/rooms", func(r chi.Router) {
 			r.Get("/", roomHandler.GetRooms)
+			r.Get("/my", roomHandler.GetMyRooms)
 			r.Post("/", roomHandler.CreateRoom)
 			r.Post("/join", roomHandler.JoinRoom)
 			r.Post("/voice-token", roomHandler.GenerateVoiceToken)
+			r.Get("/{roomId}/voice", roomHandler.GetRoomVoiceSession)
+			r.Post("/{roomId}/voice/start", roomHandler.StartRoomVoiceSession)
+			r.Post("/{roomId}/voice/end", roomHandler.EndRoomVoiceSession)
 			r.Post("/request-access", roomHandler.RequestAccess)
 			r.Get("/{roomId}/participants", roomHandler.GetRoomParticipants)
 			r.Get("/{roomId}/admin-details", roomHandler.GetRoomAdminDetails)
+			r.Get("/{roomId}/join-requests", roomHandler.GetRoomJoinRequests)
 			r.Post("/{roomId}/manage-request", roomHandler.ManageJoinRequest)
+			r.Post("/{roomId}/join", roomHandler.JoinRoomByID)
 			r.Put("/{roomId}", roomHandler.UpdateRoom)
 			r.Post("/{roomId}/leave", roomHandler.LeaveRoom)
 			r.Post("/{roomId}/moderate", roomHandler.KickOrBanParticipant)
+			r.Patch("/{roomId}/members/role", roomHandler.SetMemberRole)
+			r.Patch("/{roomId}/members/mute", roomHandler.SetMemberMuted)
+			r.Post("/{roomId}/messages/pin", roomHandler.PinMessage)
+			r.Post("/{roomId}/messages/reactions", roomHandler.ToggleMessageReaction)
 		})
 
 		// Subscriptions & Monetization Routes
@@ -374,7 +429,6 @@ func main() {
 			r.Get("/mpesa/status", billingHandler.MpesaPaymentStatus)
 			r.Get("/payment-methods", billingHandler.GetPaymentMethods)
 			r.Delete("/payment-methods/{id}", billingHandler.DeletePaymentMethod)
-			r.Post("/kyc", settingsHandler.VerifyIdentityKYC)
 			r.Post("/extras", extrasHandler.HandleUpgrade)
 		})
 
@@ -390,8 +444,32 @@ func main() {
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(middlewares.RequireRole("admin"))
 
+			r.Route("/support/tickets", func(r chi.Router) {
+				r.Get("/", supportHandler.ListAdminTickets)
+				r.Get("/{ticket_id}/messages", supportHandler.GetAdminTicketMessages)
+				r.Post("/{ticket_id}/messages", supportHandler.AddAdminMessage)
+				r.Patch("/{ticket_id}", supportHandler.UpdateTicketStatus)
+			})
+			r.Route("/creator-applications", func(r chi.Router) {
+				r.Get("/", adminPerformerHandler.ListPendingApplications)
+				r.Patch("/{application_id}", adminPerformerHandler.ReviewApplication)
+			})
+
+			r.Get("/dashboard", adminTSHandler.GetDashboardTelemetry)
+			r.Get("/settings/moderation-terms", adminTSHandler.GetModerationTerms)
+			r.Post("/settings/moderation-terms", adminTSHandler.CreateModerationTerm)
+			r.Delete("/settings/moderation-terms/{id}", adminTSHandler.DeleteModerationTerm)
+			r.Get("/settings/afterdark/auto-moderation", adminTSHandler.GetAfterDarkAutoModeration)
+			r.Patch("/settings/afterdark/auto-moderation", adminTSHandler.UpdateAfterDarkAutoModeration)
+			r.Get("/settings/regions/countries", adminTSHandler.GetRegionalCountries)
+			r.Post("/settings/regions/countries", adminTSHandler.BlockRegionalCountry)
+			r.Delete("/settings/regions/countries/{code}", adminTSHandler.UnblockRegionalCountry)
 			r.Get("/afterdark/earnings-clearance", adFinanceHandler.GetPendingEarningsClearance)
 			r.Post("/afterdark/earnings-clearance/{userId}", adFinanceHandler.ClearCreatorEarnings)
+			r.Get("/finance", adminTSHandler.GetFinanceAnalytics)
+			r.Get("/afterdark/posts", adminAfterDarkHandler.ListPosts)
+			r.Get("/afterdark/posts/{postId}/media-url", adminAfterDarkHandler.GetPostMediaURL)
+			r.Patch("/afterdark/posts/{postId}/moderation", adminAfterDarkHandler.ModeratePost)
 
 			r.Route("/media", func(r chi.Router) {
 				r.Get("/vaults", adminMediaHandler.GetVaults)
@@ -417,20 +495,26 @@ func main() {
 				r.Get("/audit", adminTSHandler.GetAuditLogs)
 				r.Get("/rules", adminTSHandler.GetFirewallRules)
 				r.Post("/rules/toggle", adminTSHandler.ToggleFirewallRule)
+				r.Get("/appeals", adminTSHandler.GetAccountReviewQueue)
+				r.Post("/appeals/{id}", adminTSHandler.ResolveAccountReview)
 			})
 
 			r.Get("/operators", adminCreatorHandler.GetAdminRoster)
 			r.Patch("/operators/{id}/commission", adminCreatorHandler.UpdateCommission)
 			r.Patch("/operators/{id}/status", adminCreatorHandler.UpdateOperatorStatus)
 			r.Patch("/operators/{id}/autopilot", adminCreatorHandler.ToggleAutoPilot)
+			r.Get("/creator-payouts", adminCreatorHandler.GetCreatorPayoutRequests)
+			r.Post("/creator-payouts/{payout_id}/review", adminCreatorHandler.ReviewCreatorPayout)
 
 			r.Post("/operators/{id}/personas/{personaId}", adminCreatorHandler.BindPersona)
 			r.Delete("/operators/{id}/personas/{personaId}", adminCreatorHandler.UnbindPersona)
+			r.Post("/operators/{id}/notify-pending-replies", adminCreatorHandler.NotifyOperatorPendingReplies)
 
 			r.Get("/personas-metrics", adminCreatorHandler.GetPersonasMetrics)
 			r.Post("/creators/provision", adminCreatorHandler.CreateCreatorAccount)
 
 			r.Get("/clients", adminClientHandler.GetClientDirectory)
+			r.Get("/clients/telemetry", adminClientHandler.GetClientTelemetry)
 			r.Get("/clients/{id}/telemetry", adminTSHandler.GetClientTelemetry)
 			r.Patch("/clients/{id}/ban", adminClientHandler.ToggleBan)
 			r.Patch("/clients/{id}/revoke-tier", adminClientHandler.RevokeTier)
@@ -450,13 +534,25 @@ func main() {
 			r.Use(middlewares.RequireRole("model"))
 
 			r.Get("/profiles", creatorHandler.GetProfiles)
+			r.Get("/settings", creatorHandler.GetModelSettings)
+			r.Patch("/settings", creatorHandler.UpdateModelSettings)
+			r.Patch("/profiles/{profile_id}", creatorHandler.UpdateManagedProfileDetails)
 			r.Patch("/profiles/{profile_id}/status", creatorHandler.UpdateStatus)
+			r.Get("/profiles/{profile_id}/conversations", creatorHandler.GetProfileConversations)
+			r.Get("/profiles/{profile_id}/conversations/{partner_id}/messages", creatorHandler.GetProfileConversationMessages)
+			r.Post("/profiles/{profile_id}/conversations/{partner_id}/assistant/suggestions", aiChatHandler.GenerateModelSuggestions)
+			r.Post("/profiles/{profile_id}/conversations/{partner_id}/block", creatorHandler.BlockProfileConversationUser)
+			r.Post("/profiles/{profile_id}/conversations/{partner_id}/report", creatorHandler.ReportProfileConversationUser)
 
 			r.Get("/dashboard", creatorHandler.GetStats)
+			r.Post("/status", creatorHandler.ToggleOnlineStatus)
+			r.Get("/payout-methods", creatorHandler.GetPayoutMethods)
+			r.Put("/payout-methods/{asset_network}", creatorHandler.SavePayoutMethod)
+			r.Get("/payout-requests", creatorHandler.GetPayoutRequests)
 			r.Get("/queue", creatorHandler.GetQueue)
 			r.Post("/queue/{request_id}/action", creatorHandler.ProcessQueueAction)
 			r.Get("/ledger", creatorHandler.GetLedger)
-			r.Post("/payout", creatorHandler.RequestPayout)
+			r.Post("/payout", creatorHandler.RequestCryptoPayout)
 			r.Get("/profiles/{profile_id}/media", creatorHandler.GetProfileMedia)
 			r.Get("/insights/{userId}", chatHandler.GetUserInsights)
 		})
@@ -465,6 +561,12 @@ func main() {
 		r.Route("/api/chats", func(r chi.Router) {
 			r.Post("/media", handlers.UploadChatMedia)
 			r.Get("/inbox", chatHandler.GetInbox)
+			r.Post("/{target_id}/assistant/suggestions", aiChatHandler.GenerateSuggestions)
+			r.Get("/{target_id}/assistant/auto-reply", aiChatHandler.GetAutoReplyPreference)
+			r.Put("/{target_id}/assistant/auto-reply", aiChatHandler.SetAutoReplyPreference)
+			r.Post("/{target_id}/voice-token", roomHandler.GenerateDirectCallToken)
+			r.Post("/{target_id}/messages/pin", chatHandler.PinDirectMessage)
+			r.Post("/{target_id}/call-events", chatHandler.RecordDirectCallEvent)
 
 			r.Patch("/{target_id}/read", func(w http.ResponseWriter, r *http.Request) {
 				targetID := chi.URLParam(r, "target_id")
@@ -507,7 +609,19 @@ func main() {
 				if chatType == "dm" {
 					messages, err = chatRepo.GetDirectMessages(userID, targetID, 50)
 				} else {
-					messages, err = chatRepo.GetRoomMessages(targetID, 50)
+					isMember, membershipErr := roomRepo.IsRoomMember(r.Context(), targetID, userID)
+					if membershipErr != nil {
+						log.Printf("Could not validate room history access for user %s: %v", userID, membershipErr)
+						w.WriteHeader(http.StatusInternalServerError)
+						json.NewEncoder(w).Encode(map[string]string{"error": "Could not validate room access"})
+						return
+					}
+					if !isMember {
+						w.WriteHeader(http.StatusForbidden)
+						json.NewEncoder(w).Encode(map[string]string{"error": "Room membership required"})
+						return
+					}
+					messages, err = chatRepo.GetRoomMessages(targetID, 50, userID)
 				}
 
 				if err != nil {

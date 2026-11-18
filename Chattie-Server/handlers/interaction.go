@@ -9,21 +9,23 @@ import (
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
 	"chattie-backend/repository"
-	"chattie-backend/services" // <-- Imported the new services package
+	"chattie-backend/services"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type InteractionHandler struct {
-	Repo   *repository.Repository
-	Events *services.EventHandler // <-- Injected the generic notification engine
+	Repo          *repository.Repository
+	Events        *services.EventHandler
+	UploadService *services.UploadService
 }
 
 // NewInteractionHandler creates a new instance of the handler
-func NewInteractionHandler(repo *repository.Repository, events *services.EventHandler) *InteractionHandler {
+func NewInteractionHandler(repo *repository.Repository, events *services.EventHandler, uploadService *services.UploadService) *InteractionHandler {
 	return &InteractionHandler{
-		Repo:   repo,
-		Events: events,
+		Repo:          repo,
+		Events:        events,
+		UploadService: uploadService,
 	}
 }
 
@@ -79,12 +81,13 @@ func (h *InteractionHandler) HandleAction(w http.ResponseWriter, r *http.Request
 
 	// Prevent the "Double-Swipe Upgrade Modal" bug
 	if !resp.Allowed {
-		if resp.Message == "Already interacted with this user" {
-			// Send 409 Conflict if they just mashed the button twice
-			w.WriteHeader(http.StatusConflict)
-		} else {
-			// Send 402 Payment Required ONLY if they hit their actual swipe limits
+		switch resp.Code {
+		case models.InteractionCodeUpgradeRequired:
 			w.WriteHeader(http.StatusPaymentRequired)
+		case models.InteractionCodeUnavailable:
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusConflict)
 		}
 	} else {
 		// --- NOTIFICATION TRIGGER ---
@@ -126,6 +129,14 @@ func (h *InteractionHandler) GetMatches(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, localized(r.Context(), "ErrFailedLoadMatches", "Failed to load matches"), http.StatusInternalServerError)
 		return
 	}
+	for i := range matches {
+		matches[i].AvatarURL, err = presignMediaURL(r.Context(), h.UploadService, matches[i].AvatarURL)
+		if err != nil {
+			log.Printf("[MATCH MEDIA] Could not sign avatar for user %s: %v", matches[i].ID, err)
+			http.Error(w, "Could not load match images", http.StatusBadGateway)
+			return
+		}
+	}
 
 	// 3. Send JSON response
 	w.Header().Set("Content-Type", "application/json")
@@ -160,6 +171,14 @@ func (h *InteractionHandler) GetFullProfile(w http.ResponseWriter, r *http.Reque
 		log.Printf("Failed to load profile for %s: %v\n", targetID, err)
 		http.Error(w, localized(r.Context(), "ErrFailedLoadProfile", "Failed to load profile"), http.StatusInternalServerError)
 		return
+	}
+	for i := range profile.Images {
+		profile.Images[i], err = presignMediaURL(r.Context(), h.UploadService, profile.Images[i])
+		if err != nil {
+			log.Printf("[PROFILE MEDIA] Could not sign image for user %s: %v", targetID, err)
+			http.Error(w, "Could not load profile images", http.StatusBadGateway)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

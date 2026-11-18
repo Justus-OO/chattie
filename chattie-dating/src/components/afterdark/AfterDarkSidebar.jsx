@@ -238,7 +238,7 @@ export default function AfterDarkSidebar() {
             )}
           </div>
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-white truncate max-w-[120px]">
+            <span className="max-w-[clamp(5rem,10vw,8rem)] truncate text-xs font-bold text-white">
               {currentUser.name}
             </span>
             <span className="text-[9px] uppercase tracking-widest text-zinc-500">

@@ -13,6 +13,7 @@ import AppleSignin from 'react-apple-signin-auth';
 
 // API Services
 import { authService } from '../../api/auth.service'; 
+import { profileService } from '../../api/profile.service';
 import { apiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
 
@@ -67,7 +68,7 @@ export default function Register() {
   // ============================================================================
   // SHARED SESSION HANDLER
   // ============================================================================
-  const processAuthSuccess = (response) => {
+  const processAuthSuccess = async (response) => {
     const user = response.user || response.data?.user;
     let token = response.token || response.data?.token || '';
 
@@ -85,6 +86,13 @@ export default function Register() {
     }
     
     toast.success(t('accountCreated'));
+    try {
+      await profileService.requestEmailOTP(cleanToken);
+      toast.success('Verification code sent. Check your email inbox and spam folder.');
+    } catch (error) {
+      console.error('Registration succeeded but email verification code could not be sent:', error);
+      toast.error(error.message || 'Account created, but the verification code could not be sent. Resend it from onboarding.');
+    }
     navigate('/onboarding');
   };
 
@@ -99,7 +107,7 @@ export default function Register() {
       await authService.register(data.username, data.email, data.password);
       // Auto-login to fetch JWT token after successful registration
       const response = await authService.login(data.email, data.password);
-      processAuthSuccess(response);
+      await processAuthSuccess(response);
     } catch (error) {
       toast.error(error.message || t('createAccountFailed'));
     } finally {
@@ -113,7 +121,7 @@ export default function Register() {
       setSocialLoading('Google');
       try {
         const response = await authService.googleLogin(tokenResponse.access_token);
-        processAuthSuccess(response);
+        await processAuthSuccess(response);
       } catch (error) {
         toast.error(error.message || t('googleRegistrationFailed'));
         setSocialLoading(null);
@@ -208,7 +216,7 @@ export default function Register() {
                   setSocialLoading('Apple');
                   try {
                     const apiResponse = await authService.appleLogin(response.authorization.id_token);
-                    processAuthSuccess(apiResponse);
+                    await processAuthSuccess(apiResponse);
                   } catch (error) {
                     toast.error(error.message || t('appleRegistrationFailed'));
                     setSocialLoading(null);

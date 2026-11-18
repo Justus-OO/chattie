@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CreditCard, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { billingService } from '../../api/billing.service';
+import { useAppDialogs } from '../../components/modals/useAppDialogs';
 
 export default function PaymentMethods() {
   const navigate = useNavigate();
+  const { confirm } = useAppDialogs();
   const [methods, setMethods] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [removingId, setRemovingId] = useState('');
@@ -31,7 +33,11 @@ export default function PaymentMethods() {
   }, [loadMethods]);
 
   const removeMethod = async method => {
-    if (!window.confirm(`Remove this ${method.provider} card ending in ${method.last4}?`)) return;
+    if (!await confirm(`Remove this ${method.provider} card ending in ${method.last4}?`, {
+      title: 'Remove payment method',
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    })) return;
     setRemovingId(method.id);
     try {
       await billingService.removePaymentMethod(method.id);
@@ -45,8 +51,8 @@ export default function PaymentMethods() {
   };
 
   return (
-    <main className="min-h-full bg-black px-4 py-8 text-white sm:px-8">
-      <div className="mx-auto max-w-3xl space-y-6">
+    <main className="h-full min-h-0 min-w-0 w-full overflow-y-auto bg-black px-2 py-4 text-white sm:px-4 lg:px-5">
+      <div className="w-full space-y-4">
         <button
           type="button"
           onClick={() => navigate(-1)}

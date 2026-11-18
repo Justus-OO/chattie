@@ -1,6 +1,12 @@
 // models/interaction.go
 package models
 
+const (
+	InteractionCodeUpgradeRequired = "UPGRADE_REQUIRED"
+	InteractionCodeAlreadyExists   = "ALREADY_INTERACTED"
+	InteractionCodeUnavailable     = "USER_UNAVAILABLE"
+)
+
 type InteractionRequest struct {
 	TargetID   string `json:"target_id"`
 	ActionType string `json:"action_type"` // "LIKE", "PASS", "SUPER_LIKE", "FLIRT"
@@ -9,6 +15,7 @@ type InteractionRequest struct {
 // Sent back to React to trigger the "It's a Match!" modal
 type InteractionResponse struct {
 	Allowed bool   `json:"allowed"`
+	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"` // e.g., "Out of swipes for today"
 	IsMatch bool   `json:"is_match"`
 }

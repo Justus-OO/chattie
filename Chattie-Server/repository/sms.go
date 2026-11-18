@@ -3,8 +3,11 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
+
+var ErrOTPRequestRateLimited = errors.New("verification code request rate limited")
 
 type SMSJob struct {
 	ID          string
@@ -81,35 +84,49 @@ func (r *Repository) FailSMSJob(ctx context.Context, id string, attempts int, er
 
 // SaveOTP stores the generated verification code securely.
 func (r *Repository) SaveOTP(ctx context.Context, userID, code string, expiresAt time.Time) error {
-	// Upsert logic: if a user requests a new code, overwrite the previous one
 	query := `
 		INSERT INTO user_otps (user_id, code, expires_at) 
 		VALUES ($1, $2, $3)
 		ON CONFLICT (user_id) 
-		DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, created_at = CURRENT_TIMESTAMP`
+		DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at, created_at = CURRENT_TIMESTAMP
+		WHERE COALESCE(user_otps.created_at, '-infinity'::timestamptz)
+			<= CURRENT_TIMESTAMP - INTERVAL '60 seconds'`
 
-	_, err := r.DB.ExecContext(ctx, query, userID, code, expiresAt)
-	return err
+	result, err := r.DB.ExecContext(ctx, query, userID, code, expiresAt)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return ErrOTPRequestRateLimited
+	}
+	return nil
 }
 
 // ValidateOTP checks if the provided code matches and hasn't expired.
 func (r *Repository) ValidateOTP(ctx context.Context, userID, code string) (bool, error) {
-	var isValid bool
-	query := `
-		SELECT EXISTS (
-			SELECT 1 FROM user_otps 
+	var verifiedUserID string
+	err := r.DB.QueryRowContext(ctx, `
+		WITH consumed AS (
+			DELETE FROM user_otps
 			WHERE user_id = $1 AND code = $2 AND expires_at > CURRENT_TIMESTAMP
-		)`
-
-	err := r.DB.QueryRowContext(ctx, query, userID, code).Scan(&isValid)
+			RETURNING user_id
+		)
+		UPDATE users
+		SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP),
+		    updated_at = CURRENT_TIMESTAMP
+		FROM consumed
+		WHERE users.id = consumed.user_id
+		RETURNING users.id::text
+	`, userID, code).Scan(&verifiedUserID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
-
-	// Optional: Immediately invalidate the OTP after successful use to prevent replay attacks
-	if isValid {
-		_, _ = r.DB.ExecContext(ctx, `DELETE FROM user_otps WHERE user_id = $1`, userID)
-	}
-
-	return isValid, nil
+	return true, nil
 }

@@ -16,6 +16,7 @@ export default function AdminUsers() {
   const [activeTab, setActiveTab] = useState('DIRECTORY'); // DIRECTORY, TIERS
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTier, setFilterTier] = useState('ALL'); // ALL, VIP, PREMIUM, STANDARD
   const [filterStatus, setFilterStatus] = useState('ALL'); // ALL, ACTIVE, FLAGGED, BANNED
@@ -35,19 +36,35 @@ export default function AdminUsers() {
   // ============================================================================
   // DATA FETCHING
   // ============================================================================
-  const fetchClientData = async () => {
+  const fetchClientData = async (showSuccess = false) => {
     try {
       setIsLoading(true);
+      setLoadError('');
       const [directoryData, telemetryData] = await Promise.all([
         adminService.getClientDirectory(),
         adminService.getClientTelemetry()
       ]);
-      
-      setUsers(directoryData || []);
-      setTelemetry(telemetryData || { totalUsers: 0, vipCount: 0, premiumCount: 0, dailyActive: 0 });
+
+      if (!Array.isArray(directoryData) || !telemetryData || typeof telemetryData !== 'object') {
+        throw new Error('The server returned invalid client directory data.');
+      }
+      setUsers(directoryData.map(user => ({
+        ...user,
+        status: String(user.status || '').toUpperCase(),
+        tier: String(user.tier || 'STANDARD').toUpperCase(),
+      })));
+      setTelemetry({
+        totalUsers: Number(telemetryData.totalUsers) || 0,
+        vipCount: Number(telemetryData.vipCount) || 0,
+        premiumCount: Number(telemetryData.premiumCount) || 0,
+        dailyActive: Number(telemetryData.dailyActive) || 0,
+      });
+      if (showSuccess) toast.success('Client directory synced.');
     } catch (error) {
       console.error("Failed to fetch client directory data", error);
-      toast.error("Failed to sync with client network engine");
+      const message = error.response?.data?.error || error.message || "Failed to sync with client directory.";
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -70,28 +87,15 @@ export default function AdminUsers() {
     try {
       await adminService.toggleClientBan(id);
       
-      setUsers(prev => prev.map(u => {
-        if (u.id === id) {
-          return { 
-            ...u, 
-            status: nextStatus,
-            behavior: { ...u.behavior, riskScore: isBanned ? 10 : 99 } 
-          };
-        }
-        return u;
-      }));
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, status: nextStatus } : u));
 
       if (selectedUser?.id === id) {
-        setSelectedUser(prev => ({
-          ...prev,
-          status: nextStatus,
-          behavior: { ...prev.behavior, riskScore: isBanned ? 10 : 99 }
-        }));
+        setSelectedUser(prev => ({ ...prev, status: nextStatus }));
       }
 
       toast.success(isBanned ? 'User access restored.' : 'User permanently banned.');
     } catch (error) {
-      toast.error("Failed to update user ban status");
+      toast.error(error.response?.data?.error || "Failed to update user ban status");
     }
   };
 
@@ -106,7 +110,7 @@ export default function AdminUsers() {
         setSelectedUser(prev => ({ ...prev, tier: 'STANDARD' }));
       }
     } catch (error) {
-      toast.error("Failed to revoke subscription tier");
+      toast.error(error.response?.data?.error || "Failed to revoke subscription tier");
     }
   };
 
@@ -120,15 +124,15 @@ export default function AdminUsers() {
   });
 
   return (
-    <div className="flex-1 bg-black min-h-screen text-zinc-300 font-mono flex flex-col rounded-none overflow-hidden relative" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
           ========================================= */}
       <div className="border-b-2 border-zinc-800 bg-zinc-950 p-4 flex flex-wrap justify-between items-center text-[10px] uppercase font-black tracking-widest shrink-0 gap-4 z-10 relative">
         <div className="flex items-center gap-6">
-          <span className="flex items-center gap-2 text-green-500">
-            <UserCheck className="w-4 h-4 animate-pulse" /> CLIENT NETWORK ONLINE
+          <span className={`flex items-center gap-2 ${loadError ? 'text-red-500' : isLoading ? 'text-yellow-500' : 'text-green-500'}`}>
+            <UserCheck className={`w-4 h-4 ${isLoading ? 'animate-pulse' : ''}`} /> {loadError ? 'CLIENT NETWORK ERROR' : isLoading ? 'SYNCING CLIENT NETWORK' : 'CLIENT NETWORK ONLINE'}
           </span>
           <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500 hidden sm:inline-block">
             TOTAL REGISTERED: <span className="text-white">{telemetry.totalUsers.toLocaleString()}</span>
@@ -142,10 +146,11 @@ export default function AdminUsers() {
             VIP CONVERSION: <span className="text-yellow-400">{telemetry.totalUsers > 0 ? ((telemetry.vipCount / telemetry.totalUsers) * 100).toFixed(1) : '0.0'}%</span>
           </span>
           <button 
-            onClick={() => { fetchClientData(); toast('Client DB synced.'); }}
+            onClick={() => fetchClientData(true)}
+            disabled={isLoading}
             className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors bg-black border-2 border-zinc-800 px-3 py-1"
           >
-            <RefreshCcw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">SYNC</span>
+            <RefreshCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">SYNC</span>
           </button>
         </div>
       </div>
@@ -153,7 +158,7 @@ export default function AdminUsers() {
       {/* =========================================
           MAIN HEADER & TABS
           ========================================= */}
-      <div className="p-6 md:p-8 border-b-2 border-zinc-800 bg-black shrink-0 flex flex-col gap-6 z-10 relative">
+      <div className="shrink-0 border-b-2 border-zinc-800 bg-black p-3 sm:p-4 flex flex-col gap-4 z-10 relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
@@ -189,7 +194,18 @@ export default function AdminUsers() {
       {/* =========================================
           TAB CONTENT AREA
           ========================================= */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-black">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar relative bg-black">
+        {loadError && !isLoading && (
+            <div className="mx-2 mt-3 border-2 border-red-900/60 bg-red-950/20 p-4 flex flex-wrap items-center justify-between gap-3 sm:mx-3 lg:mx-4">
+            <p className="text-xs text-red-300">{loadError}</p>
+            <button
+              onClick={() => fetchClientData()}
+              className="border-2 border-red-800 px-3 py-2 text-[9px] font-black uppercase text-red-300 hover:bg-red-950"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         
         {isLoading ? (
           <div className="flex items-center justify-center h-full w-full p-20">
@@ -201,7 +217,7 @@ export default function AdminUsers() {
                 TAB 1: DIRECTORY (MAIN TABLE)
                 ========================================= */}
             {activeTab === 'DIRECTORY' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 
                 {/* Filters & Search */}
                 <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center bg-zinc-950 p-4 border-2 border-zinc-800">
@@ -212,7 +228,7 @@ export default function AdminUsers() {
                       placeholder="SEARCH USERNAME, EMAIL, OR ID..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-transparent border-none outline-none text-xs font-bold text-white uppercase tracking-widest w-full md:w-80 placeholder:text-zinc-600"
+                      className="w-full border-none bg-transparent text-xs font-bold uppercase tracking-widest text-white outline-none placeholder:text-zinc-600 md:w-[clamp(16rem,26vw,20rem)]"
                     />
                   </div>
 
@@ -333,7 +349,7 @@ export default function AdminUsers() {
                 TAB 2: TIERS & REVENUE
                 ========================================= */}
             {activeTab === 'TIERS' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="mb-6">
                   <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
                     <Crown className="w-5 h-5 text-yellow-400" /> Subscription Ecosystem

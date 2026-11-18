@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { afterDarkService } from '../../api/afterdark.service';
+import AIDraftAssistant from '../AIDraftAssistant';
 
 const ACCESS_OPTIONS = [
   { id: 'free', label: 'Free', icon: Check, detail: 'Everyone can view' },
@@ -17,6 +18,7 @@ export default function UploadExplicitModal({ isOpen, onClose, onSuccess }) {
   const fileInputRef = useRef(null);
   const [file, setFile] = useState(null);
   const [caption, setCaption] = useState('');
+  const [captionContext, setCaptionContext] = useState('');
   const [accessType, setAccessType] = useState('free');
   const [price, setPrice] = useState('50');
   const [isExplicit, setIsExplicit] = useState(true);
@@ -30,6 +32,7 @@ export default function UploadExplicitModal({ isOpen, onClose, onSuccess }) {
     if (!isOpen) return undefined;
     setFile(null);
     setCaption('');
+    setCaptionContext('');
     setAccessType('free');
     setPrice('50');
     setIsExplicit(true);
@@ -168,9 +171,26 @@ export default function UploadExplicitModal({ isOpen, onClose, onSuccess }) {
               {file && <p className="mt-2 truncate text-[10px] text-zinc-500">{file.name} · {(file.size / (1024 * 1024)).toFixed(1)} MB</p>}
 
               <div className="mt-5">
+                <label htmlFor="post-caption-context" className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-zinc-500">Caption direction (optional)</label>
+                <input
+                  id="post-caption-context"
+                  value={captionContext}
+                  onChange={event => setCaptionContext(event.target.value)}
+                  maxLength={500}
+                  placeholder="What should the caption mention?"
+                  disabled={isSubmitting}
+                  className="mb-4 w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50"
+                />
                 <label htmlFor="post-caption" className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-zinc-400">Caption</label>
                 <textarea id="post-caption" value={caption} onChange={event => setCaption(event.target.value)} maxLength={2200} rows={5} placeholder="Write a caption..." disabled={isSubmitting} className="w-full resize-y border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500 disabled:opacity-50" />
                 <div className="mt-1 text-right text-[9px] text-zinc-600">{caption.length}/2200</div>
+                <AIDraftAssistant
+                  type="creator-caption"
+                  context={captionContext}
+                  draft={caption}
+                  disabled={isSubmitting}
+                  onSelect={setCaption}
+                />
               </div>
             </section>
 
@@ -233,7 +253,7 @@ export default function UploadExplicitModal({ isOpen, onClose, onSuccess }) {
             )}
             <div className="flex items-center justify-between gap-3">
               <button type="button" onClick={handleClose} disabled={isSubmitting} className="border border-zinc-700 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:border-white hover:text-white disabled:opacity-40">Cancel</button>
-              <button type="submit" disabled={isSubmitting || !file} className="flex min-w-36 items-center justify-center gap-2 border border-yellow-300 bg-yellow-300 px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest text-black transition-colors hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="submit" disabled={isSubmitting || !file} className="flex min-w-[clamp(7rem,18vw,10rem)] items-center justify-center gap-2 border border-yellow-300 bg-yellow-300 px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest text-black transition-colors hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-50">
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 {isSubmitting ? 'Publishing' : 'Publish post'}
               </button>

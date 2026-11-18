@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -23,6 +24,15 @@ type ADPayoutMethod struct {
 	AccountName   string
 	BankCode      string
 }
+
+var (
+	ErrInsufficientClearedFunds = errors.New("insufficient cleared funds for payout")
+	ErrPayoutMethodNotFound     = errors.New("payout method not found")
+	ErrWithdrawalInProgress     = errors.New("an earlier withdrawal is still being processed")
+	ErrInvalidWithdrawal        = errors.New("invalid withdrawal amounts")
+	ErrWithdrawalNotFound       = errors.New("withdrawal not found for provider result")
+	ErrWithdrawalConflict       = errors.New("provider result conflicts with the recorded withdrawal status")
+)
 
 func NewADFinanceRepository(db *sql.DB) *ADFinanceRepository {
 	return &ADFinanceRepository{DB: db}
@@ -114,6 +124,9 @@ func (r *ADFinanceRepository) SendLiveTip(ctx context.Context, senderID string, 
 }
 
 func (r *ADFinanceRepository) sendTipTx(ctx context.Context, tx *sql.Tx, senderID string, creatorID string, amountCents int64, message string) (string, error) {
+	if amountCents <= 0 {
+		return "", errors.New("tip amount must be positive")
+	}
 	var creatorUserID string
 	err := tx.QueryRowContext(ctx, `
 		SELECT user_id::text FROM performer_profiles
@@ -134,8 +147,11 @@ func (r *ADFinanceRepository) sendTipTx(ctx context.Context, tx *sql.Tx, senderI
 	err = tx.QueryRowContext(ctx, `
 		SELECT available_balance_cents FROM ad_wallets WHERE user_id = $1 FOR UPDATE
 	`, senderID).Scan(&balance)
-	if err != nil || balance < amountCents {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && balance < amountCents) {
 		return "", errors.New("insufficient funds")
+	}
+	if err != nil {
+		return "", err
 	}
 
 	tipID := uuid.New().String()
@@ -177,6 +193,11 @@ func (r *ADFinanceRepository) GetTipSenderName(ctx context.Context, senderID str
 
 // RequestWithdrawal reserves cleared funds and creates a payout request atomically.
 func (r *ADFinanceRepository) RequestWithdrawal(ctx context.Context, withdrawal *models.ADWithdrawal) error {
+	if withdrawal.AmountCents <= 0 || withdrawal.FeeCents < 0 ||
+		withdrawal.PayoutAmountCents <= 0 || withdrawal.FeeCents > withdrawal.AmountCents ||
+		withdrawal.PayoutAmountCents != withdrawal.AmountCents-withdrawal.FeeCents {
+		return ErrInvalidWithdrawal
+	}
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -190,32 +211,61 @@ func (r *ADFinanceRepository) RequestWithdrawal(ctx context.Context, withdrawal 
 		return err
 	}
 	if !payoutMethodExists {
-		return errors.New("payout method not found")
+		return ErrPayoutMethodNotFound
 	}
 
 	var availableBalance int64
 	err = tx.QueryRowContext(ctx, `SELECT available_balance_cents FROM ad_wallets WHERE user_id = $1 FOR UPDATE`, withdrawal.UserID).Scan(&availableBalance)
 	if err != nil {
-		return errors.New("wallet not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrInsufficientClearedFunds
+		}
+		return err
+	}
+
+	var unresolved bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM ad_withdrawals
+			WHERE user_id = $1 AND status IN ('requested', 'submitting', 'submission_unknown', 'processing')
+		)
+	`, withdrawal.UserID).Scan(&unresolved); err != nil {
+		return err
+	}
+	if unresolved {
+		return ErrWithdrawalInProgress
 	}
 
 	if availableBalance < withdrawal.AmountCents {
-		return errors.New("insufficient cleared funds for payout")
+		return ErrInsufficientClearedFunds
 	}
 
-	_, err = tx.ExecContext(ctx, `UPDATE ad_wallets SET available_balance_cents = available_balance_cents - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`, withdrawal.AmountCents, withdrawal.UserID)
+	result, err := tx.ExecContext(ctx, `
+		UPDATE ad_wallets
+		SET available_balance_cents = available_balance_cents - $1, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $2 AND available_balance_cents >= $1
+	`, withdrawal.AmountCents, withdrawal.UserID)
 	if err != nil {
 		return err
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return err
+	} else if rows != 1 {
+		return ErrInsufficientClearedFunds
 	}
 
 	// 4. Create the withdrawal request record
 	query := `
-		INSERT INTO ad_withdrawals (id, user_id, amount_cents, payout_method_id, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO ad_withdrawals (
+			id, user_id, amount_cents, payout_amount_cents, fee_cents,
+			payout_method_id, status, provider, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	_, err = tx.ExecContext(ctx, query,
-		withdrawal.ID, withdrawal.UserID, withdrawal.AmountCents,
-		withdrawal.PayoutMethodID, withdrawal.Status, withdrawal.CreatedAt, withdrawal.UpdatedAt,
+		withdrawal.ID, withdrawal.UserID, withdrawal.AmountCents, withdrawal.PayoutAmountCents,
+		withdrawal.FeeCents, withdrawal.PayoutMethodID, withdrawal.Status, withdrawal.Provider,
+		withdrawal.CreatedAt, withdrawal.UpdatedAt,
 	)
 	if err != nil {
 		return err
@@ -224,13 +274,194 @@ func (r *ADFinanceRepository) RequestWithdrawal(ctx context.Context, withdrawal 
 	// 5. Log it to the immutable ledger as a pending debit
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
-		VALUES ($1, $2, 'withdrawal', $3, 'Payout requested')
+		VALUES (
+			$1, $2, 'withdrawal', $3,
+			'Payout requested; wallet debit includes any disclosed payout fee'
+		)
 	`, withdrawal.UserID, -withdrawal.AmountCents, withdrawal.ID)
 	if err != nil {
 		return err
 	}
 
 	return tx.Commit()
+}
+
+func (r *ADFinanceRepository) BeginWithdrawalSubmission(ctx context.Context, withdrawalID, providerReference string) error {
+	result, err := r.DB.ExecContext(ctx, `
+		UPDATE ad_withdrawals
+		SET status = 'submitting', provider_reference = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status = 'requested'
+	`, withdrawalID, providerReference)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errors.New("withdrawal is no longer awaiting provider submission")
+	}
+	return nil
+}
+
+func (r *ADFinanceRepository) RecoverFailedWithdrawalReversals(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, errors.New("recovery batch size must be positive")
+	}
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT w.id::text, w.user_id::text, w.amount_cents
+		FROM ad_withdrawals w
+		WHERE w.status = 'failed'
+		  AND NOT EXISTS (
+			SELECT 1 FROM ad_ledger_entries l
+			WHERE l.reference_id = w.id::text AND l.transaction_type = 'withdrawal_reversal'
+		  )
+		ORDER BY w.updated_at ASC
+		LIMIT $1
+		FOR UPDATE OF w SKIP LOCKED
+	`, limit)
+	if err != nil {
+		return 0, err
+	}
+	type reversal struct {
+		id, userID string
+		amount     int64
+	}
+	pending := make([]reversal, 0)
+	for rows.Next() {
+		var item reversal
+		if err := rows.Scan(&item.id, &item.userID, &item.amount); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	for _, item := range pending {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE ad_wallets
+			SET available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = $2
+		`, item.amount, item.userID)
+		if err != nil {
+			return 0, err
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return 0, err
+		} else if affected != 1 {
+			return 0, fmt.Errorf("wallet missing while recovering failed withdrawal %s", item.id)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
+			VALUES ($1, $2, 'withdrawal_reversal', $3, 'Recovered failed payout reversal')
+		`, item.userID, item.amount, item.id); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(pending), nil
+}
+
+func (r *ADFinanceRepository) RecoverStaleUnsubmittedWithdrawals(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, errors.New("recovery batch size must be positive")
+	}
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id::text, user_id::text, amount_cents
+		FROM ad_withdrawals
+		WHERE status = 'requested'
+		  AND created_at < CURRENT_TIMESTAMP - INTERVAL '2 minutes'
+		ORDER BY created_at ASC
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	`, limit)
+	if err != nil {
+		return 0, err
+	}
+	type staleWithdrawal struct {
+		id, userID string
+		amount     int64
+	}
+	pending := make([]staleWithdrawal, 0)
+	for rows.Next() {
+		var item staleWithdrawal
+		if err := rows.Scan(&item.id, &item.userID, &item.amount); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	recovered := 0
+	for _, item := range pending {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE ad_withdrawals
+			SET status = 'failed', failure_reason = 'Payout was not started before request expired',
+				updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1 AND status = 'requested'
+		`, item.id)
+		if err != nil {
+			return 0, err
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return 0, err
+		} else if affected != 1 {
+			continue
+		}
+		result, err = tx.ExecContext(ctx, `
+			UPDATE ad_wallets
+			SET available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = $2
+		`, item.amount, item.userID)
+		if err != nil {
+			return 0, err
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return 0, err
+		} else if affected != 1 {
+			return 0, fmt.Errorf("wallet missing while recovering unsubmitted withdrawal %s", item.id)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
+			VALUES ($1, $2, 'withdrawal_reversal', $3, 'Released expired payout that was never submitted')
+		`, item.userID, item.amount, item.id); err != nil {
+			return 0, err
+		}
+		recovered++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return recovered, nil
 }
 
 // AddPayoutMethod securely stores a creator's withdrawal destination
@@ -257,10 +488,13 @@ func (r *ADFinanceRepository) GetPayoutMethod(ctx context.Context, userID, metho
 }
 
 func (r *ADFinanceRepository) SetWithdrawalProvider(ctx context.Context, withdrawalID, provider, providerReference, conversationID string) error {
+	if strings.TrimSpace(providerReference) == "" && strings.TrimSpace(conversationID) == "" {
+		return errors.New("provider acceptance requires a reference")
+	}
 	result, err := r.DB.ExecContext(ctx, `
-		UPDATE ad_withdrawals SET status = 'processing', provider = $2,
+		UPDATE ad_withdrawals SET status = 'processing',
 			provider_reference = $3, provider_conversation_id = $4, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND status = 'requested'
+		WHERE id = $1 AND status = 'submitting' AND provider = $2
 	`, withdrawalID, provider, providerReference, conversationID)
 	if err != nil {
 		return err
@@ -270,12 +504,29 @@ func (r *ADFinanceRepository) SetWithdrawalProvider(ctx context.Context, withdra
 		return err
 	}
 	if rows != 1 {
-		return errors.New("withdrawal is no longer awaiting provider submission")
+		var settled bool
+		err := r.DB.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM ad_withdrawals
+				WHERE id = $1 AND provider = $2 AND status IN ('paid', 'failed')
+				  AND (($3 <> '' AND provider_reference = $3)
+				    OR ($4 <> '' AND provider_conversation_id = $4))
+			)
+		`, withdrawalID, provider, providerReference, conversationID).Scan(&settled)
+		if err != nil {
+			return err
+		}
+		if !settled {
+			return errors.New("withdrawal is no longer awaiting provider submission")
+		}
 	}
 	return nil
 }
 
-func (r *ADFinanceRepository) FailWithdrawal(ctx context.Context, withdrawalID, reason string) error {
+func (r *ADFinanceRepository) FailWithdrawalBeforeSubmission(ctx context.Context, withdrawalID, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return errors.New("a failure reason is required")
+	}
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -285,29 +536,42 @@ func (r *ADFinanceRepository) FailWithdrawal(ctx context.Context, withdrawalID, 
 	var userID string
 	var amount int64
 	err = tx.QueryRowContext(ctx, `
-		UPDATE ad_withdrawals SET status = 'failed', failure_reason = $2, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND status IN ('requested', 'processing')
+		UPDATE ad_withdrawals
+		SET status = 'failed', failure_reason = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status IN ('requested', 'submitting')
+		  AND (provider_reference = '' OR provider_reference = id::text)
+		  AND provider_conversation_id = ''
 		RETURNING user_id::text, amount_cents
 	`, withdrawalID, reason).Scan(&userID, &amount)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE ad_wallets SET available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
+	result, err := tx.ExecContext(ctx, `
+		UPDATE ad_wallets
+		SET available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = $2
-	`, amount, userID); err != nil {
+	`, amount, userID)
+	if err != nil {
 		return err
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return err
+	} else if rows != 1 {
+		return errors.New("wallet missing while reversing pre-submission withdrawal")
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
-		VALUES ($1, $2, 'withdrawal_reversal', $3, 'Failed payout returned to cleared earnings')
-	`, userID, amount, withdrawalID); err != nil {
+		VALUES ($1, $2, 'withdrawal_reversal', $3, $4)
+	`, userID, amount, withdrawalID, "Payout validation failed before provider submission: "+strings.TrimSpace(reason)); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func (r *ADFinanceRepository) CompleteWithdrawal(ctx context.Context, provider, reference, conversationID string, paid bool, reason string) error {
+	if strings.TrimSpace(provider) == "" || (strings.TrimSpace(reference) == "" && strings.TrimSpace(conversationID) == "") {
+		return errors.New("provider and transfer reference are required")
+	}
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -321,22 +585,48 @@ func (r *ADFinanceRepository) CompleteWithdrawal(ctx context.Context, provider, 
 	var amount int64
 	err = tx.QueryRowContext(ctx, `
 		UPDATE ad_withdrawals SET status = $4, failure_reason = NULLIF($5, ''), updated_at = CURRENT_TIMESTAMP
-		WHERE provider = $1 AND status = 'processing'
+		WHERE (provider = $1 OR ($1 = 'paystack' AND provider IN ('paystack_bank', 'paystack_mobile_money')))
+		  AND status IN ('submitting', 'processing')
 		  AND (($2 <> '' AND provider_reference = $2) OR ($3 <> '' AND provider_conversation_id = $3))
 		RETURNING id::text, user_id::text, amount_cents
 	`, provider, reference, conversationID, status, reason).Scan(&withdrawalID, &userID, &amount)
 	if err == sql.ErrNoRows {
-		return nil
+		var existingStatus string
+		err = tx.QueryRowContext(ctx, `
+			SELECT status FROM ad_withdrawals
+			WHERE (provider = $1 OR ($1 = 'paystack' AND provider IN ('paystack_bank', 'paystack_mobile_money')))
+			  AND (($2 <> '' AND provider_reference = $2) OR ($3 <> '' AND provider_conversation_id = $3))
+		`, provider, reference, conversationID).Scan(&existingStatus)
+		if err == sql.ErrNoRows {
+			return ErrWithdrawalNotFound
+		}
+		if err != nil {
+			return err
+		}
+		expectedStatus := "paid"
+		if !paid {
+			expectedStatus = "failed"
+		}
+		if existingStatus != expectedStatus {
+			return ErrWithdrawalConflict
+		}
+		return tx.Commit()
 	}
 	if err != nil {
 		return err
 	}
 	if !paid {
-		if _, err := tx.ExecContext(ctx, `
+		result, err := tx.ExecContext(ctx, `
 			UPDATE ad_wallets SET available_balance_cents = available_balance_cents + $1, updated_at = CURRENT_TIMESTAMP
 			WHERE user_id = $2
-		`, amount, userID); err != nil {
+		`, amount, userID)
+		if err != nil {
 			return err
+		}
+		if rows, err := result.RowsAffected(); err != nil {
+			return err
+		} else if rows != 1 {
+			return errors.New("wallet missing while reversing failed withdrawal")
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
@@ -433,7 +723,7 @@ func (r *ADFinanceRepository) GetEarnings(ctx context.Context, userID string) (m
 // GetWithdrawals fetches the creator's withdrawal request history
 func (r *ADFinanceRepository) GetWithdrawals(ctx context.Context, userID string) ([]map[string]interface{}, error) {
 	query := `
-		SELECT id::text, amount_cents, status, created_at, provider,
+		SELECT id::text, amount_cents, payout_amount_cents, fee_cents, status, created_at, provider,
 			COALESCE(failure_reason, ''), COALESCE(provider_reference, '')
 		FROM ad_withdrawals 
 		WHERE user_id = $1 
@@ -448,13 +738,14 @@ func (r *ADFinanceRepository) GetWithdrawals(ctx context.Context, userID string)
 	var withdrawals []map[string]interface{}
 	for rows.Next() {
 		var id, status, provider, failureReason, providerReference string
-		var amount int64
+		var amount, payoutAmount, fee int64
 		var createdAt time.Time
-		if err := rows.Scan(&id, &amount, &status, &createdAt, &provider, &failureReason, &providerReference); err != nil {
+		if err := rows.Scan(&id, &amount, &payoutAmount, &fee, &status, &createdAt, &provider, &failureReason, &providerReference); err != nil {
 			return nil, err
 		}
 		withdrawals = append(withdrawals, map[string]interface{}{
-			"id": id, "amount_cents": amount, "status": status, "created_at": createdAt,
+			"id": id, "amount_cents": amount, "payout_amount_cents": payoutAmount,
+			"fee_cents": fee, "status": status, "created_at": createdAt,
 			"provider": provider, "provider_reference": providerReference, "failure_reason": failureReason,
 		})
 	}

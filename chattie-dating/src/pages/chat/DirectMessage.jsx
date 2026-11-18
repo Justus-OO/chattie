@@ -291,7 +291,7 @@ export default function DirectMessage() {
   // RENDER
   // ============================================================================
   return (
-    <div className="flex w-full h-full bg-black font-mono text-zinc-300 overflow-hidden relative rounded-none">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 bg-black font-mono text-zinc-300 overflow-hidden relative rounded-none">
       
       {/* =====================================================================
           MAIN CHAT AREA (Pane 1)
@@ -361,7 +361,7 @@ export default function DirectMessage() {
               
               {/* Dropdown Menu */}
               {showOptions && (
-                <div className="absolute top-full right-0 mt-2 w-48 bg-zinc-950 border-2 border-zinc-700 rounded-none shadow-xl overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="absolute right-0 top-full z-30 mt-2 w-[clamp(12rem,24vw,16rem)] overflow-hidden border-2 border-zinc-700 bg-zinc-950 shadow-xl rounded-none animate-in fade-in slide-in-from-top-2 duration-200">
                   <button onClick={() => { setShowDrawer(true); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
                     <Info className="w-4 h-4" /> {t('viewProfile')}
                   </button>
@@ -382,7 +382,7 @@ export default function DirectMessage() {
         </header>
 
         {/* MESSAGE FEED */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6 space-y-6">
+        <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 lg:p-4 space-y-4">
           
           <div className="flex flex-col items-center justify-center py-6 border-b-2 border-dashed border-zinc-800">
             <div className="w-24 h-24 rounded-none p-1 border-2 border-zinc-800 mb-4 bg-zinc-950">
@@ -480,7 +480,7 @@ export default function DirectMessage() {
               }}
               placeholder={t('typeMessage')}
               rows={1}
-              className="flex-1 bg-black border-2 border-zinc-800 focus:border-white outline-none text-white text-[10px] md:text-xs uppercase tracking-widest py-3 px-4 placeholders:text-zinc-700 resize-none max-h-32 custom-scrollbar rounded-none leading-relaxed"
+              className="flex-1 bg-black border-2 border-zinc-800 focus:border-white outline-none text-white text-[10px] md:text-xs uppercase tracking-widest py-3 px-4 placeholders:text-zinc-700 resize-none max-h-[35dvh] custom-scrollbar rounded-none leading-relaxed"
               style={{ minHeight: '44px' }}
             />
 
@@ -516,7 +516,7 @@ export default function DirectMessage() {
           <aside className="fixed md:relative inset-y-0 right-0 z-40 basis-full md:basis-[40%] bg-zinc-950 border-l-2 border-zinc-800 flex flex-col h-full shadow-2xl animate-in slide-in-from-right-full duration-300 rounded-none">
             
             {/* Drawer Header */}
-            <div className="h-48 relative shrink-0 bg-zinc-950 border-b-2 border-zinc-800">
+            <div className="relative aspect-[2/1] max-h-[35dvh] shrink-0 border-b-2 border-zinc-800 bg-zinc-950">
               <img src={chatPartner.avatar} alt={chatPartner.name} className="w-full h-full object-cover grayscale opacity-60 rounded-none" />
               
               <button 
@@ -595,7 +595,7 @@ export default function DirectMessage() {
             <div className="absolute inset-0 bg-black/70 rounded-none border-none" />
           </div>
 
-          <div className="relative z-10 w-full max-w-5xl min-h-[70vh] border-2 border-zinc-700 bg-black shadow-2xl flex flex-col">
+          <div className="relative z-10 flex min-h-[70dvh] w-full max-w-5xl flex-col border-2 border-zinc-700 bg-black shadow-2xl">
             <div className="p-4 md:p-5 border-b-2 border-zinc-800 flex items-center justify-between">
               <div>
                 <h3 className="text-sm md:text-base font-bold text-white uppercase tracking-widest">
@@ -647,7 +647,7 @@ export default function DirectMessage() {
                       step="0.1"
                       value={micGain}
                       onChange={(e) => setMicGain(parseFloat(e.target.value))}
-                      className="w-32"
+                      className="w-[clamp(7rem,15vw,9rem)]"
                       aria-label="Microphone gain"
                     />
                   </div>
@@ -740,13 +740,13 @@ function DirectMessageCallStage({ chatPartner, callMode, callElapsedSec }) {
   const connectedCount = remoteParticipants.length + 1;
 
   return (
-    <div className="flex-1 p-5 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+    <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-2 sm:gap-4 sm:p-3 md:grid-cols-2 lg:p-4">
       <div className="col-span-full flex items-center justify-between text-[10px] uppercase tracking-widest text-zinc-500 pb-1">
         <span>{connectedCount} participant{connectedCount === 1 ? '' : 's'} connected</span>
         <span>{callMode === 'video' ? 'Video session' : 'Audio session'} • {formatCallDuration(callElapsedSec)}</span>
       </div>
 
-      <div className="border-2 border-zinc-800 bg-zinc-950 p-6 flex flex-col items-center justify-center gap-4 min-h-[220px] relative overflow-hidden">
+      <div className="relative flex min-h-[35dvh] flex-col items-center justify-center gap-4 overflow-hidden border-2 border-zinc-800 bg-zinc-950 p-6">
         {callMode === 'video' && localCameraTrack ? (
           <>
             <VideoTrack trackRef={localCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
@@ -760,13 +760,13 @@ function DirectMessageCallStage({ chatPartner, callMode, callElapsedSec }) {
         <div className="text-center z-10 px-3 py-1.5 bg-black/50 border border-zinc-700">
           <p className="text-xs font-black uppercase tracking-widest text-white">You</p>
           <p className="text-[10px] uppercase tracking-widest text-zinc-300">Microphone {localParticipant?.isMicrophoneEnabled ? 'on' : 'off'}</p>
-          <div className="mt-2 inline-block w-36 h-2 bg-zinc-800 rounded overflow-hidden">
+          <div className="mt-2 inline-block h-2 w-[clamp(6rem,15vw,9rem)] overflow-hidden bg-zinc-800 rounded">
             <span className="block h-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round((localParticipant?.audioLevel ?? localParticipant?.audio_level ?? 0) * 200))}%`, transition: 'width 120ms linear' }} />
           </div>
         </div>
       </div>
 
-      <div className="border-2 border-zinc-800 bg-zinc-950 p-6 flex flex-col items-center justify-center gap-4 min-h-[220px] relative overflow-hidden">
+      <div className="relative flex min-h-[35dvh] flex-col items-center justify-center gap-4 overflow-hidden border-2 border-zinc-800 bg-zinc-950 p-6">
         {callMode === 'video' && remoteCameraTrack && (
           <>
             <VideoTrack trackRef={remoteCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
@@ -785,7 +785,7 @@ function DirectMessageCallStage({ chatPartner, callMode, callElapsedSec }) {
               <p className="text-[10px] uppercase tracking-widest text-zinc-300">
                 {primaryRemote.isSpeaking ? 'Speaking' : 'Connected'} • Mic {primaryRemote.isMicrophoneEnabled ? 'on' : 'off'}
               </p>
-              <div className="mt-2 inline-block w-36 h-2 bg-zinc-800 rounded overflow-hidden">
+              <div className="mt-2 inline-block h-2 w-[clamp(6rem,15vw,9rem)] overflow-hidden bg-zinc-800 rounded">
                 <span className="block h-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round(((primaryRemote?.audioLevel ?? primaryRemote?.audio_level) || 0) * 200))}%`, transition: 'width 120ms linear' }} />
               </div>
             </div>

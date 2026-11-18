@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  ShieldAlert, ShieldCheck, UserX, UserCheck, 
+  ShieldAlert, ShieldCheck,
   Search, Flag, AlertTriangle, MessageSquare, 
-  ExternalLink, RefreshCcw, Filter, CheckCircle2,
-  Terminal, Shield, EyeOff, Gavel, FileText, 
-  Settings, Lock, Unlock, Activity, Smartphone, Globe, Loader2
+  RefreshCcw, Filter, CheckCircle2, X, MapPin,
+  Terminal, Shield, EyeOff, Gavel, FileText,
+  Settings, Lock, Activity, Smartphone, Globe, Loader2, Bot
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminService } from '../../api/admin.service';
@@ -14,13 +14,14 @@ import { adminService } from '../../api/admin.service';
 // ============================================================================
 export default function AdminModerationQueue() {
   // Navigation & Filter State
-  const [activeTab, setActiveTab] = useState('QUEUE'); // QUEUE, AUDIT, RULES
+  const [activeTab, setActiveTab] = useState('QUEUE'); // QUEUE, APPEALS, AUDIT, RULES
   const [filterSeverity, setFilterSeverity] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Data State
   const [isLoading, setIsLoading] = useState(true);
   const [queue, setQueue] = useState([]);
+  const [appeals, setAppeals] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [firewallRules, setFirewallRules] = useState([]);
   
@@ -28,14 +29,8 @@ export default function AdminModerationQueue() {
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [investigationTab, setInvestigationTab] = useState('EVIDENCE');
   const [actionNote, setActionNote] = useState('');
+  const [appealNote, setAppealNote] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-
-  // Stats Telemetry Simulation
-  const [telemetry, setTelemetry] = useState({
-    scanned: 14592,
-    autoBlocked: 142,
-    firewall: 'STABLE'
-  });
 
   // ============================================================================
   // DATA FETCHING
@@ -43,15 +38,17 @@ export default function AdminModerationQueue() {
   const fetchModerationData = async () => {
     setIsLoading(true);
     try {
-      const [queueData, auditData, rulesData] = await Promise.all([
+      const [queueData, auditData, rulesData, appealData] = await Promise.all([
         adminService.getModerationQueue(),
         adminService.getModerationAuditLogs(),
-        adminService.getFirewallRules()
+        adminService.getFirewallRules(),
+        adminService.getAccountReviewQueue()
       ]);
       
       setQueue(queueData || []);
       setAuditLogs(auditData || []);
       setFirewallRules(rulesData || []);
+      setAppeals(appealData || []);
     } catch (error) {
       console.error("Failed to load T&S data:", error);
       toast.error("Failed to connect to Moderation Engine");
@@ -62,16 +59,6 @@ export default function AdminModerationQueue() {
 
   useEffect(() => {
     fetchModerationData();
-
-    // Fun background telemetry ticker
-    const interval = setInterval(() => {
-      setTelemetry(prev => ({
-        ...prev,
-        scanned: prev.scanned + Math.floor(Math.random() * 50),
-        autoBlocked: prev.autoBlocked + (Math.random() > 0.8 ? 1 : 0),
-      }));
-    }, 2000);
-    return () => clearInterval(interval);
   }, []);
 
   // ============================================================================
@@ -106,7 +93,22 @@ export default function AdminModerationQueue() {
       setAuditLogs(updatedLogs || []);
       
     } catch (error) {
-      toast.error("Failed to execute moderation action");
+      toast.error(error.response?.data || "Failed to execute moderation action");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleResolveAppeal = async (appealId, decision) => {
+    setIsProcessing(true);
+    try {
+      await adminService.resolveAccountReview(appealId, decision, appealNote);
+      setAppeals((current) => current.filter((appeal) => appeal.id !== appealId));
+      setAppealNote('');
+      toast.success(decision === 'reinstate' ? 'Account reinstated.' : 'Restriction upheld.');
+      setAuditLogs(await adminService.getModerationAuditLogs() || []);
+    } catch (error) {
+      toast.error(error.response?.data || 'Unable to resolve account review.');
     } finally {
       setIsProcessing(false);
     }
@@ -118,7 +120,7 @@ export default function AdminModerationQueue() {
       setFirewallRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
       toast.success('Firewall rule state toggled successfully.');
     } catch (error) {
-      toast.error("Failed to toggle firewall rule");
+      toast.error(error.response?.data || "Failed to toggle firewall rule");
     }
   };
 
@@ -130,7 +132,7 @@ export default function AdminModerationQueue() {
   });
 
   return (
-    <div className="flex-1 bg-black min-h-screen text-zinc-300 font-mono flex flex-col rounded-none overflow-hidden relative" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -141,10 +143,10 @@ export default function AdminModerationQueue() {
             <ShieldAlert className="w-4 h-4 animate-pulse" /> T&S FIREWALL ACTIVE
           </span>
           <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500 hidden sm:inline-block">
-            MESSAGES SCANNED (24H): <span className="text-white">{telemetry.scanned.toLocaleString()}</span>
+            PENDING REPORTS: <span className="text-white">{queue.length}</span>
           </span>
           <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500 hidden md:inline-block">
-            AUTO-BLOCKS: <span className="text-green-400">{telemetry.autoBlocked}</span>
+            ACTIVE RULES: <span className="text-green-400">{firewallRules.filter(rule => rule.active).length}</span>
           </span>
         </div>
         <button 
@@ -158,7 +160,7 @@ export default function AdminModerationQueue() {
       {/* =========================================
           MAIN HEADER & TABS
           ========================================= */}
-      <div className="p-6 md:p-8 border-b-2 border-zinc-800 bg-black shrink-0 flex flex-col gap-6 z-10 relative">
+      <div className="shrink-0 border-b-2 border-zinc-800 bg-black p-3 sm:p-4 flex flex-col gap-4 z-10 relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
@@ -179,6 +181,7 @@ export default function AdminModerationQueue() {
         <div className="flex flex-wrap gap-2 border-b-2 border-zinc-800">
           {[
             { id: 'QUEUE', label: `ACTIVE QUEUE (${queue.length})`, icon: AlertTriangle },
+            { id: 'APPEALS', label: `ACCOUNT APPEALS (${appeals.length})`, icon: ShieldCheck },
             { id: 'AUDIT', label: 'AUDIT LOGS', icon: FileText },
             { id: 'RULES', label: 'FIREWALL RULES', icon: Settings }
           ].map(tab => (
@@ -200,7 +203,7 @@ export default function AdminModerationQueue() {
       {/* =========================================
           TAB CONTENT AREA
           ========================================= */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar relative">
         
         {isLoading ? (
           <div className="flex items-center justify-center h-full w-full p-20">
@@ -212,7 +215,7 @@ export default function AdminModerationQueue() {
                 TAB: ACTIVE QUEUE
                 ========================================= */}
             {activeTab === 'QUEUE' && (
-              <div className="p-6 md:p-8 space-y-6">
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 
                 {/* Filters & Search */}
                 <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-zinc-950 p-4 border-2 border-zinc-800">
@@ -223,7 +226,7 @@ export default function AdminModerationQueue() {
                       placeholder="SEARCH USERS OR OFFENSES..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-transparent border-none outline-none text-xs font-bold text-white uppercase tracking-widest w-full md:w-64 placeholder:text-zinc-600"
+                      className="w-full border-none bg-transparent text-xs font-bold uppercase tracking-widest text-white outline-none placeholder:text-zinc-600 md:w-[clamp(12rem,24vw,18rem)]"
                     />
                   </div>
 
@@ -295,7 +298,7 @@ export default function AdminModerationQueue() {
                           </div>
 
                           {/* Action Area */}
-                          <div className="flex flex-col items-end gap-3 w-full lg:w-48 shrink-0 border-t-2 lg:border-t-0 lg:border-l-2 border-zinc-800 pt-4 lg:pt-0 lg:pl-6">
+                          <div className="flex w-full shrink-0 flex-col items-end gap-3 border-t-2 border-zinc-800 pt-4 lg:w-[clamp(10rem,18vw,14rem)] lg:border-l-2 lg:border-t-0 lg:pt-0 lg:pl-6">
                             <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-1">
                               <Activity className="w-3 h-3" /> Status: {item.status}
                             </span>
@@ -314,11 +317,66 @@ export default function AdminModerationQueue() {
               </div>
             )}
 
+            {activeTab === 'APPEALS' && (
+              <div className="p-2 sm:p-3 lg:p-4 space-y-4">
+                <div className="max-w-3xl">
+                  <h2 className="text-xl font-black uppercase tracking-widest text-white">Account review requests</h2>
+                  <p className="mt-2 text-xs font-bold uppercase tracking-wider text-zinc-500">
+                    Review restricted accounts. Reinstatement resets the report threshold window to reports received after this decision.
+                  </p>
+                  <textarea
+                    value={appealNote}
+                    onChange={(event) => setAppealNote(event.target.value)}
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="Optional reviewer note"
+                    className="mt-4 w-full border-2 border-zinc-800 bg-zinc-950 p-3 text-xs text-white outline-none focus:border-zinc-500"
+                  />
+                </div>
+                {appeals.length === 0 ? (
+                  <div className="border-2 border-dashed border-zinc-800 p-12 text-center text-xs font-bold uppercase tracking-widest text-zinc-500">
+                    No pending account review requests.
+                  </div>
+                ) : appeals.map((appeal) => (
+                  <article key={appeal.id} className="max-w-4xl border-2 border-zinc-800 bg-zinc-950 p-5">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h3 className="font-black uppercase tracking-wider text-white">{appeal.username}</h3>
+                          <span className="text-xs text-zinc-500">{appeal.email}</span>
+                          <span className="text-[10px] font-mono text-zinc-600">{appeal.submittedAt}</span>
+                        </div>
+                        <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-zinc-300">{appeal.reason}</p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleResolveAppeal(appeal.id, 'uphold')}
+                          className="border-2 border-red-700 px-4 py-2 text-[10px] font-black uppercase tracking-wider text-red-400 hover:bg-red-700 hover:text-white disabled:opacity-50"
+                        >
+                          Uphold
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleResolveAppeal(appeal.id, 'reinstate')}
+                          className="border-2 border-green-700 px-4 py-2 text-[10px] font-black uppercase tracking-wider text-green-400 hover:bg-green-700 hover:text-white disabled:opacity-50"
+                        >
+                          Reinstate
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
             {/* =========================================
                 TAB: AUDIT LOGS
                 ========================================= */}
             {activeTab === 'AUDIT' && (
-              <div className="p-6 md:p-8">
+              <div className="p-2 sm:p-3 lg:p-4">
                 <div className="bg-zinc-950 border-2 border-zinc-800 overflow-x-auto">
                   <table className="w-full text-left text-xs font-mono whitespace-nowrap">
                     <thead className="bg-black border-b-2 border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-widest">
@@ -367,7 +425,7 @@ export default function AdminModerationQueue() {
                 TAB: FIREWALL RULES (AUTOMOD)
                 ========================================= */}
             {activeTab === 'RULES' && (
-              <div className="p-6 md:p-8 max-w-4xl space-y-6">
+              <div className="w-full p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="mb-6">
                   <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
                     <Terminal className="w-5 h-5 text-yellow-400" /> Automated Defenses
@@ -466,6 +524,14 @@ export default function AdminModerationQueue() {
                     <h4 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">SYSTEM FLAG REASON</h4>
                     <p className="text-sm font-bold text-white uppercase font-mono">{selectedIncident.content}</p>
                   </div>
+                  {selectedIncident.aiSummary && (
+                    <div className="border border-yellow-900 bg-yellow-950/20 p-4">
+                      <h4 className="mb-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-yellow-400">
+                        <Bot className="h-4 w-4" /> AI triage summary · human review required
+                      </h4>
+                      <p className="whitespace-pre-wrap text-sm text-zinc-300">{selectedIncident.aiSummary}</p>
+                    </div>
+                  )}
 
                   <div>
                     <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -527,7 +593,7 @@ export default function AdminModerationQueue() {
 
                     <div className="flex justify-between items-center text-xs font-mono uppercase font-bold">
                       <span className="text-zinc-500 flex items-center gap-2"><Smartphone className="w-4 h-4" /> Device Hash</span>
-                      <span className="text-zinc-400 bg-zinc-900 px-2 py-1 truncate max-w-[150px]">a8f9d...29c</span>
+                      <span className="max-w-[clamp(8rem,16vw,12rem)] truncate bg-zinc-900 px-2 py-1 text-zinc-400">a8f9d...29c</span>
                     </div>
                   </div>
                 </div>

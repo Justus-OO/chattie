@@ -31,14 +31,27 @@ type ADChatParticipant struct {
 }
 
 type ADMessage struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	SenderID       string    `json:"sender_id"`
-	Content        string    `json:"content"`
-	MediaAssetID   string    `json:"media_asset_id,omitempty"`
-	MediaURL       string    `json:"media_url,omitempty"`
-	MediaType      string    `json:"media_type,omitempty"`
-	IsExplicit     bool      `json:"is_explicit"`
-	IsRead         bool      `json:"is_read"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID               string              `json:"id"`
+	ConversationID   string              `json:"conversation_id"`
+	SenderID         string              `json:"sender_id"`
+	Content          string              `json:"content"`
+	MediaAssetID     string              `json:"media_asset_id,omitempty"`
+	MediaURL         string              `json:"media_url,omitempty"`
+	MediaType        string              `json:"media_type,omitempty"`
+	IsExplicit       bool                `json:"is_explicit"`
+	IsRead           bool                `json:"is_read"`
+	MessageKind      string              `json:"message_kind"`
+	CallMode         string              `json:"call_mode,omitempty"`
+	ReplyToMessageID string              `json:"reply_to_message_id,omitempty"`
+	IsPinned         bool                `json:"is_pinned"`
+	PinnedBy         string              `json:"pinned_by,omitempty"`
+	PinnedAt         *time.Time          `json:"pinned_at,omitempty"`
+	Reactions        []ADMessageReaction `json:"reactions,omitempty"`
+	CreatedAt        time.Time           `json:"created_at"`
+}
+
+type ADMessageReaction struct {
+	Emoji   string `json:"emoji"`
+	Count   int    `json:"count"`
+	Reacted bool   `json:"reacted"`
 }

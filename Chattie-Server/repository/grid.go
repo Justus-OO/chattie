@@ -48,12 +48,15 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 				COALESCE(ussu.show_me, 'Everyone') AS show_me,
 				COALESCE(current_profile.gender, '') AS gender,
 				EXTRACT(YEAR FROM age(current_profile.date_of_birth))::INT AS viewer_age,
+				LOWER(u.status) AS viewer_status,
+				u.role AS viewer_role,
 				COALESCE(pref.interested_in, 'All') AS viewer_intent,
 				COALESCE(pref.max_distance_km, 50) AS max_distance_km,
 				COALESCE(pref.min_age, 18) AS pref_min_age,
 				COALESCE(pref.max_age, 99) AS pref_max_age,
 				loc.latitude AS latitude,
 				loc.longitude AS longitude,
+				loc.country_code AS country_code,
 				COALESCE(us.global_mode, FALSE) AS global_mode,
 				COALESCE(ARRAY(SELECT tag FROM user_tags WHERE user_id = $1), ARRAY[]::VARCHAR[]) AS my_tags
 			FROM users u
@@ -97,6 +100,8 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 				u.created_at,
 				cu.max_distance_km,
 				cu.global_mode,
+				COALESCE(target_settings.global_mode, FALSE) AS target_global_mode,
+				COALESCE(target_preferences.max_distance_km, 50) AS target_max_distance_km,
 				COALESCE(target_preferences.min_age, 18) AS target_min_age,
 				COALESCE(target_preferences.max_age, 99) AS target_max_age
 			FROM users u
@@ -110,25 +115,38 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 			  
 			  -- 1. ACCOUNT STATUS: Target user must be active
 			  AND u.status IN ('active', 'online', 'ONLINE')
-			  AND u.role <> 'admin'
+			  AND u.role IN ('client', 'persona')
+			  AND cu.viewer_status IN ('active', 'online')
+			  AND cu.viewer_role <> 'admin'
+			  AND EXISTS (
+				  SELECT 1 FROM user_media viewer_media
+				  WHERE viewer_media.user_id = $1 AND NULLIF(BTRIM(viewer_media.url), '') IS NOT NULL
+			  )
+			  AND (
+				  cu.country_code IS NULL
+				  OR l.country_code IS NULL
+				  OR (l.country_code IS NOT NULL AND cu.country_code = l.country_code)
+				  OR (cu.global_mode = TRUE AND COALESCE(target_settings.global_mode, FALSE) = TRUE)
+			  )
 			  AND NULLIF(BTRIM(p.display_name), '') IS NOT NULL
 			  AND EXISTS (
 				  SELECT 1 FROM user_media um
 				  WHERE um.user_id = u.id AND NULLIF(BTRIM(um.url), '') IS NOT NULL
 			  )
 			  AND cu.viewer_age IS NOT NULL
+			  AND cu.viewer_age >= 18
+			  AND EXTRACT(YEAR FROM age(p.date_of_birth))::INT >= 18
 			  AND (
 				  lower(BTRIM(cu.show_me)) IN ('everyone', 'all', '')
-				  OR lower(BTRIM(p.gender)) = CASE lower(BTRIM(cu.show_me))
-					  WHEN 'men' THEN 'male'
-					  WHEN 'women' THEN 'female'
-					  ELSE lower(BTRIM(cu.show_me))
-				  END
+				  OR (lower(BTRIM(cu.show_me)) = 'men' AND lower(BTRIM(p.gender)) IN ('male', 'man'))
+				  OR (lower(BTRIM(cu.show_me)) = 'women' AND lower(BTRIM(p.gender)) IN ('female', 'woman'))
+				  OR (lower(BTRIM(cu.show_me)) = 'other' AND lower(BTRIM(p.gender)) IN ('other', 'nonbinary', 'non-binary'))
 			  )
 			  AND (
 				  lower(BTRIM(COALESCE(target_settings.show_me, 'Everyone'))) IN ('everyone', 'all', '')
 				  OR (lower(BTRIM(COALESCE(target_settings.show_me, 'Everyone'))) = 'men' AND lower(BTRIM(cu.gender)) IN ('male', 'man'))
 				  OR (lower(BTRIM(COALESCE(target_settings.show_me, 'Everyone'))) = 'women' AND lower(BTRIM(cu.gender)) IN ('female', 'woman'))
+				  OR (lower(BTRIM(COALESCE(target_settings.show_me, 'Everyone'))) = 'other' AND lower(BTRIM(cu.gender)) IN ('other', 'nonbinary', 'non-binary'))
 			  )
 			  AND (
 				  lower(BTRIM(COALESCE(target_preferences.interested_in, 'All'))) IN ('all', '')
@@ -159,14 +177,7 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 		SELECT 
 			id, display_name, bio, age, city, ROUND(distance_km::numeric, 1) AS distance, their_tags, images,
 			
-			-- Base 50% match + up to 50% bonus based on exact tag overlap
-			(50 + COALESCE(
-				(
-					SELECT COUNT(*) * 50.0 / NULLIF(array_length(my_tags, 1), 0)
-					FROM unnest(their_tags) AS t 
-					WHERE t = ANY(my_tags)
-				), 0
-			))::INT AS match_pct
+			` + tagCompatibilityScoreSQL("my_tags", "their_tags") + ` AS match_pct
 			
 		FROM potential_matches
 		WHERE 1=1
@@ -177,8 +188,8 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 	args := []interface{}{userID} // $1 is always the current user's ID
 	argID := 2
 
-	// Enforce Maximum Distance (Unless Global Mode is active)
-	whereClauses = append(whereClauses, "(global_mode = TRUE OR distance_km <= max_distance_km)")
+	// Cross-country discovery bypasses distance limits only with mutual Global Mode opt-in.
+	whereClauses = append(whereClauses, "((global_mode = TRUE AND target_global_mode = TRUE) OR (distance_km <= max_distance_km AND distance_km <= target_max_distance_km))")
 
 	// Dynamic Age Overrides (If user adjusts sliders in the UI)
 	if filters.MinAge > 0 {
@@ -247,6 +258,9 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 			return nil, err
 		}
 		profiles = append(profiles, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	if profiles == nil {

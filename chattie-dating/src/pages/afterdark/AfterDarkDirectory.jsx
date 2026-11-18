@@ -56,7 +56,7 @@ const QuickViewModal = ({ creator, onClose, onNavigate }) => {
       <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={onClose} />
       
       <div className="relative z-10 flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-y-auto border-2 border-zinc-700 bg-black font-mono animate-in zoom-in-95 duration-200">
-        <div className="relative h-32 shrink-0 overflow-hidden border-b-2 border-zinc-800 bg-zinc-900 group">
+        <div className="relative aspect-[3/1] shrink-0 overflow-hidden border-b-2 border-zinc-800 bg-zinc-900 group">
           {creator.cover && <img src={creator.cover} alt="" className="w-full h-full object-cover opacity-40 grayscale group-hover:grayscale-0 transition-all duration-700" />}
           <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black border-2 border-zinc-800 hover:text-white transition-colors z-10">
             <X className="w-4 h-4" />
@@ -67,9 +67,9 @@ const QuickViewModal = ({ creator, onClose, onNavigate }) => {
           <div className="relative z-10 mb-4 -mt-12 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
             <div className="relative">
               {creator.avatar ? (
-                <img src={creator.avatar} alt={creator.username} className="h-24 w-24 border-4 border-black bg-zinc-900 object-cover" />
+                <img src={creator.avatar} alt={creator.username} className="size-[clamp(5rem,12vw,6rem)] border-4 border-black bg-zinc-900 object-cover" />
               ) : (
-                <div aria-label={creator.displayName} className="flex h-24 w-24 items-center justify-center border-4 border-black bg-zinc-800 text-2xl font-black text-white">
+                <div aria-label={creator.displayName} className="flex size-[clamp(5rem,12vw,6rem)] items-center justify-center border-4 border-black bg-zinc-800 text-2xl font-black text-white">
                   {creatorInitials(creator)}
                 </div>
               )}
@@ -137,7 +137,7 @@ const CreatorGridCard = ({ creator, onQuickView, onNavigate }) => {
   return (
     <div className="group relative flex min-w-0 flex-col overflow-hidden border-2 border-zinc-800 bg-black transition-colors hover:border-zinc-600">
       {/* Cover & Avatar Header */}
-      <div className="relative h-32 shrink-0 cursor-pointer overflow-hidden border-b-2 border-zinc-800 bg-zinc-900" onClick={() => onNavigate(creator.id)}>
+      <div className="relative aspect-[3/1] shrink-0 cursor-pointer overflow-hidden border-b-2 border-zinc-800 bg-zinc-900" onClick={() => onNavigate(creator.id)}>
         {creator.cover && (
           <img src={creator.cover} alt="" className="w-full h-full object-cover opacity-50 grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-700" />
         )}
@@ -388,11 +388,11 @@ export default function AfterDarkDirectory() {
   // RENDER BLOCKS
   // ==========================================
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300">
       
       {/* LEFT SIDEBAR FILTERS (Desktop) & DRAWER (Mobile) */}
       {isSidebarOpen && (
-      <div className="fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r-2 border-zinc-800 bg-zinc-950">
+      <div className="fixed inset-y-0 left-0 z-40 flex w-[min(85vw,22rem)] flex-col border-r-2 border-zinc-800 bg-zinc-950">
         <div className="flex shrink-0 items-center justify-between border-b-2 border-zinc-800 bg-black p-4">
           <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4 text-zinc-400" /> FILTERS
@@ -515,7 +515,7 @@ export default function AfterDarkDirectory() {
               <SlidersHorizontal className="w-4 h-4" />
               <span className="text-[9px] font-black uppercase tracking-widest">Filters</span>
             </button>
-            <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none md:w-80">
+            <div className="relative min-w-0 flex-1 sm:w-[clamp(12rem,30vw,16rem)] sm:flex-none md:w-[clamp(16rem,26vw,20rem)]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
               <input
                 type="text"
@@ -533,7 +533,7 @@ export default function AfterDarkDirectory() {
               <select 
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="min-w-0 flex-1 appearance-none border-2 border-zinc-800 bg-black p-2 text-[10px] font-bold uppercase text-white outline-none focus:border-white sm:min-w-[120px] sm:flex-none"
+                className="min-w-0 flex-1 appearance-none border-2 border-zinc-800 bg-black p-2 text-[10px] font-bold uppercase text-white outline-none focus:border-white sm:min-w-[clamp(6rem,10vw,8rem)] sm:flex-none"
               >
                 <option value="popular">Most Popular</option>
                 <option value="most_subscribers">Most Subscribers</option>
@@ -563,7 +563,7 @@ export default function AfterDarkDirectory() {
         </header>
 
         {/* Directory Content Area */}
-        <div className="min-h-0 flex-1 overflow-y-auto bg-black p-4 custom-scrollbar sm:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-black p-2 custom-scrollbar sm:p-3 lg:p-4">
           
           {/* Results Summary */}
           <div className="mb-6 border-b-2 border-zinc-800 pb-5">
@@ -627,7 +627,7 @@ export default function AfterDarkDirectory() {
                     key={creator.id}
                     type="button"
                     onClick={() => handleNavigateProfile(creator.id)}
-                    className="flex w-36 shrink-0 items-center gap-3 border border-zinc-800 bg-black p-2 text-left transition-colors hover:border-white"
+                    className="flex w-[clamp(7rem,18vw,10rem)] shrink-0 items-center gap-3 border border-zinc-800 bg-black p-2 text-left transition-colors hover:border-white"
                   >
                     <span className="relative h-10 w-10 shrink-0">
                       <img src={creator.avatar} alt="" className="h-full w-full border border-zinc-700 bg-zinc-900 object-cover" />
@@ -696,7 +696,7 @@ export default function AfterDarkDirectory() {
                   <span>Content</span>
                   <span>Pricing</span>
                 </div>
-                <div className="w-32 text-right">Actions</div>
+                <div className="w-[clamp(5rem,12vw,8rem)] text-right">Actions</div>
               </div>
               {paginatedCreators.map(creator => (
                 <CreatorListRow 

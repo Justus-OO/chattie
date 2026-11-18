@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
-import { ShieldCheck, LockKeyhole, Loader2 } from 'lucide-react';
+import { ShieldCheck, Loader2 } from 'lucide-react';
 import { getRoleHome, getUserRole } from '../utils/roles';
 
 // ============================================================================
@@ -38,7 +38,7 @@ export default function ProtectedRoute({ allowedRoles }) {
     return (
       <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-slate-950 font-sans relative overflow-hidden">
         {/* Background glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-rose-600/10 rounded-full blur-[100px] pointer-events-none" />
+        <div className="pointer-events-none absolute left-1/2 top-1/2 size-[clamp(12rem,30vw,24rem)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose-600/10 blur-[100px]" />
         
         <div className="relative z-10 flex flex-col items-center">
           <div className="relative mb-6">
@@ -63,6 +63,10 @@ export default function ProtectedRoute({ allowedRoles }) {
     // We pass the current location in state so the Login component can 
     // redirect them right back to where they were trying to go after authenticating.
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (user?.status === 'banned' && location.pathname !== '/account-review') {
+    return <Navigate to="/account-review" replace />;
   }
 
   if (allowedRoles && !allowedRoles.includes(getUserRole(user))) {

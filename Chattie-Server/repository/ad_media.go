@@ -88,6 +88,17 @@ func (r *ADMediaRepository) CreatePostWithAsset(ctx context.Context, asset *mode
 		return fmt.Errorf("begin post transaction: %w", err)
 	}
 	defer tx.Rollback()
+	var autoApprove bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT auto_approve_new_posts
+		FROM ad_afterdark_moderation_settings
+		WHERE id = 1
+	`).Scan(&autoApprove); err != nil {
+		return fmt.Errorf("load After Dark auto-moderation setting: %w", err)
+	}
+	if autoApprove {
+		asset.ModerationStatus = "approved"
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_assets (id, owner_id, storage_key, mime_type, size_bytes, status, moderation_status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -169,17 +180,55 @@ func (r *ADMediaRepository) GetVaultPosts(ctx context.Context, creatorID string,
 	return posts, rows.Err()
 }
 
-func (r *ADMediaRepository) GetAuthorizedPostAsset(ctx context.Context, userID string, postID string) (*models.ADAsset, error) {
+func (r *ADMediaRepository) GetAuthorizedPostAsset(ctx context.Context, userID, viewerCountryCode, postID string) (*models.ADAsset, error) {
 	var asset models.ADAsset
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT a.id::text, a.owner_id::text, a.storage_key, a.mime_type,
 			a.size_bytes, a.status, a.moderation_status, a.created_at
 		FROM ad_posts p
 		JOIN ad_assets a ON a.id = p.asset_id
+		JOIN performer_profiles pp ON pp.user_id = p.creator_id
 		WHERE p.id = $1
 		  AND p.status = 'published'
 		  AND (p.publish_at IS NULL OR p.publish_at <= CURRENT_TIMESTAMP)
 		  AND a.status = 'ready'
+		  AND a.moderation_status = 'approved'
+		  AND pp.status = 'active'
+		  AND COALESCE((
+			SELECT s.discoverable FROM ad_creator_settings s
+			WHERE s.user_id = p.creator_id
+		  ), TRUE)
+		  AND (NOT p.is_explicit OR COALESCE((
+			SELECT s.show_explicit_content FROM ad_creator_settings s
+			WHERE s.user_id = $2::uuid
+		  ), FALSE))
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM ad_creator_settings creator_settings
+			CROSS JOIN LATERAL jsonb_array_elements_text(
+				CASE
+					WHEN jsonb_typeof(creator_settings.blocked_regions) = 'array'
+					THEN creator_settings.blocked_regions
+					ELSE '[]'::jsonb
+				END
+			) blocked_region(region)
+			WHERE creator_settings.user_id = p.creator_id
+			  AND COALESCE(creator_settings.geo_block_enabled, FALSE)
+			  AND NULLIF(BTRIM(blocked_region.region), '') IS NOT NULL
+			  AND (
+				(NULLIF(BTRIM($3), '') IS NOT NULL AND UPPER(BTRIM(blocked_region.region)) = UPPER(BTRIM($3)))
+				OR UPPER(BTRIM(blocked_region.region)) = UPPER(BTRIM(COALESCE((
+					SELECT viewer_location.country FROM user_locations viewer_location
+					WHERE viewer_location.user_id = $2::uuid
+					LIMIT 1
+				), '')))
+				OR UPPER(BTRIM(blocked_region.region)) = UPPER(BTRIM(COALESCE((
+					SELECT viewer_location.city FROM user_locations viewer_location
+					WHERE viewer_location.user_id = $2::uuid
+					LIMIT 1
+				), '')))
+			  )
+		  )
 		  AND (
 			p.creator_id = $2
 			OR p.access_type = 'free'
@@ -193,7 +242,7 @@ func (r *ADMediaRepository) GetAuthorizedPostAsset(ctx context.Context, userID s
 				WHERE e.user_id = $2 AND e.post_id = p.id
 			))
 		  )
-	`, postID, userID).Scan(
+	`, postID, userID, viewerCountryCode).Scan(
 		&asset.ID, &asset.OwnerID, &asset.StorageKey, &asset.MimeType,
 		&asset.SizeBytes, &asset.Status, &asset.ModerationStatus, &asset.CreatedAt,
 	)

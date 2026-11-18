@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io" // FIX: Added missing io package
 	"log"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,27 +25,26 @@ import (
 )
 
 type SettingsHandler struct {
-	Repo         *repository.SettingsRepository
-	Storage      *services.UploadService
-	Email        *EmailHandler
-	Verification *services.VerificationService
-	Events       *services.EventHandler
+	Repo     *repository.SettingsRepository
+	Storage  *services.UploadService
+	Email    *EmailHandler
+	Plaid    *services.PlaidIdentityVerificationService
+	Events   *services.EventHandler
 }
 
-// Updated Constructor to accept all dependencies safely
 func NewSettingsHandler(
 	repo *repository.SettingsRepository,
 	storage *services.UploadService,
 	emailHandler *EmailHandler,
 	events *services.EventHandler,
-	verification *services.VerificationService,
+	plaid *services.PlaidIdentityVerificationService,
 ) *SettingsHandler {
 	return &SettingsHandler{
-		Repo:         repo,
-		Storage:      storage,
-		Email:        emailHandler,
-		Verification: verification,
-		Events:       events,
+		Repo:    repo,
+		Storage: storage,
+		Email:   emailHandler,
+		Plaid:   plaid,
+		Events:  events,
 	}
 }
 
@@ -52,6 +54,7 @@ func NewSettingsHandler(
 
 func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
 
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
@@ -68,8 +71,34 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedFetchSettings", "Failed to fetch settings")})
 		return
 	}
+	if settings.Avatar, err = presignMediaURL(r.Context(), h.Storage, settings.Avatar); err != nil {
+		log.Printf("[SETTINGS] Could not sign profile avatar for user %s: %v", userID, err)
+		http.Error(w, `{"error":"Could not load profile images"}`, http.StatusBadGateway)
+		return
+	}
+	if settings.Cover, err = presignMediaURL(r.Context(), h.Storage, settings.Cover); err != nil {
+		log.Printf("[SETTINGS] Could not sign profile cover for user %s: %v", userID, err)
+		http.Error(w, `{"error":"Could not load profile images"}`, http.StatusBadGateway)
+		return
+	}
+	for i := range settings.Photos {
+		if settings.Photos[i], err = presignMediaURL(r.Context(), h.Storage, settings.Photos[i]); err != nil {
+			log.Printf("[SETTINGS] Could not sign profile photo for user %s: %v", userID, err)
+			http.Error(w, `{"error":"Could not load profile images"}`, http.StatusBadGateway)
+			return
+		}
+	}
 
 	json.NewEncoder(w).Encode(settings)
+}
+
+func isPresignedMediaURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	query := parsed.Query()
+	return query.Has("X-Amz-Signature") || query.Has("X-Amz-Credential")
 }
 
 func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -89,21 +118,27 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidPayload", "Invalid payload")})
 		return
 	}
+	payload.PreserveAvatar = payload.AvatarStorageURL == "" && isPresignedMediaURL(payload.Avatar)
+	payload.PreserveCover = payload.CoverStorageURL == "" && isPresignedMediaURL(payload.Cover)
 	if payload.Privacy["incognito"] {
 		allowed, err := h.Repo.CanUseIncognito(r.Context(), userID)
 		if err != nil {
 			log.Printf("[SETTINGS] Failed to verify Incognito entitlement for %s: %v", userID, err)
-			http.Error(w, `{"error":"Could not verify Chattie Gold access"}`, http.StatusInternalServerError)
+			http.Error(w, `{"error":"Could not verify Premium access"}`, http.StatusInternalServerError)
 			return
 		}
 		if !allowed {
-			http.Error(w, `{"error":"Chattie Gold is required for Incognito Mode"}`, http.StatusPaymentRequired)
+			http.Error(w, `{"error":"An active Premium membership is required for Incognito Mode"}`, http.StatusPaymentRequired)
 			return
 		}
 	}
 
 	if err := h.Repo.UpdateSettings(userID, payload); err != nil {
 		log.Printf("500 Error in UpdateSettings for user %s: %v\n", userID, err)
+		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
+			http.Error(w, `{"error":"Invalid matching preferences"}`, http.StatusBadRequest)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedUpdateSettings", "Failed to update settings")})
 		return
@@ -151,6 +186,7 @@ func (h *SettingsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) 
 
 func (h *SettingsHandler) GetMediaVault(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
 
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
@@ -165,6 +201,14 @@ func (h *SettingsHandler) GetMediaVault(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedFetchMediaVault", "Failed to fetch media vault")})
 		return
+	}
+	for i := range media {
+		media[i].URL, err = presignMediaURL(r.Context(), h.Storage, media[i].URL)
+		if err != nil {
+			log.Printf("[SETTINGS] Could not sign media vault image for user %s: %v", userID, err)
+			http.Error(w, `{"error":"Could not load media vault images"}`, http.StatusBadGateway)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -182,7 +226,9 @@ func (h *SettingsHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Limit Memory footprint
-	err := r.ParseMultipartForm(10 << 20)
+	const maxImageSize = 10 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageSize+(1<<20))
+	err := r.ParseMultipartForm(maxImageSize)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFileTooLargeInvalidForm", "File too large or invalid form")})
@@ -196,6 +242,24 @@ func (h *SettingsHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	if header.Size <= 0 || header.Size > maxImageSize {
+		http.Error(w, `{"error":"Image must be smaller than 10 MB"}`, http.StatusRequestEntityTooLarge)
+		return
+	}
+	sniff := make([]byte, 512)
+	n, readErr := file.Read(sniff)
+	if readErr != nil && readErr != io.EOF {
+		http.Error(w, `{"error":"Could not read uploaded image"}`, http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(http.DetectContentType(sniff[:n]), "image/") {
+		http.Error(w, `{"error":"Only image files are supported"}`, http.StatusUnsupportedMediaType)
+		return
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, `{"error":"Could not process uploaded image"}`, http.StatusBadRequest)
+		return
+	}
 
 	// 2. Delegate to your distinct UploadService (Zero local disk I/O if using Backblaze)
 	fileURL, _, err := h.Storage.SaveFile(file, header, "vault")
@@ -207,9 +271,19 @@ func (h *SettingsHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Save the resulting public URL to your DB
-	if err := h.Repo.SaveUserMedia(userID, fileURL); err != nil {
+	media, err := h.Repo.SaveUserMedia(userID, fileURL)
+	if err != nil {
+		if deleteErr := h.Storage.DeleteFile(fileURL); deleteErr != nil {
+			log.Printf("[UPLOAD CLEANUP] Could not remove unreferenced media after database failure: %v", deleteErr)
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedLogFile", "Failed to log file to database")})
+		return
+	}
+	media.URL, err = presignMediaURL(r.Context(), h.Storage, media.URL)
+	if err != nil {
+		log.Printf("[SETTINGS] Uploaded media but could not sign response URL for user %s: %v", userID, err)
+		http.Error(w, `{"error":"Image uploaded but could not be displayed"}`, http.StatusBadGateway)
 		return
 	}
 
@@ -221,9 +295,11 @@ func (h *SettingsHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message":    "File uploaded successfully",
-		"url":        fileURL,
-		"is_primary": false,
+		"message":     "File uploaded successfully",
+		"id":          media.ID,
+		"url":         media.URL,
+		"storage_url": fileURL,
+		"is_primary":  media.IsPrimary,
 	})
 }
 
@@ -460,258 +536,6 @@ func (h *SettingsHandler) RevokeActiveSession(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ============================================================================
-// 1. BASIC VERIFICATION (Selfie vs Primary Profile Picture)
-// ============================================================================
-
-func (h *SettingsHandler) VerifyProfile(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
-	if !ok || userID == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	if err := r.ParseMultipartForm(5 << 20); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "File too large or invalid"})
-		return
-	}
-
-	file, _, err := r.FormFile("selfie")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Live selfie image is required"})
-		return
-	}
-	defer file.Close()
-
-	liveSelfieBytes, err := io.ReadAll(file)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	primaryMediaURL, err := h.Repo.GetPrimaryMediaURL(userID)
-	if err != nil || primaryMediaURL == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "You must have a primary profile picture to verify your account"})
-		return
-	}
-
-	referenceBytes, err := h.Storage.GetFileBytes(r.Context(), primaryMediaURL)
-	if err != nil {
-		log.Printf("[VERIFICATION ERROR] Failed to fetch B2 image for user %s: %v", userID, err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to fetch reference profile picture"})
-		return
-	}
-
-	result, err := h.Verification.CompareFaces(r.Context(), referenceBytes, liveSelfieBytes)
-	if err != nil {
-		log.Printf("[VERIFICATION ERROR] User %s: %v", userID, err)
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Biometric analysis failed. Ensure faces are clearly visible."})
-		return
-	}
-
-	if !result.IsMatch {
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Facial verification failed. Images do not match."})
-		return
-	}
-
-	if err := h.Repo.VerifyProfile(userID); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to update verification status"})
-		return
-	}
-
-	ActionLogQueue <- models.ActionLog{
-		UserID:     userID,
-		ActionType: "PROFILE_VERIFIED_BASIC",
-		IP:         r.RemoteAddr,
-	}
-
-	detachedCtx := context.WithoutCancel(r.Context())
-	go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
-		RecipientID: userID,
-		WSEventType: "PROFILE_VERIFIED",
-		WSPayload: map[string]string{
-			"title":   "Verified!",
-			"message": "Your biometrics were analyzed successfully. Your profile is now verified.",
-			"type":    "success",
-		},
-	})
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Biometrics analyzed. Profile verified."})
-}
-
-// ============================================================================
-// 2. FULL KYC VERIFICATION (Live Selfie vs Government ID + OCR)
-// ============================================================================
-// GetVerificationConfig serves the dynamic KYC rules to the frontend
-func (h *SettingsHandler) GetVerificationConfig(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	config, err := h.Repo.GetVerificationConfig()
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load verification rules"})
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(config)
-}
-
-func (h *SettingsHandler) VerifyIdentityKYC(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
-	if !ok || userID == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Files too large or invalid request format"})
-		return
-	}
-
-	// 1. Grab Files & Headers (Headers are needed to upload to Storage later)
-	idCardFile, idCardHeader, err := r.FormFile("id_card")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Government ID image is required for KYC"})
-		return
-	}
-	defer idCardFile.Close()
-	idCardBytes, err := io.ReadAll(idCardFile)
-	if err != nil {
-		http.Error(w, "Could not read government ID image", http.StatusBadRequest)
-		return
-	}
-
-	selfieFile, selfieHeader, err := r.FormFile("selfie")
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Live selfie image is required"})
-		return
-	}
-	defer selfieFile.Close()
-	liveSelfieBytes, err := io.ReadAll(selfieFile)
-	if err != nil {
-		http.Error(w, "Could not read selfie image", http.StatusBadRequest)
-		return
-	}
-
-	user, err := h.Repo.GetUserByID(userID)
-	if err != nil || user.Username == "" {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	// 2. Call AWS Rekognition
-	kycRes, awsErr := h.Verification.VerifyGovernmentID(r.Context(), userID, idCardBytes, liveSelfieBytes)
-
-	// 3. Determine if Automated Verification Failed
-	var failureReason string
-	if awsErr != nil {
-		failureReason = awsErr.Error() // Catches blurriness, sunglasses, bad lighting, duplicates
-	} else if !kycRes.IsFaceMatch {
-		failureReason = "Facial mismatch between live selfie and Government ID"
-	} else {
-		nameParts := strings.Fields(user.Username)
-		firstName := user.Username
-		lastName := ""
-		if len(nameParts) > 1 {
-			firstName = nameParts[0]
-			lastName = nameParts[len(nameParts)-1]
-		}
-
-		if !kycRes.CheckDocumentForName(firstName, lastName) {
-			failureReason = fmt.Sprintf("OCR Name mismatch: Could not find '%s' on the ID document", user.Username)
-		}
-	}
-
-	// ========================================================================
-	// 4. THE FALLBACK: Route to Manual Admin Review instead of rejecting
-	// ========================================================================
-	if failureReason != "" {
-		log.Printf("[KYC ROUTED TO MANUAL] User %s automated fail: %s", userID, failureReason)
-
-		if _, err := idCardFile.Seek(0, io.SeekStart); err != nil {
-			log.Printf("[KYC MANUAL REVIEW ERROR] Could not rewind ID image for user %s: %v", userID, err)
-			http.Error(w, "Could not prepare documents for manual review", http.StatusInternalServerError)
-			return
-		}
-		if _, err := selfieFile.Seek(0, io.SeekStart); err != nil {
-			log.Printf("[KYC MANUAL REVIEW ERROR] Could not rewind selfie for user %s: %v", userID, err)
-			http.Error(w, "Could not prepare documents for manual review", http.StatusInternalServerError)
-			return
-		}
-
-		idCardURL, _, err := h.Storage.SaveFile(idCardFile, idCardHeader, "kyc_reviews")
-		if err != nil {
-			log.Printf("[KYC MANUAL REVIEW ERROR] Could not store ID image for user %s: %v", userID, err)
-			http.Error(w, "Secure document storage is unavailable; manual review could not be submitted", http.StatusServiceUnavailable)
-			return
-		}
-		selfieURL, _, err := h.Storage.SaveFile(selfieFile, selfieHeader, "kyc_reviews")
-		if err != nil {
-			log.Printf("[KYC MANUAL REVIEW ERROR] Could not store selfie for user %s: %v", userID, err)
-			http.Error(w, "Secure document storage is unavailable; manual review could not be submitted", http.StatusServiceUnavailable)
-			return
-		}
-
-		// Log to database for Admin Queue
-		if err := h.Repo.SubmitForManualReview(userID, idCardURL, selfieURL, failureReason); err != nil {
-			log.Printf("[KYC MANUAL REVIEW ERROR] Could not queue manual review for user %s: %v", userID, err)
-			http.Error(w, "Could not queue manual review; please try again later", http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK) // Return 200 OK so frontend doesn't throw a red error
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "pending_review",
-			"message": "Automated check couldn't verify images. Submitted for manual review.",
-		})
-		return
-	}
-
-	// ========================================================================
-	// 5. SUCCESS: Lock in Verified Status
-	// ========================================================================
-	if err := h.Repo.VerifyProfileV2(userID, user.Username, kycRes.RawDocumentData); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	ActionLogQueue <- models.ActionLog{
-		UserID:     userID,
-		ActionType: "KYC_PASSED_FULL",
-		IP:         r.RemoteAddr,
-	}
-
-	detachedCtx := context.WithoutCancel(r.Context())
-	go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
-		RecipientID: userID,
-		WSEventType: "PROFILE_VERIFIED",
-		WSPayload: map[string]string{
-			"title":   "Identity Verified!",
-			"message": "Your Government ID and biometrics were authenticated.",
-			"type":    "success",
-		},
-	})
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "verified",
-		"message": "Identity confirmed. Profile verified.",
-	})
-}
 func (h *SettingsHandler) GetBlockedUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)

@@ -10,14 +10,16 @@ import (
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
 	"chattie-backend/repository"
+	"chattie-backend/services"
 )
 
 type GridHandler struct {
-	Repo *repository.Repository
+	Repo          *repository.Repository
+	UploadService *services.UploadService
 }
 
-func NewGridHandler(repo *repository.Repository) *GridHandler {
-	return &GridHandler{Repo: repo}
+func NewGridHandler(repo *repository.Repository, uploadService *services.UploadService) *GridHandler {
+	return &GridHandler{Repo: repo, UploadService: uploadService}
 }
 
 func (h *GridHandler) GetGridBrowse(w http.ResponseWriter, r *http.Request) {
@@ -147,6 +149,16 @@ func (h *GridHandler) GetGridBrowse(w http.ResponseWriter, r *http.Request) {
 	// 7. Ensure a clean JSON array is returned, never null
 	if profiles == nil {
 		profiles = []models.DiscoverProfile{}
+	}
+	for i := range profiles {
+		for j := range profiles[i].Images {
+			profiles[i].Images[j], err = presignMediaURL(r.Context(), h.UploadService, profiles[i].Images[j])
+			if err != nil {
+				log.Printf("[GRID MEDIA] Could not sign profile image for user %s: %v", profiles[i].ID, err)
+				http.Error(w, "Could not load profile images", http.StatusBadGateway)
+				return
+			}
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

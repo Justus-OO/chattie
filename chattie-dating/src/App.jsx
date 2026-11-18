@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { Toaster } from 'sonner';
-import { Globe, SunMedium, Moon, Flame } from 'lucide-react';
+import { Globe, SunMedium, Moon, Flame, MoreHorizontal, X } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { useI18n } from './i18n';
+import { DialogProvider } from './components/modals/DialogProvider';
 
 // Layout & Security
 import MainLayout from './components/MainLayout';
@@ -20,6 +21,7 @@ import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import Register from './pages/auth/Register';
 import Onboarding from './pages/auth/Onboarding';
+import AccountReview from './pages/AccountReview';
 
 // Discovery Pages (Client)
 import SwipeDeck from './pages/discovery/SwipeDeck';
@@ -41,11 +43,13 @@ import Notifications from './components/NotificationModal';
 // Monetization & Legal
 import PremiumUpgrade from './pages/monetization/PremiumUpgrade';
 import Guidelines from './pages/legal/Guidelines';
+import SupportPage from './pages/SupportPage';
 
 // Model Pages
 import ModelDashboard from './pages/model/ModelDashboard';
 import ModelChatQueue from './pages/model/ModelChatQueue';
 import ModelEarnings from './pages/model/ModelEarnings';
+import ModelSettings from './pages/model/ModelSettings';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -55,7 +59,12 @@ import AdminRoomManager from './pages/admin/AdminRoomManager';
 import AdminMediaVaults from './pages/admin/AdminMediaVaults';
 import AdminFinance from './pages/admin/AdminFinance';
 import AdminPayouts from './pages/admin/AdminPayouts';
+import AdminCreatorPayouts from './pages/admin/AdminCreatorPayouts';
 import AdminModerationQueue from './pages/admin/AdminModerationQueue';
+import AdminSettings from './pages/admin/AdminSettings';
+import AdminAfterDarkPosts from './pages/admin/AdminAfterDarkPosts';
+import AdminSupportInbox from './pages/admin/AdminSupportInbox';
+import AdminCreatorApplications from './pages/admin/AdminCreatorApplications';
 
 // After Dark Pages (Client/Creator Hybrid)
 import AfterDarkFeed from './pages/afterdark/AfterDarkFeed';
@@ -68,6 +77,7 @@ import AfterDarkCreatorProfile from './pages/afterdark/AfterDarkCreatorProfile';
 
 export default function App() {
   const [isLanguageModalOpen, setIsLanguageModalOpen] = useState(false);
+  const [areGlobalActionsOpen, setAreGlobalActionsOpen] = useState(false);
   const theme = useAppStore((state) => state.userPreferences.theme);
   const updatePreferences = useAppStore((state) => state.updatePreferences);
   const { locale, language, languages, setLanguage, t } = useI18n();
@@ -84,34 +94,53 @@ export default function App() {
   };
 
   return (
+    <DialogProvider>
     <Router>
-      <div className="fixed top-3 right-3 z-100 flex items-center gap-2">
-        <button type="button" onClick={toggleTheme} className="theme-toggle" aria-label={t('toggleTheme')}>
-          {theme === 'dark' ? <SunMedium className="theme-toggle__icon" /> : <Moon className="theme-toggle__icon" />}
+      <div className="app-global-actions" data-open={areGlobalActionsOpen}>
+        <div className="app-global-actions__items" id="app-global-actions-items">
+          {areGlobalActionsOpen && (
+            <>
+              <button type="button" onClick={() => { toggleTheme(); setAreGlobalActionsOpen(false); }} className="theme-toggle" aria-label={t('toggleTheme')}>
+                {theme === 'dark' ? <SunMedium className="theme-toggle__icon" /> : <Moon className="theme-toggle__icon" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setIsLanguageModalOpen(true); setAreGlobalActionsOpen(false); }}
+                className="language-toggle"
+                aria-label={t('selectLanguage')}
+                title={t('selectLanguage')}
+              >
+                <Globe className="language-toggle__icon" />
+              </button>
+              <NavLink
+                to="/afterdark"
+                onClick={() => setAreGlobalActionsOpen(false)}
+                aria-label="Open After Dark, adults 18 and over"
+                title="After Dark (18+)"
+                className={({ isActive }) => `app-global-actions__afterdark flex size-12 items-center justify-center border shadow-lg backdrop-blur transition-colors ${
+                  isActive
+                    ? 'border-amber-500 bg-amber-500 text-black'
+                    : 'border-zinc-300 bg-white/90 text-zinc-700 hover:border-amber-500 hover:text-amber-600'
+                }`}
+              >
+                <Flame className="h-5 w-5" />
+                <span className="absolute -right-1 -top-1 border border-white bg-red-600 px-1 text-[8px] font-black leading-3 text-white">18+</span>
+              </NavLink>
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          className="app-global-actions__toggle"
+          onClick={() => setAreGlobalActionsOpen(open => !open)}
+          aria-expanded={areGlobalActionsOpen}
+          aria-controls="app-global-actions-items"
+          aria-label={areGlobalActionsOpen ? 'Close quick actions' : 'Open quick actions'}
+          title={areGlobalActionsOpen ? 'Close quick actions' : 'Open quick actions'}
+        >
+          {areGlobalActionsOpen ? <X className="h-5 w-5" /> : <MoreHorizontal className="h-5 w-5" />}
         </button>
       </div>
-      <button
-        type="button"
-        onClick={() => setIsLanguageModalOpen(true)}
-        className="language-toggle"
-        aria-label={t('selectLanguage')}
-        title={t('selectLanguage')}
-      >
-        <Globe className="language-toggle__icon" />
-      </button>
-      <NavLink
-        to="/afterdark"
-        aria-label="Open After Dark, adults 18 and over"
-        title="After Dark (18+)"
-        className={({ isActive }) => `fixed bottom-[8rem] right-4 z-[70] flex h-12 w-12 items-center justify-center border shadow-lg backdrop-blur transition-colors ${
-          isActive
-            ? 'border-amber-500 bg-amber-500 text-black'
-            : 'border-zinc-300 bg-white/90 text-zinc-700 hover:border-amber-500 hover:text-amber-600'
-        }`}
-      >
-        <Flame className="h-5 w-5" />
-        <span className="absolute -right-1 -top-1 border border-white bg-red-600 px-1 text-[8px] font-black leading-3 text-white">18+</span>
-      </NavLink>
       <LanguageModal
         isOpen={isLanguageModalOpen}
         onClose={() => setIsLanguageModalOpen(false)}
@@ -133,6 +162,7 @@ export default function App() {
 
           {/* PROTECTED ROUTES (Requires Authentication) */}
           <Route element={<ProtectedRoute />}>
+            <Route path="/account-review" element={<AccountReview />} />
             
             {/* ==========================================
                 CLIENT INTERFACE 
@@ -159,6 +189,7 @@ export default function App() {
                 <Route path="notifications" element={<Notifications />} />
                 <Route path="upgrade" element={<PremiumUpgrade />} />
                 <Route path="guidelines" element={<Guidelines />} />
+                <Route path="support" element={<SupportPage />} />
               </Route>
             </Route>
 
@@ -189,6 +220,7 @@ export default function App() {
                 <Route path="dashboard" element={<ModelDashboard />} />
                 <Route path="queue" element={<ModelChatQueue />} />
                 <Route path="earnings" element={<ModelEarnings />} />
+                <Route path="settings" element={<ModelSettings />} />
               </Route>
             </Route>
 
@@ -213,12 +245,18 @@ export default function App() {
                 {/* Finance & Trust */}
                 <Route path="finance" element={<AdminFinance />} />
                 <Route path="payouts" element={<AdminPayouts />} />
+                <Route path="creator-payouts" element={<AdminCreatorPayouts />} />
+                <Route path="afterdark-posts" element={<AdminAfterDarkPosts />} />
                 <Route path="moderation" element={<AdminModerationQueue />} />
+                <Route path="support" element={<AdminSupportInbox />} />
+                <Route path="creator-applications" element={<AdminCreatorApplications />} />
+                <Route path="settings" element={<AdminSettings />} />
               </Route>
             </Route>
 
           </Route>
       </Routes>
     </Router>
+    </DialogProvider>
   );
 }

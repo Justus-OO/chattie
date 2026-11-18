@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { settingsService } from '../../api/settings.service';
 import { AFTER_DARK_CREATOR_POLICY_VERSION, afterDarkService } from '../../api/afterdark.service';
 import { useAppStore } from '../../store/useAppStore';
-import IdentityVerificationModal from '../modals/IdentityVerificationModal';
+import DocuPassVerificationModal from '../modals/DocuPassVerificationModal';
 
 const isVerifiedValue = value => value === true || (
   typeof value === 'string' && ['true', 'verified'].includes(value.trim().toLowerCase())
@@ -207,7 +207,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
       <div className="absolute inset-0 bg-black/90 backdrop-blur-sm transition-opacity duration-300" onClick={handleClose} />
       
-      <div className="relative w-full max-w-4xl bg-black border-4 border-zinc-700 shadow-[16px_16px_0px_rgba(255,255,255,0.05)] flex flex-col z-10 font-mono h-[90vh] md:h-[750px] animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative flex h-[90dvh] min-h-0 w-full max-w-4xl flex-col border-4 border-zinc-700 bg-black font-mono shadow-[16px_16px_0px_rgba(255,255,255,0.05)] animate-in fade-in zoom-in-95 duration-200">
         
         {/* HEADER */}
         <div className="flex items-center justify-between border-b-4 border-zinc-800 bg-zinc-950 p-5 shrink-0 relative z-20">
@@ -252,7 +252,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
           {step === 1 && (
             <div className="p-6 md:p-12 max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="flex flex-col items-center text-center space-y-4 mb-10">
-                <div className="w-24 h-24 bg-zinc-950 border-4 border-zinc-800 flex items-center justify-center mb-2 shadow-[8px_8px_0px_rgba(255,255,255,0.02)]">
+                <div className="size-[clamp(5rem,12vw,6rem)] bg-zinc-950 border-4 border-zinc-800 flex items-center justify-center mb-2 shadow-[8px_8px_0px_rgba(255,255,255,0.02)]">
                   <ShieldAlert className="w-12 h-12 text-yellow-500" />
                 </div>
                 <h1 className="text-3xl font-black text-white uppercase tracking-widest">MONETIZE YOUR CONTENT</h1>
@@ -413,7 +413,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
                 <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Review the creator rules and confirm each item to submit your application.</p>
               </div>
 
-              <div className="bg-zinc-950 border-2 border-zinc-800 h-56 overflow-y-auto custom-scrollbar p-6 text-[10px] font-bold text-zinc-400 uppercase leading-loose border-dashed">
+              <div className="h-[min(35dvh,30rem)] overflow-y-auto border-2 border-dashed border-zinc-800 bg-zinc-950 p-6 text-[10px] font-bold text-zinc-400 uppercase leading-loose custom-scrollbar">
                 <p className="mb-6"><span className="text-yellow-500 font-black">1. ELIGIBILITY:</span> YOU REPRESENT AND WARRANT THAT YOU ARE AT LEAST EIGHTEEN (18) YEARS OF AGE AND HAVE THE LEGAL CAPACITY TO ENTER INTO THIS BINDING AGREEMENT.</p>
                 <p className="mb-6"><span className="text-yellow-500 font-black">2. CONTENT OWNERSHIP:</span> ONLY UPLOAD CONTENT YOU OWN OR HAVE PERMISSION TO SHARE. EVERYONE SHOWN MUST BE AN ADULT WHO CONSENTS.</p>
                 <p className="mb-6"><span className="text-yellow-500 font-black">3. REVENUE SPLIT:</span> THIS IS A PREVIEW ONLY. PAYMENTS AND PAYOUTS ARE NOT ENABLED IN THIS PROTOTYPE.</p>
@@ -453,7 +453,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
           {step === 5 && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 h-full animate-in zoom-in-95 duration-500">
               <div className="text-center w-full max-w-md flex flex-col items-center animate-in slide-in-from-bottom-8 duration-500">
-                <div className={`w-32 h-32 rounded-full border-4 flex items-center justify-center mb-8 ${isApplicationApproved ? 'bg-green-500/10 border-green-500 shadow-[0_0_40px_rgba(34,197,94,0.3)]' : 'bg-yellow-500/10 border-yellow-500 shadow-[0_0_40px_rgba(234,179,8,0.2)]'}`}>
+                <div className={`size-[clamp(6rem,16vw,8rem)] rounded-full border-4 flex items-center justify-center mb-8 ${isApplicationApproved ? 'bg-green-500/10 border-green-500 shadow-[0_0_40px_rgba(34,197,94,0.3)]' : 'bg-yellow-500/10 border-yellow-500 shadow-[0_0_40px_rgba(234,179,8,0.2)]'}`}>
                   {isApplicationApproved ? <Check className="w-16 h-16 text-green-500" /> : <ShieldCheck className="w-16 h-16 text-yellow-500" />}
                 </div>
                 <h3 className="text-xl font-black text-white uppercase tracking-widest mb-4">
@@ -521,7 +521,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
 
       </div>
     </div>
-    <IdentityVerificationModal
+    <DocuPassVerificationModal
       isOpen={showIdentityVerification}
       onClose={() => setShowIdentityVerification(false)}
       onVerified={() => {

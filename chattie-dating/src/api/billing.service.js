@@ -11,19 +11,13 @@ export const billingService = {
   },
 
   /**
-   * Initialize a checkout session.
-   * The backend initializes Stripe, Paystack, or M-Pesa using the selected gateway.
+   * Initialize a checkout session using the country-aware provider selected by the backend.
    * 
    * @param {number} planId The duration in months (e.g., 1, 6, 12). Maps to req.PlanID in Go.
-   * @param {string} gateway The selected payment provider ('stripe', 'paystack', or 'mpesa').
-   * @param {string} [phoneNumber] Kenyan phone number required for M-Pesa.
    * @returns {Promise<Object>} Provider checkout details and a durable billing_reference.
    */
-  initiateUpgrade: async (planId = 1, gateway = 'stripe', phoneNumber = '') => {
-    const response = await apiClient.post(`/subscriptions/upgrade?gateway=${gateway}`, {
-      plan_id: planId,
-      phone_number: phoneNumber
-    });
+  initiateUpgrade: async (planId = 1) => {
+    const response = await apiClient.post('/subscriptions/upgrade', { plan_id: planId });
     return response.data;
   },
 

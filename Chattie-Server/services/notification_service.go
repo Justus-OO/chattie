@@ -16,6 +16,14 @@ type WSManager interface {
 	SendToUser(ctx context.Context, userID string, payload interface{}) error
 }
 
+type WSDisconnectManager interface {
+	DisconnectUser(userID string) int
+}
+
+type WSCountryDisconnectManager interface {
+	DisconnectCountry(countryCode string) int
+}
+
 // CachedTemplate holds the pre-compiled Go template to save CPU and DB overhead
 type CachedTemplate struct {
 	Subject string
@@ -123,6 +131,22 @@ func (s *NotificationService) SendWebSocketMessage(ctx context.Context, userID s
 
 	log.Printf("[NOTIF] WS event %s sent to %s", eventType, userID)
 	return nil
+}
+
+func (s *NotificationService) DisconnectUser(userID string) int {
+	manager, ok := s.WS.(WSDisconnectManager)
+	if !ok {
+		return 0
+	}
+	return manager.DisconnectUser(userID)
+}
+
+func (s *NotificationService) DisconnectCountry(countryCode string) int {
+	manager, ok := s.WS.(WSCountryDisconnectManager)
+	if !ok {
+		return 0
+	}
+	return manager.DisconnectCountry(countryCode)
 }
 
 // ProcessInactivityAlert sends an inactivity reminder and returns error context

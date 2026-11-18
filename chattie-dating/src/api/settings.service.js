@@ -20,13 +20,25 @@ export const settingsService = {
   // SECURITY & PRIVACY ACTIONS
   // =====================================================================
 
-  // KYC endpoint must validate document_type/country, front/back, selfie, and
-  // liveness_frames server-side. Client captures and pose prompts are not proof
-  // of liveness; only an explicit verified response should grant the badge.
-  verifyIdentityKYC: async (formData) => {
-    const response = await apiClient.post('/subscriptions/kyc', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+  createPlaidIdentityVerificationLinkToken: async (verificationConsent) => {
+    const response = await apiClient.post('/settings/identity-verification/link-token', {
+      verification_consent: verificationConsent === true,
     });
+    return response.data;
+  },
+
+  completePlaidIdentityVerification: async (attemptId, identityVerificationId) => {
+    const response = await apiClient.post('/settings/identity-verification/complete', {
+      attempt_id: attemptId,
+      identity_verification_id: identityVerificationId,
+    });
+    return response.data;
+  },
+
+  getPlaidIdentityVerificationStatus: async (attemptId) => {
+    const response = await apiClient.get(
+      `/settings/identity-verification/${encodeURIComponent(attemptId)}/status`,
+    );
     return response.data;
   },
 
@@ -119,10 +131,6 @@ export const settingsService = {
 
   setPrimaryMedia: async (mediaId) => {
     const response = await apiClient.put(`/settings/media/${mediaId}/primary`);
-    return response.data;
-  },
-  getVerificationConfig: async () => {
-    const response = await apiClient.get('/settings/verification-config');
     return response.data;
   },
 };

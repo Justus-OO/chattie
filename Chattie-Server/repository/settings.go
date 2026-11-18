@@ -4,7 +4,16 @@ import (
 	"chattie-backend/models"
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
+)
+
+var (
+	ErrPlaidIdentityVerificationRateLimited = errors.New("Plaid Identity Verification session creation is rate limited")
+	ErrPlaidIdentityVerificationNotFound    = errors.New("Plaid Identity Verification session not found")
+	ErrPlaidIdentityVerificationConflict    = errors.New("Plaid Identity Verification session is already attached")
 )
 
 type SettingsRepository struct {
@@ -29,17 +38,48 @@ func (r *SettingsRepository) CanUseIncognito(ctx context.Context, userID string)
 
 // UpdateSettings updates profile, preferences, settings, and tags in a single transaction
 func (r *SettingsRepository) UpdateSettings(userID string, data models.SettingsPayload) error {
+	showMe, err := normalizeShowMePreference(data.ShowMe)
+	if err != nil {
+		return err
+	}
+	if data.AgeMin == 0 {
+		data.AgeMin = 18
+	}
+	if data.AgeMax == 0 {
+		data.AgeMax = 50
+	}
+	if data.Distance == 0 {
+		data.Distance = 25
+	}
+	if data.AgeMin < 18 || data.AgeMax > 99 || data.AgeMin > data.AgeMax || data.Distance < 1 || data.Distance > 500 {
+		return ErrInvalidDiscoveryPreferences
+	}
+
 	tx, err := r.DB.Begin()
 	if err != nil {
 		return err
+	}
+	defer tx.Rollback()
+	avatarURL := data.Avatar
+	if data.AvatarStorageURL != "" {
+		avatarURL = data.AvatarStorageURL
+	}
+	coverURL := data.Cover
+	if data.CoverStorageURL != "" {
+		coverURL = data.CoverStorageURL
 	}
 
 	// 1. Update Profile (Now includes phone_number)
 	_, err = tx.Exec(`
        UPDATE user_profiles 
-       SET display_name = $1, bio = $2, intent = $3, avatar_url = $4, job_title = $5, cover_url = $6, phone_number = $7
+       SET display_name = $1, bio = $2, intent = $3,
+           avatar_url = CASE WHEN $9 THEN avatar_url ELSE $4 END,
+           job_title = $5,
+           cover_url = CASE WHEN $10 THEN cover_url ELSE $6 END,
+           phone_number = $7
        WHERE user_id = $8`,
-		data.Name, data.Bio, data.Intent, data.Avatar, data.Job, data.Cover, data.PhoneNumber, userID)
+		data.Name, data.Bio, data.Intent, avatarURL, data.Job, coverURL,
+		data.PhoneNumber, userID, data.PreserveAvatar, data.PreserveCover)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -71,38 +111,39 @@ func (r *SettingsRepository) UpdateSettings(userID string, data models.SettingsP
 		}
 	}
 
-	// 3. Update Preferences (Map frontend 0 values to safe defaults)
-	if data.AgeMin == 0 {
-		data.AgeMin = 18
-	}
-	if data.AgeMax == 0 {
-		data.AgeMax = 50
-	}
-	if data.Distance == 0 {
-		data.Distance = 25
+	_, err = tx.Exec(`
+       INSERT INTO user_preferences (user_id, interested_in, min_age, max_age, max_distance_km)
+       VALUES ($1, 'All', $2, $3, $4)
+       ON CONFLICT (user_id) DO UPDATE SET
+           min_age = EXCLUDED.min_age,
+           max_age = EXCLUDED.max_age,
+           max_distance_km = EXCLUDED.max_distance_km`,
+		userID, data.AgeMin, data.AgeMax, data.Distance)
+	if err != nil {
+		return err
 	}
 
 	_, err = tx.Exec(`
-       UPDATE user_preferences 
-       SET interested_in = $1, min_age = $2, max_age = $3, max_distance_km = $4
-       WHERE user_id = $5`,
-		data.ShowMe, data.AgeMin, data.AgeMax, data.Distance, userID)
+       INSERT INTO user_settings (user_id, global_mode, show_me)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET
+           global_mode = EXCLUDED.global_mode,
+           show_me = EXCLUDED.show_me,
+           updated_at = CURRENT_TIMESTAMP`,
+		userID, data.IsGlobal, showMe)
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 
 	// 4. Update Tags
 	_, err = tx.Exec("DELETE FROM user_tags WHERE user_id = $1", userID)
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 
 	for _, tag := range data.Tags {
 		_, err = tx.Exec("INSERT INTO user_tags (user_id, tag) VALUES ($1, $2)", userID, tag)
 		if err != nil {
-			tx.Rollback()
 			return err
 		}
 	}
@@ -111,13 +152,11 @@ func (r *SettingsRepository) UpdateSettings(userID string, data models.SettingsP
 	if data.Notifs != nil && data.Privacy != nil && data.Connected != nil {
 		_, err = tx.Exec(`
            INSERT INTO user_settings (
-              user_id, global_mode, show_me, 
+              user_id,
               notif_new_matches, notif_messages, notif_super_likes, notif_promotions,
               privacy_incognito, privacy_read_receipts, conn_spotify, conn_instagram
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            ON CONFLICT (user_id) DO UPDATE SET
-              global_mode = EXCLUDED.global_mode,
-              show_me = EXCLUDED.show_me,
               notif_new_matches = EXCLUDED.notif_new_matches,
               notif_messages = EXCLUDED.notif_messages,
               notif_super_likes = EXCLUDED.notif_super_likes,
@@ -128,13 +167,12 @@ func (r *SettingsRepository) UpdateSettings(userID string, data models.SettingsP
               conn_instagram = EXCLUDED.conn_instagram,
               updated_at = CURRENT_TIMESTAMP
         `,
-			userID, data.IsGlobal, data.ShowMe,
+			userID,
 			data.Notifs["newMatches"], data.Notifs["messages"], data.Notifs["superLikes"], data.Notifs["promotions"],
 			data.Privacy["incognito"], data.Privacy["readReceipts"],
 			data.Connected["spotify"], data.Connected["instagram"],
 		)
 		if err != nil {
-			tx.Rollback()
 			return err
 		}
 	}
@@ -167,7 +205,7 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
          COALESCE(upref.min_age, 18), 
          COALESCE(upref.max_age, 50), 
          COALESCE(upref.max_distance_km, 25), 
-         COALESCE(upref.interested_in, 'Everyone'),
+         COALESCE(us.show_me, 'Everyone'),
          COALESCE(up.verified, false),
          COALESCE(us.two_factor_enabled, false),
          COALESCE(us.two_factor_channel, 'email'),
@@ -181,7 +219,7 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
          COALESCE(us.conn_spotify, false), 
          COALESCE(us.conn_instagram, false),
          COALESCE(ub.status,''),
-         COALESCE(TO_CHAR(ub.expires_at,'YYYY:MM:DD HH24:MI:SS'), ''),
+         COALESCE(TO_CHAR(ub.expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
          CASE
             WHEN ub.tier_id = 1 THEN 'BASIC'
             WHEN ub.tier_id = 2 THEN 'PREMIUM'
@@ -196,8 +234,8 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
       WHERE u.id = $1
    `
 	err := r.DB.QueryRow(query, userID).Scan(
-		&data.Name, &data.Email, &data.PhoneNumber, &data.Bio, &data.Intent, &data.Avatar,
-		&data.Job, &data.Cover, &data.Location,
+		&data.Name, &data.Email, &data.PhoneNumber, &data.Bio, &data.Intent, &data.AvatarStorageURL,
+		&data.Job, &data.CoverStorageURL, &data.Location,
 		&data.AgeMin, &data.AgeMax, &data.Distance, &data.ShowMe,
 		&data.Verified, &twoFactorEnabled, &data.TwoFactorChannel, &data.IsGlobal,
 		&notifNewMatches, &notifMessages, &notifSuperLikes, &notifPromotions,
@@ -208,6 +246,8 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
 		log.Printf("CRITICAL: Error fetching settings for user %s: %v\n", userID, err)
 		return data, err
 	}
+	data.Avatar = data.AvatarStorageURL
+	data.Cover = data.CoverStorageURL
 
 	data.TwoFactorEnabled = twoFactorEnabled
 	data.Notifs["newMatches"] = notifNewMatches
@@ -221,14 +261,19 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
 
 	// Fetch Tags
 	tagRows, err := r.DB.Query("SELECT tag FROM user_tags WHERE user_id = $1", userID)
-	if err == nil {
-		defer tagRows.Close()
-		for tagRows.Next() {
-			var tag string
-			if err := tagRows.Scan(&tag); err == nil {
-				data.Tags = append(data.Tags, tag)
-			}
+	if err != nil {
+		return data, fmt.Errorf("fetch profile tags: %w", err)
+	}
+	defer tagRows.Close()
+	for tagRows.Next() {
+		var tag string
+		if err := tagRows.Scan(&tag); err != nil {
+			return data, fmt.Errorf("scan profile tag: %w", err)
 		}
+		data.Tags = append(data.Tags, tag)
+	}
+	if err := tagRows.Err(); err != nil {
+		return data, fmt.Errorf("iterate profile tags: %w", err)
 	}
 	if data.Tags == nil {
 		data.Tags = []string{}
@@ -238,15 +283,20 @@ func (r *SettingsRepository) GetSettings(userID string) (models.SettingsPayload,
 	// POPULATE 6-SLOT PHOTO ARRAY FOR REACT FRONTEND
 	// -------------------------------------------------------------------------
 	photoRows, err := r.DB.Query("SELECT url FROM user_media WHERE user_id = $1 ORDER BY is_primary DESC, sort_order ASC, created_at DESC LIMIT 6", userID)
+	if err != nil {
+		return data, fmt.Errorf("fetch profile photos: %w", err)
+	}
 	var photos []string
-	if err == nil {
-		defer photoRows.Close()
-		for photoRows.Next() {
-			var url string
-			if err := photoRows.Scan(&url); err == nil {
-				photos = append(photos, url)
-			}
+	defer photoRows.Close()
+	for photoRows.Next() {
+		var url string
+		if err := photoRows.Scan(&url); err != nil {
+			return data, fmt.Errorf("scan profile photo: %w", err)
 		}
+		photos = append(photos, url)
+	}
+	if err := photoRows.Err(); err != nil {
+		return data, fmt.Errorf("iterate profile photos: %w", err)
 	}
 
 	// Pad the array to exactly 6 slots to prevent React UI crashes
@@ -286,9 +336,13 @@ func (r *SettingsRepository) GetUserMedia(userID string) ([]models.MediaItem, er
 	var media []models.MediaItem
 	for rows.Next() {
 		var m models.MediaItem
-		if err := rows.Scan(&m.ID, &m.URL, &m.IsPrimary); err == nil {
-			media = append(media, m)
+		if err := rows.Scan(&m.ID, &m.URL, &m.IsPrimary); err != nil {
+			return nil, fmt.Errorf("scan user media item: %w", err)
 		}
+		media = append(media, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user media: %w", err)
 	}
 
 	if media == nil {
@@ -297,10 +351,14 @@ func (r *SettingsRepository) GetUserMedia(userID string) ([]models.MediaItem, er
 	return media, nil
 }
 
-func (r *SettingsRepository) SaveUserMedia(userID string, mediaURL string) error {
-	query := `INSERT INTO user_media (user_id, url, created_at) VALUES ($1, $2, NOW())`
-	_, err := r.DB.Exec(query, userID, mediaURL)
-	return err
+func (r *SettingsRepository) SaveUserMedia(userID string, mediaURL string) (models.MediaItem, error) {
+	var media models.MediaItem
+	err := r.DB.QueryRow(`
+		INSERT INTO user_media (user_id, url, created_at)
+		VALUES ($1, $2, NOW())
+		RETURNING id::text, url, is_primary, created_at
+	`, userID, mediaURL).Scan(&media.ID, &media.URL, &media.IsPrimary, &media.CreatedAt)
+	return media, err
 }
 
 func (r *SettingsRepository) DeleteUserMedia(userID string, mediaID string) error {
@@ -475,137 +533,221 @@ func (r *SettingsRepository) GetPrimaryMediaURL(userID string) (string, error) {
 	return url, nil
 }
 
-func (r *SettingsRepository) VerifyProfile(userID string) error {
-	query := `UPDATE user_profiles SET verified = true WHERE user_id = $1`
-	_, err := r.DB.Exec(query, userID)
-	return err
-}
-
-// VerifyProfileV2 marks a profile as verified AND logs the exact name extracted from their ID Card.
-// This allows Trust & Safety admins to audit KYC data later if a user is flagged.
-func (r *SettingsRepository) VerifyProfileV2(userID string, extractedGovtName string, rawDocData string) error {
-	tx, err := r.DB.Begin()
+func (r *SettingsRepository) ReservePlaidIdentityVerificationAttempt(ctx context.Context, userID, attemptID string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// 1. Mark the profile as fully verified
-	_, err = tx.Exec(`UPDATE user_profiles SET verified = true WHERE user_id = $1`, userID)
-	if err != nil {
+	var lockedUserID string
+	if err := tx.QueryRowContext(ctx, `SELECT id::text FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
 		return err
 	}
 
-	// 2. Log the KYC data for future Trust & Safety audits.
-	metadata := map[string]string{
-		"extracted_name":    extractedGovtName,
-		"raw_document_dump": rawDocData,
-		"verification_type": "AWS_REKOGNITION_GOVT_ID",
+	var attemptInProgress bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM plaid_identity_verification_attempts
+			WHERE user_id = $1 AND status = 'creating'
+			  AND created_at > NOW() - INTERVAL '30 seconds'
+		)
+	`, userID).Scan(&attemptInProgress); err != nil {
+		return err
+	}
+	if attemptInProgress {
+		return ErrPlaidIdentityVerificationRateLimited
 	}
 
-	// Assuming action_logs metadata is JSONB, pass it directly
-	_, err = tx.Exec(`
-		INSERT INTO user_action_logs (user_id, action_type, metadata, created_at) 
-		VALUES ($1, 'KYC_VERIFICATION_PASSED', $2, NOW())
-	`, userID, metadata)
-
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO plaid_identity_verification_attempts (attempt_id, user_id, status, consented_at)
+		VALUES ($1, $2, 'creating', NOW())
+	`, attemptID, userID)
 	if err != nil {
-		log.Printf("[KYC AUDIT WARNING] Failed to log KYC metadata for user %s: %v", userID, err)
+		return err
 	}
-
 	return tx.Commit()
 }
 
-// GetVerificationConfig returns the dynamic rules for KYC frontend directly from the database
-func (r *SettingsRepository) GetVerificationConfig() (models.VerificationConfig, error) {
-	config := models.VerificationConfig{
-		Countries:      []string{},
-		DocumentTypes:  make(map[string][]string),
-		DocumentLabels: make(map[string]string),
-		Poses:          []string{},
-	}
-
-	// 1. Fetch Active Countries (Ordered by sort_order)
-	countryRows, err := r.DB.Query("SELECT name FROM kyc_countries WHERE is_active = TRUE ORDER BY sort_order ASC, name ASC")
+func (r *SettingsRepository) MarkPlaidIdentityVerificationAttemptReady(ctx context.Context, userID, attemptID string) error {
+	result, err := r.DB.ExecContext(ctx, `
+		UPDATE plaid_identity_verification_attempts
+		SET status = 'active', updated_at = NOW()
+		WHERE attempt_id = $1 AND user_id = $2 AND status = 'creating'
+	`, attemptID, userID)
 	if err != nil {
-		return config, err
+		return err
 	}
-	defer countryRows.Close()
-
-	for countryRows.Next() {
-		var name string
-		if err := countryRows.Scan(&name); err == nil {
-			config.Countries = append(config.Countries, name)
-		}
-	}
-
-	// 2. Fetch Document Labels
-	docRows, err := r.DB.Query("SELECT code, label FROM kyc_documents")
+	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return config, err
+		return err
 	}
-	defer docRows.Close()
-
-	for docRows.Next() {
-		var code, label string
-		if err := docRows.Scan(&code, &label); err == nil {
-			config.DocumentLabels[code] = label
-		}
+	if rowsAffected != 1 {
+		return ErrPlaidIdentityVerificationNotFound
 	}
-
-	// 3. Fetch Country to Document Mappings
-	mapQuery := `
-        SELECT c.name, d.code
-        FROM kyc_country_documents kcd
-        JOIN kyc_countries c ON kcd.country_id = c.id
-        JOIN kyc_documents d ON kcd.document_id = d.id
-        WHERE c.is_active = TRUE
-        ORDER BY d.id ASC
-    `
-	mapRows, err := r.DB.Query(mapQuery)
-	if err != nil {
-		return config, err
-	}
-	defer mapRows.Close()
-
-	for mapRows.Next() {
-		var country, docCode string
-		if err := mapRows.Scan(&country, &docCode); err == nil {
-			config.DocumentTypes[country] = append(config.DocumentTypes[country], docCode)
-		}
-	}
-
-	// 4. Fetch Active Poses
-	poseRows, err := r.DB.Query("SELECT instruction FROM kyc_poses WHERE is_active = TRUE ORDER BY id ASC")
-	if err != nil {
-		return config, err
-	}
-	defer poseRows.Close()
-
-	for poseRows.Next() {
-		var instruction string
-		if err := poseRows.Scan(&instruction); err == nil {
-			config.Poses = append(config.Poses, instruction)
-		}
-	}
-
-	return config, nil
+	return nil
 }
 
-// SubmitForManualReview logs a failed automated KYC attempt into the admin queue
-func (r *SettingsRepository) SubmitForManualReview(userID, idCardURL, selfieURL, reason string) error {
-	metadata := map[string]string{
-		"id_card_url": idCardURL,
-		"selfie_url":  selfieURL,
-		"reason":      reason,
-		"status":      "PENDING_ADMIN_REVIEW",
+func (r *SettingsRepository) FailPlaidIdentityVerificationAttempt(ctx context.Context, userID, attemptID string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE plaid_identity_verification_attempts
+		SET status = 'canceled', updated_at = NOW()
+		WHERE attempt_id = $1 AND user_id = $2 AND status = 'creating'
+	`, attemptID, userID)
+	return err
+}
+
+func (r *SettingsRepository) GetPlaidIdentityVerificationAttempt(
+	ctx context.Context,
+	userID, attemptID string,
+) (string, string, error) {
+	var identityVerificationID sql.NullString
+	var status string
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT identity_verification_id, status
+		FROM plaid_identity_verification_attempts
+		WHERE attempt_id = $1 AND user_id = $2
+	`, attemptID, userID).Scan(&identityVerificationID, &status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", ErrPlaidIdentityVerificationNotFound
+		}
+		return "", "", err
+	}
+	return identityVerificationID.String, status, nil
+}
+
+func (r *SettingsRepository) SetPlaidIdentityVerificationID(
+	ctx context.Context,
+	userID, attemptID, identityVerificationID string,
+) error {
+	result, err := r.DB.ExecContext(ctx, `
+		UPDATE plaid_identity_verification_attempts
+		SET identity_verification_id = COALESCE(identity_verification_id, $3),
+		    updated_at = NOW()
+		WHERE attempt_id = $1 AND user_id = $2
+		  AND (
+		    identity_verification_id = $3
+		    OR (identity_verification_id IS NULL AND status IN ('active', 'pending_review'))
+		  )
+	`, attemptID, userID, identityVerificationID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
+		return ErrPlaidIdentityVerificationConflict
+	}
+	return nil
+}
+
+func (r *SettingsRepository) ClearPlaidIdentityVerificationID(
+	ctx context.Context,
+	userID, attemptID, identityVerificationID string,
+) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE plaid_identity_verification_attempts
+		SET identity_verification_id = NULL, updated_at = NOW()
+		WHERE attempt_id = $1 AND user_id = $2 AND identity_verification_id = $3
+		  AND status IN ('active', 'pending_review')
+	`, attemptID, userID, identityVerificationID)
+	return err
+}
+
+func (r *SettingsRepository) ApplyPlaidIdentityVerificationStatus(
+	ctx context.Context,
+	userID, attemptID, identityVerificationID, status string,
+) (bool, error) {
+	switch status {
+	case "active", "success", "failed", "expired", "canceled", "pending_review":
+	default:
+		return false, fmt.Errorf("invalid Plaid Identity Verification status")
 	}
 
-	// Log this action so it appears in the Admin Moderation/KYC Queue
-	_, err := r.DB.Exec(`
-        INSERT INTO user_action_logs (user_id, action_type, metadata, created_at) 
-        VALUES ($1, 'KYC_MANUAL_REVIEW_REQUESTED', $2, NOW())
-    `, userID, metadata)
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
 
-	return err
+	var currentStatus string
+	var currentID sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT status, identity_verification_id
+		FROM plaid_identity_verification_attempts
+		WHERE attempt_id = $1 AND user_id = $2
+		FOR UPDATE
+	`, attemptID, userID).Scan(&currentStatus, &currentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, ErrPlaidIdentityVerificationNotFound
+		}
+		return false, err
+	}
+	if currentID.Valid && currentID.String != identityVerificationID {
+		return false, ErrPlaidIdentityVerificationConflict
+	}
+	if currentStatus == "success" || currentStatus == "failed" ||
+		currentStatus == "expired" || currentStatus == "canceled" {
+		return false, tx.Commit()
+	}
+	if currentStatus == status && currentID.Valid {
+		return false, tx.Commit()
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE plaid_identity_verification_attempts
+		SET identity_verification_id = $3, status = $4, updated_at = NOW()
+		WHERE attempt_id = $1 AND user_id = $2
+	`, attemptID, userID, identityVerificationID, status); err != nil {
+		return false, err
+	}
+
+	actionType := ""
+	switch status {
+	case "success":
+		result, err := tx.ExecContext(ctx, `UPDATE user_profiles SET verified = true WHERE user_id = $1`, userID)
+		if err != nil {
+			return false, err
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return false, err
+		}
+		if rowsAffected != 1 {
+			return false, errors.New("user profile not found while applying Plaid verification")
+		}
+		actionType = "KYC_VERIFICATION_PASSED"
+	case "failed":
+		actionType = "KYC_VERIFICATION_REJECTED"
+	case "pending_review":
+		actionType = "KYC_MANUAL_REVIEW_REQUESTED"
+	}
+
+	if actionType != "" {
+		metadata, err := json.Marshal(map[string]string{
+			"provider":                    "PLAID_IDENTITY_VERIFICATION",
+			"identity_verification_id":    identityVerificationID,
+			"status":                      status,
+			"plaid_identity_verification": "true",
+		})
+		if err != nil {
+			return false, fmt.Errorf("encode Plaid verification audit metadata: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO user_action_logs (user_id, action_type, metadata, created_at)
+			VALUES ($1, $2, $3::jsonb, NOW())
+		`, userID, actionType, string(metadata)); err != nil {
+			return false, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }

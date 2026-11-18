@@ -11,6 +11,7 @@ import (
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
 	"chattie-backend/repository"
+	"chattie-backend/services"
 
 	"database/sql"
 	"github.com/go-chi/chi/v5"
@@ -22,15 +23,16 @@ import (
 )
 
 type ADLiveHandler struct {
-	Repo        *repository.ADLiveRepository
-	FinanceRepo *repository.ADFinanceRepository
-	RoomClient  *lksdk.RoomServiceClient
-	APIKey      string
-	APISecret   string
+	Repo          *repository.ADLiveRepository
+	FinanceRepo   *repository.ADFinanceRepository
+	RoomClient    *lksdk.RoomServiceClient
+	APIKey        string
+	APISecret     string
+	UploadService *services.UploadService
 }
 
 // NewADLiveHandler initializes the handler and the LiveKit RoomServiceClient
-func NewADLiveHandler(repo *repository.ADLiveRepository, financeRepo *repository.ADFinanceRepository) *ADLiveHandler {
+func NewADLiveHandler(repo *repository.ADLiveRepository, financeRepo *repository.ADFinanceRepository, uploadService *services.UploadService) *ADLiveHandler {
 	apiKey := os.Getenv("LIVEKIT_API_KEY")
 	apiSecret := os.Getenv("LIVEKIT_API_SECRET")
 	livekitURL := os.Getenv("LIVEKIT_URL") // e.g., "https://your-project.livekit.cloud"
@@ -41,11 +43,12 @@ func NewADLiveHandler(repo *repository.ADLiveRepository, financeRepo *repository
 	}
 
 	return &ADLiveHandler{
-		Repo:        repo,
-		FinanceRepo: financeRepo,
-		RoomClient:  roomClient,
-		APIKey:      apiKey,
-		APISecret:   apiSecret,
+		Repo:          repo,
+		FinanceRepo:   financeRepo,
+		RoomClient:    roomClient,
+		APIKey:        apiKey,
+		APISecret:     apiSecret,
+		UploadService: uploadService,
 	}
 }
 
@@ -326,6 +329,15 @@ func (h *ADLiveHandler) GetLiveSessions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Failed to fetch live sessions", http.StatusInternalServerError)
 		return
 	}
+	for i := range sessions {
+		sessions[i].AvatarURL, err = presignMediaURL(r.Context(), h.UploadService, sessions[i].AvatarURL)
+		if err != nil {
+			log.Printf("[AFTER DARK MEDIA] Could not sign live-session avatar: %v", err)
+			http.Error(w, "Could not load creator images", http.StatusBadGateway)
+			return
+		}
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(sessions)
 }
