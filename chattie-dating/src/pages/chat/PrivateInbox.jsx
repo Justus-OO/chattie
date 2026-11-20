@@ -56,7 +56,7 @@ const getUserTier = (spend, flagged, t) => {
 export default function PrivateInbox() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useI18n();
+  const { t, formatCurrency } = useI18n();
   const theme = useAppStore((state) => state.userPreferences.theme);
 
   // --- STATE ---
@@ -88,6 +88,7 @@ export default function PrivateInbox() {
   const [callElapsedSec, setCallElapsedSec] = useState(0);
   const [activeCallPeerId, setActiveCallPeerId] = useState('');
   const [pinningMessageId, setPinningMessageId] = useState(null);
+  const [profilePreview, setProfilePreview] = useState(null);
   
   // Incoming call / ringing state
   const [incomingCallData, setIncomingCallData] = useState(null); 
@@ -461,7 +462,7 @@ export default function PrivateInbox() {
             isTyping: false,
             status: chat.status || 'offline',
             isMuted: chat.is_muted || false,
-            lifetimeSpend: chat.lifetime_spend || chat.lifetimeSpend || 0,
+            lifetimeSpend: Number(chat.lifetime_spend ?? chat.lifetimeSpend ?? 0),
             flagged: chat.flagged || false,
             bio: chat.bio || ''
           };
@@ -1360,6 +1361,18 @@ export default function PrivateInbox() {
     setShowEmojiPicker(false);
   };
 
+  const handleViewProfile = async () => {
+    if (!activeChat?.id) return;
+    setProfilePreview({ loading: true, profile: null, error: '' });
+    try {
+      const profile = await discoveryService.getFullProfile(activeChat.id);
+      setProfilePreview({ loading: false, profile, error: '' });
+    } catch (error) {
+      const message = error.response?.data?.error || error.message || t('profileLoadFailed');
+      setProfilePreview({ loading: false, profile: null, error: message });
+    }
+  };
+
   const totalUnread = conversations.reduce((acc, curr) => acc + curr.unreadCount, 0);
 
   if (isLoading) {
@@ -2017,14 +2030,14 @@ export default function PrivateInbox() {
                         <Flame className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="text-lg font-black text-white">${activeChat.lifetimeSpend}</div>
+                        <div className="text-lg font-black text-white">{formatCurrency(activeChat.lifetimeSpend, 'USD')}</div>
                         <div className="text-xs text-zinc-500">{t('lifetimeContribution')}</div>
                       </div>
                     </div>
                   </div>
                   
                   <div className="pt-4 space-y-3">
-                    <button className="w-full border border-zinc-700 bg-black py-3.5 text-[10px] font-black uppercase tracking-widest text-white transition-colors hover:border-white">
+                    <button onClick={handleViewProfile} className="w-full border border-zinc-700 bg-black py-3.5 text-[10px] font-black uppercase tracking-widest text-white transition-colors hover:border-white">
                       {t('viewProfile')}
                     </button>
                     <button onClick={() => setShowBlockModal(true)} className="w-full border border-red-500/50 bg-transparent py-3.5 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/10">
@@ -2079,6 +2092,64 @@ export default function PrivateInbox() {
               <Trash2 className="w-4 h-4" /> {t('deleteConversation')}
             </button>
           </div>
+        </div>
+      )}
+
+      {profilePreview && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setProfilePreview(null);
+        }}>
+          <section className="relative max-h-[90dvh] w-full max-w-xl overflow-y-auto border border-zinc-700 bg-zinc-950 p-5 text-zinc-200 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="inbox-profile-title">
+            <button type="button" onClick={() => setProfilePreview(null)} aria-label={t('close')} className="absolute right-3 top-3 border border-zinc-700 p-2 text-zinc-300 hover:text-white">
+              <X className="h-4 w-4" />
+            </button>
+            {profilePreview.loading ? (
+              <div className="flex min-h-48 items-center justify-center" role="status">
+                <Loader2 className="h-6 w-6 animate-spin text-yellow-400" />
+              </div>
+            ) : profilePreview.error ? (
+              <p className="pr-10 text-sm text-red-300" role="alert">{profilePreview.error}</p>
+            ) : profilePreview.profile && (
+              <div className="space-y-5">
+                {profilePreview.profile.images?.[0] && (
+                  <img src={profilePreview.profile.images[0]} alt={t('profilePhotoAlt')} className="max-h-80 w-full object-cover" />
+                )}
+                <div>
+                  <h2 id="inbox-profile-title" className="text-xl font-black uppercase tracking-wide text-white">
+                    {profilePreview.profile.display_name || activeChat?.name}
+                    {profilePreview.profile.age > 0 && <span className="ml-2 font-medium text-zinc-400">{profilePreview.profile.age}</span>}
+                  </h2>
+                  {(profilePreview.profile.city || profilePreview.profile.country_code) && (
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {[profilePreview.profile.city, profilePreview.profile.country_code].filter(Boolean).join(', ')}
+                    </p>
+                  )}
+                </div>
+                {profilePreview.profile.bio && (
+                  <div>
+                    <h3 className="mb-1 text-xs font-bold uppercase tracking-widest text-zinc-500">{t('about')}</h3>
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{profilePreview.profile.bio}</p>
+                  </div>
+                )}
+                {profilePreview.profile.intent && (
+                  <div>
+                    <h3 className="mb-1 text-xs font-bold uppercase tracking-widest text-zinc-500">{t('datingIntent')}</h3>
+                    <p className="text-sm">{profilePreview.profile.intent}</p>
+                  </div>
+                )}
+                {profilePreview.profile.tags?.length > 0 && (
+                  <div>
+                    <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-zinc-500">{t('interests')}</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {profilePreview.profile.tags.map((tag) => (
+                        <span key={tag} className="border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
         </div>
       )}
 

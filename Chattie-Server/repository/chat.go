@@ -469,12 +469,20 @@ func (r *ChatRepository) GetInbox(userID string) ([]models.InboxItem, error) {
             FROM messages
             WHERE recipient_id = $1 AND status = 'sent'
             GROUP BY sender_id
+        ),
+        lifetime_spend AS (
+            SELECT client_id, COALESCE(SUM(amount), 0) AS total
+            FROM transactions
+            WHERE status = 'COMPLETED' AND client_id IS NOT NULL
+            GROUP BY client_id
         )
         SELECT 
             rm.partner_id as room_id, -- Using partner_id as room_id for DMs
             rm.partner_id,
             COALESCE(up.display_name, 'Unknown'),
             COALESCE(up.avatar_url, ''),
+            COALESCE(up.bio, ''),
+            COALESCE(spend.total, 0),
             rm.last_message,
             rm.last_message_time,
             COALESCE(uc.unread_count, 0) as unread_count,
@@ -483,6 +491,7 @@ func (r *ChatRepository) GetInbox(userID string) ([]models.InboxItem, error) {
         JOIN users u ON u.id = rm.partner_id
         LEFT JOIN user_profiles up ON up.user_id = rm.partner_id
         LEFT JOIN unread_counts uc ON uc.partner_id = rm.partner_id
+        LEFT JOIN lifetime_spend spend ON spend.client_id = rm.partner_id
         WHERE rm.rn = 1
         ORDER BY rm.last_message_time DESC;
     `
@@ -496,7 +505,7 @@ func (r *ChatRepository) GetInbox(userID string) ([]models.InboxItem, error) {
 	for rows.Next() {
 		var item models.InboxItem
 		if err := rows.Scan(
-			&item.RoomID, &item.PartnerID, &item.PartnerName, &item.AvatarURL,
+			&item.RoomID, &item.PartnerID, &item.PartnerName, &item.AvatarURL, &item.Bio, &item.LifetimeSpend,
 			&item.LastMessage, &item.LastMessageTime, &item.UnreadCount, &item.Status,
 		); err != nil {
 			return nil, err

@@ -40,6 +40,8 @@ type InboxItem struct {
 	PartnerID       string    `json:"partner_id"`
 	PartnerName     string    `json:"partner_name"`
 	AvatarURL       string    `json:"avatar_url"`
+	Bio             string    `json:"bio"`
+	LifetimeSpend   float64   `json:"lifetime_spend"`
 	LastMessage     string    `json:"last_message"`
 	LastMessageTime time.Time `json:"last_message_time"`
 	UnreadCount     int       `json:"unread_count"`
