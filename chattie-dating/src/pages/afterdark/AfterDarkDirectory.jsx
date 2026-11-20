@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { afterDarkService } from '../../api/afterdark.service';
+import { useI18n } from '../../i18n';
 
 const normalizeCreator = creator => ({
   ...creator,
@@ -34,8 +35,8 @@ const priceToCents = value => {
   return Number.isFinite(price) && price >= 0 ? Math.round(price * 100) : undefined;
 };
 
-const formatSubscriptionPrice = price => price === 0
-  ? 'FREE'
+const formatSubscriptionPrice = (price, t) => price === 0
+  ? t('afterDarkUiFree').toUpperCase()
   : `KES ${price.toLocaleString('en-KE', { maximumFractionDigits: 2 })}`;
 
 const creatorInitials = creator => (creator.displayName || creator.username || '?')
@@ -49,6 +50,7 @@ const creatorInitials = creator => (creator.displayName || creator.username || '
 // INLINE COMPONENT: QUICK VIEW MODAL
 // ============================================================================
 const QuickViewModal = ({ creator, onClose, onNavigate }) => {
+  const { t } = useI18n();
   if (!creator) return null;
 
   return (
@@ -95,23 +97,23 @@ const QuickViewModal = ({ creator, onClose, onNavigate }) => {
             <div className="bg-zinc-950 border-2 border-zinc-800 p-4 text-center">
               <Users className="w-5 h-5 text-zinc-400 mx-auto mb-2" />
               <div className="text-sm font-black text-white">{creator.stats.subs.toLocaleString()}</div>
-              <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">VIP Subs</div>
+              <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiVipSubs')}</div>
             </div>
             <div className="bg-zinc-950 border-2 border-zinc-800 p-4 text-center">
               <Camera className="w-5 h-5 text-zinc-400 mx-auto mb-2" />
               <div className="text-sm font-black text-white">{creator.stats.posts.toLocaleString()}</div>
-              <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Vault Media</div>
+              <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiVaultMedia')}</div>
             </div>
             <div className="bg-zinc-950 border-2 border-zinc-800 p-4 text-center">
               <Activity className="w-5 h-5 text-zinc-400 mx-auto mb-2" />
               <div className="text-sm font-black text-white">{creator.stats.likes.toLocaleString()}</div>
-              <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Total Likes</div>
+              <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiTotalLikes')}</div>
             </div>
           </div>
 
           <div className="bg-zinc-950 border-2 border-zinc-800 p-4 mb-6">
-            <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-2">BIOGRAPHY</h3>
-            <p className="text-[10px] font-bold text-zinc-300 leading-relaxed uppercase">{creator.bio || 'This creator has not added a bio yet.'}</p>
+            <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-2">{t('afterDarkUiBiography')}</h3>
+            <p className="text-[10px] font-bold text-zinc-300 leading-relaxed uppercase">{creator.bio || t('afterDarkUiCreatorBioMissing')}</p>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -121,7 +123,7 @@ const QuickViewModal = ({ creator, onClose, onNavigate }) => {
               </span>
             )}
             <span className="border border-zinc-800 bg-black px-3 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-300">
-              {formatSubscriptionPrice(creator.subPrice)} / MONTH
+              {formatSubscriptionPrice(creator.subPrice, t)} / {t('afterDarkUiMonth').toUpperCase()}
             </span>
           </div>
         </div>
@@ -134,6 +136,7 @@ const QuickViewModal = ({ creator, onClose, onNavigate }) => {
 // INLINE COMPONENT: CREATOR GRID CARD
 // ============================================================================
 const CreatorGridCard = ({ creator, onQuickView, onNavigate }) => {
+  const { t } = useI18n();
   return (
     <div className="group relative flex min-w-0 flex-col overflow-hidden border-2 border-zinc-800 bg-black transition-colors hover:border-zinc-600">
       {/* Cover & Avatar Header */}
@@ -171,7 +174,7 @@ const CreatorGridCard = ({ creator, onQuickView, onNavigate }) => {
         <button 
           onClick={(e) => { e.stopPropagation(); onQuickView(creator); }}
           className="absolute -top-5 right-4 w-10 h-10 bg-black border-2 border-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white hover:border-white transition-colors z-10 opacity-0 group-hover:opacity-100"
-          title="Quick View"
+          title={t('afterDarkUiQuickView')}
         >
           <Eye className="w-4 h-4" />
         </button>
@@ -214,7 +217,7 @@ const CreatorGridCard = ({ creator, onQuickView, onNavigate }) => {
             </span>
           </div>
           <span className="text-[10px] font-black tracking-widest text-white">
-            {formatSubscriptionPrice(creator.subPrice)}
+            {formatSubscriptionPrice(creator.subPrice, t)}
           </span>
         </div>
       </div>
@@ -226,6 +229,7 @@ const CreatorGridCard = ({ creator, onQuickView, onNavigate }) => {
 // INLINE COMPONENT: CREATOR LIST ROW
 // ============================================================================
 const CreatorListRow = ({ creator, onQuickView, onNavigate }) => {
+  const { t } = useI18n();
   return (
     <div className="mb-2 flex min-w-0 flex-col gap-3 border-2 border-zinc-800 bg-black p-4 transition-colors hover:border-zinc-600 group sm:flex-row sm:items-center sm:justify-between" onClick={() => onNavigate(creator.id)}>
       <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -253,19 +257,19 @@ const CreatorListRow = ({ creator, onQuickView, onNavigate }) => {
       <div className="hidden md:flex items-center gap-8 px-8 flex-1 justify-center border-x-2 border-zinc-900">
         <div className="text-center">
           <div className="text-xs font-black text-white">{creator.stats.subs.toLocaleString()}</div>
-          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Subscribers</div>
+          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiSubscribers')}</div>
         </div>
         <div className="text-center">
           <div className="text-xs font-black text-white">{creator.stats.posts.toLocaleString()}</div>
-          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Media</div>
+          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiMedia')}</div>
         </div>
         <div className="text-center">
           <div className="text-xs font-black text-white">{creator.stats.likes.toLocaleString()}</div>
-          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Likes</div>
+          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiLikes')}</div>
         </div>
         <div className="text-center">
-          <div className="text-xs font-black text-white">{formatSubscriptionPrice(creator.subPrice)}</div>
-          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Per Month</div>
+          <div className="text-xs font-black text-white">{formatSubscriptionPrice(creator.subPrice, t)}</div>
+          <div className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiPerMonth')}</div>
         </div>
       </div>
 
@@ -273,7 +277,7 @@ const CreatorListRow = ({ creator, onQuickView, onNavigate }) => {
         <button 
           onClick={(e) => { e.stopPropagation(); onQuickView(creator); }}
           className="p-3 bg-zinc-950 border-2 border-zinc-800 text-zinc-400 hover:text-white hover:border-white transition-colors opacity-0 group-hover:opacity-100 hidden sm:block"
-          title="Quick View"
+          title={t('afterDarkUiQuickView')}
         >
           <Eye className="w-4 h-4" />
         </button>
@@ -290,6 +294,7 @@ const CreatorListRow = ({ creator, onQuickView, onNavigate }) => {
 // MAIN COMPONENT: DIRECTORY
 // ============================================================================
 export default function AfterDarkDirectory() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   
   // --- UI State ---
@@ -352,14 +357,14 @@ export default function AfterDarkDirectory() {
         const records = Array.isArray(response)
           ? response
           : response?.creators || response?.items || response?.results || response?.data || [];
-        if (!Array.isArray(records)) throw new Error('The creator directory returned an invalid response.');
+        if (!Array.isArray(records)) throw new Error(t('afterDarkUiCreatorDirectoryInvalid'));
         setCreators(records.map(normalizeCreator));
         setTotalCreators(Number(response?.total ?? response?.pagination?.total ?? records.length));
       } catch (error) {
         if (!active) return;
         setCreators([]);
         setTotalCreators(0);
-        setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load creators.'));
+        setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCouldNotLoadCreators')));
       } finally {
         if (active) setIsLoading(false);
       }
@@ -369,7 +374,7 @@ export default function AfterDarkDirectory() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [searchQuery, selectedLocation, minPrice, maxPrice, hasInvalidPriceRange, showVerifiedOnly, showOnlineOnly, sortBy, currentPage, itemsPerPage, reloadToken]);
+  }, [searchQuery, selectedLocation, minPrice, maxPrice, hasInvalidPriceRange, showVerifiedOnly, showOnlineOnly, sortBy, currentPage, itemsPerPage, reloadToken, t]);
 
   const paginatedCreators = creators;
   const liveCreators = creators.filter(creator => creator.isOnline);
@@ -397,7 +402,7 @@ export default function AfterDarkDirectory() {
           <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4 text-zinc-400" /> FILTERS
           </h2>
-          <button onClick={() => setIsSidebarOpen(false)} aria-label="Collapse filters" className="p-1 text-zinc-500 hover:text-white">
+          <button onClick={() => setIsSidebarOpen(false)} aria-label={t('afterDarkUiCollapseFilters')} className="p-1 text-zinc-500 hover:text-white">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -436,14 +441,14 @@ export default function AfterDarkDirectory() {
               type="search"
               value={selectedLocation}
               onChange={event => setSelectedLocation(event.target.value)}
-              placeholder="Any city or region"
+              placeholder={t('afterDarkUiAnyCityRegion')}
               className="w-full border-2 border-zinc-800 bg-black p-3 text-[10px] font-bold uppercase text-white outline-none placeholder:text-zinc-700 focus:border-white"
             />
           </div>
 
           {/* Subscription Price Filter */}
           <div className="space-y-3">
-            <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">MONTHLY SUBSCRIPTION (KES)</h3>
+            <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{t('afterDarkUiMonthlySubscriptionKes')}</h3>
             <div className="grid grid-cols-2 gap-2">
               <label className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">
                 Minimum
@@ -465,13 +470,13 @@ export default function AfterDarkDirectory() {
                   step="0.01"
                   value={maxPrice}
                   onChange={event => setMaxPrice(event.target.value)}
-                  placeholder="Any"
+                  placeholder={t('afterDarkUiAny')}
                   className="mt-1 w-full border-2 border-zinc-800 bg-black p-3 text-xs text-white outline-none focus:border-white"
                 />
               </label>
             </div>
             {hasInvalidPriceRange && (
-              <p role="alert" className="text-[9px] font-bold uppercase tracking-widest text-red-400">Enter a valid range with minimum no higher than maximum.</p>
+              <p role="alert" className="text-[9px] font-bold uppercase tracking-widest text-red-400">{t('afterDarkUiValidRange')}</p>
             )}
           </div>
         </div>
@@ -497,7 +502,7 @@ export default function AfterDarkDirectory() {
 
       {/* BACKDROP FOR FILTER DRAWER */}
       {isSidebarOpen && (
-        <button type="button" aria-label="Close filters" className="fixed inset-0 z-30 cursor-default bg-black/70 backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />
+        <button type="button" aria-label={t('afterDarkUiCloseFilters')} className="fixed inset-0 z-30 cursor-default bg-black/70 backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />
       )}
 
       {/* MAIN CONTENT AREA */}
@@ -513,7 +518,7 @@ export default function AfterDarkDirectory() {
               className="flex shrink-0 items-center gap-2 border-2 border-zinc-800 bg-black px-3 py-2.5 text-zinc-300 transition-colors hover:border-white hover:text-white"
             >
               <SlidersHorizontal className="w-4 h-4" />
-              <span className="text-[9px] font-black uppercase tracking-widest">Filters</span>
+              <span className="text-[9px] font-black uppercase tracking-widest">{t('afterDarkUiFilters')}</span>
             </button>
             <div className="relative min-w-0 flex-1 sm:w-[clamp(12rem,30vw,16rem)] sm:flex-none md:w-[clamp(16rem,26vw,20rem)]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -521,7 +526,7 @@ export default function AfterDarkDirectory() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search names, usernames, bios..."
+                placeholder={t('afterDarkUiSearchNamesUsernamesBios')}
                 className="w-full border-2 border-zinc-800 bg-black py-2.5 pl-10 pr-4 text-[10px] font-bold uppercase text-white outline-none transition-colors placeholder:text-zinc-700 focus:border-white"
               />
             </div>
@@ -529,19 +534,19 @@ export default function AfterDarkDirectory() {
 
           <div className="flex min-w-0 items-center justify-between gap-3 sm:gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
-              <span className="hidden items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 sm:flex"><ArrowUpDown className="h-3 w-3" /> SORT BY:</span>
+              <span className="hidden items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-600 sm:flex"><ArrowUpDown className="h-3 w-3" /> {t('afterDarkUiSortBy')}</span>
               <select 
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
                 className="min-w-0 flex-1 appearance-none border-2 border-zinc-800 bg-black p-2 text-[10px] font-bold uppercase text-white outline-none focus:border-white sm:min-w-[clamp(6rem,10vw,8rem)] sm:flex-none"
               >
-                <option value="popular">Most Popular</option>
-                <option value="most_subscribers">Most Subscribers</option>
-                <option value="most_content">Most Content</option>
-                <option value="most_liked">Most Liked</option>
-                <option value="newest">Newest Creators</option>
-                <option value="price_low">Price: Low to High</option>
-                <option value="price_high">Price: High to Low</option>
+                <option value="popular">{t('afterDarkUiMostPopular')}</option>
+                <option value="most_subscribers">{t('afterDarkUiMostSubscribers')}</option>
+                <option value="most_content">{t('afterDarkUiMostContent')}</option>
+                <option value="most_liked">{t('afterDarkUiMostLiked')}</option>
+                <option value="newest">{t('afterDarkUiNewestCreators')}</option>
+                <option value="price_low">{t('afterDarkUiPriceLowToHigh')}</option>
+                <option value="price_high">{t('afterDarkUiPriceHighToLow')}</option>
               </select>
             </div>
             
@@ -580,14 +585,14 @@ export default function AfterDarkDirectory() {
                 </p>
               </div>
               <span className="w-fit border-2 border-zinc-800 bg-zinc-950 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white">
-                {totalCreators.toLocaleString()} {totalCreators === 1 ? 'CREATOR' : 'CREATORS'}
+                {totalCreators.toLocaleString()} {t(totalCreators === 1 ? 'afterDarkUiCreatorCountSingular' : 'afterDarkUiCreatorCountPlural')}
               </span>
             </div>
             {activeFilterCount > 0 && (
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600">Active filters</span>
-                {showVerifiedOnly && <span className="border border-zinc-700 px-2 py-1 text-[8px] font-bold uppercase tracking-widest text-zinc-300">Verified</span>}
-                {showOnlineOnly && <span className="border border-zinc-700 px-2 py-1 text-[8px] font-bold uppercase tracking-widest text-zinc-300">Live now</span>}
+                <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600">{t('afterDarkUiActiveFilters')}</span>
+                {showVerifiedOnly && <span className="border border-zinc-700 px-2 py-1 text-[8px] font-bold uppercase tracking-widest text-zinc-300">{t('afterDarkUiVerified')}</span>}
+                {showOnlineOnly && <span className="border border-zinc-700 px-2 py-1 text-[8px] font-bold uppercase tracking-widest text-zinc-300">{t('afterDarkUiLiveNow')}</span>}
                 {selectedLocation.trim() && <span className="border border-zinc-700 px-2 py-1 text-[8px] font-bold uppercase tracking-widest text-zinc-300">{selectedLocation}</span>}
                 {minPrice !== '' && <span className="border border-zinc-700 px-2 py-1 text-[8px] font-bold uppercase tracking-widest text-zinc-300">From KES {minPrice}</span>}
                 {maxPrice !== '' && <span className="border border-zinc-700 px-2 py-1 text-[8px] font-bold uppercase tracking-widest text-zinc-300">To KES {maxPrice}</span>}
@@ -611,15 +616,15 @@ export default function AfterDarkDirectory() {
           </div>
 
           {!isLoading && !loadError && liveCreators.length > 0 && !showOnlineOnly && (
-            <section aria-label="Creators live now" className="mb-7 border-2 border-zinc-800 bg-zinc-950 p-4 sm:p-5">
+            <section aria-label={t('afterDarkUiCreatorsLiveNow')} className="mb-7 border-2 border-zinc-800 bg-zinc-950 p-4 sm:p-5">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white">
                     <Radio className="h-4 w-4 text-red-400" /> Live right now
                   </h2>
-                  <p className="mt-1 text-[8px] font-bold uppercase tracking-widest text-zinc-500">Join an active creator broadcast</p>
+                  <p className="mt-1 text-[8px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiJoinActiveBroadcast')}</p>
                 </div>
-                <button type="button" onClick={() => setShowOnlineOnly(true)} className="text-[8px] font-black uppercase tracking-widest text-zinc-300 hover:text-white">See all live</button>
+                <button type="button" onClick={() => setShowOnlineOnly(true)} className="text-[8px] font-black uppercase tracking-widest text-zinc-300 hover:text-white">{t('afterDarkUiSeeAllLive')}</button>
               </div>
               <div className="flex gap-3 overflow-x-auto pb-1">
                 {liveCreators.slice(0, 8).map(creator => (
@@ -635,7 +640,7 @@ export default function AfterDarkDirectory() {
                     </span>
                     <span className="min-w-0">
                       <span className="block truncate text-[9px] font-black uppercase tracking-widest text-white">{creator.displayName}</span>
-                      <span className="mt-1 block text-[8px] font-bold uppercase tracking-widest text-red-300">Live now</span>
+                      <span className="mt-1 block text-[8px] font-bold uppercase tracking-widest text-red-300">{t('afterDarkUiLiveNow')}</span>
                     </span>
                   </button>
                 ))}
@@ -649,17 +654,17 @@ export default function AfterDarkDirectory() {
               Check the subscription price range in filters and try again.
             </div>
           ) : isLoading ? (
-            <div role="status" className="py-20 text-center text-xs font-bold uppercase tracking-widest text-zinc-500">Loading creators…</div>
+            <div role="status" className="py-20 text-center text-xs font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiLoadingCreators')}</div>
           ) : loadError ? (
             <div role="alert" className="border-2 border-red-900 bg-black py-20 text-center text-xs font-bold uppercase tracking-widest text-red-500">
               {loadError}
-              <button type="button" onClick={() => setReloadToken(token => token + 1)} className="ml-3 text-white underline">Retry</button>
+              <button type="button" onClick={() => setReloadToken(token => token + 1)} className="ml-3 text-white underline">{t('afterDarkUiRetry')}</button>
             </div>
           ) : totalCreators === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed border-zinc-800 bg-black">
               <Search className="w-12 h-12 text-zinc-600 mb-4" />
-              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">NO CREATORS MATCH YOUR FILTERS</h3>
-              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Adjust your search or clear filters to see more results.</p>
+              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">{t('afterDarkUiNoCreatorsMatchFilters')}</h3>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiAdjustSearchClearFilters')}</p>
               <button
                 type="button"
                 onClick={() => {
@@ -690,13 +695,13 @@ export default function AfterDarkDirectory() {
           ) : (
             <div className="flex flex-col gap-2">
               <div className="hidden md:flex items-center px-4 pb-2 mb-2 border-b-2 border-zinc-800 text-[9px] font-black text-zinc-600 uppercase tracking-widest">
-                <div className="flex-1">Creator Profile</div>
+                <div className="flex-1">{t('afterDarkUiCreatorProfile')}</div>
                 <div className="flex-1 px-8 text-center flex justify-between">
-                  <span>Audience</span>
-                  <span>Content</span>
-                  <span>Pricing</span>
+                  <span>{t('afterDarkUiAudience')}</span>
+                  <span>{t('afterDarkUiContent')}</span>
+                  <span>{t('afterDarkUiPricing')}</span>
                 </div>
-                <div className="w-[clamp(5rem,12vw,8rem)] text-right">Actions</div>
+                <div className="w-[clamp(5rem,12vw,8rem)] text-right">{t('afterDarkUiActions')}</div>
               </div>
               {paginatedCreators.map(creator => (
                 <CreatorListRow 

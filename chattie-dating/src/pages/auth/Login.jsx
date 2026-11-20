@@ -68,7 +68,7 @@ export default function Login() {
       setTwoFactorChallenge(response);
       setVerificationCode('');
       setSocialLoading(null);
-      toast.info(response.message || 'Enter your security code to continue.');
+      toast.info(response.message || t('coreUiEnterSecurityCode'));
       return true;
     }
     return false;
@@ -94,7 +94,7 @@ export default function Login() {
       const response = await authService.verifyLoginCode(twoFactorChallenge.challenge_id, verificationCode);
       processAuthSuccess(response);
     } catch (error) {
-      toast.error(error.response?.data?.error || error.message || 'Verification failed.');
+      toast.error(error.response?.data?.error || error.message || t('coreUiVerificationFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -173,7 +173,7 @@ export default function Login() {
                 usePopup: true 
               }}
               onSuccess={async (response) => { ... }}
-              onError={(error) => toast.error('Apple login cancelled')}
+              onError={() => toast.error(t('coreUiAppleLoginCancelled'))}
               render={(props) => (
                 <button 
                   type="button"
@@ -198,7 +198,7 @@ export default function Login() {
           {twoFactorChallenge ? (
             <form onSubmit={handleVerifyTwoFactor} className="space-y-5">
               <div className="border-2 border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white">Security code required</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white">{t('coreUiSecurityCodeRequired')}</p>
                 <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
                   Sent by {twoFactorChallenge.channel}{twoFactorChallenge.destination ? ` to ${twoFactorChallenge.destination}` : ''}.
                 </p>

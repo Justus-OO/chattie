@@ -123,10 +123,10 @@ export default function AfterDarkSettings() {
           if (storedCreatorStatus) setCreatorStatus(false);
           return;
         }
-        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load creator profile status.'));
+        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCreatorProfileStatusLoadFailed')));
       });
     return () => { active = false; };
-  }, [setCreatorStatus, storedCreatorStatus]);
+  }, [setCreatorStatus, storedCreatorStatus, t]);
 
   // --- Profile State ---
   const [displayName, setDisplayName] = useState(storedSettings.displayName ?? currentUser.name);
@@ -215,14 +215,14 @@ export default function AfterDarkSettings() {
           setPaused(Boolean(profile.paused || settings.paused));
         }
       } catch (error) {
-        if (active) toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load After Dark settings.'));
+        if (active) toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiSettingsLoadFailed')));
       } finally {
         if (active) setIsLoadingSettings(false);
       }
     };
     loadSettings();
     return () => { active = false; };
-  }, [hasCreatorProfile, currentUser.avatar, currentUser.name]);
+  }, [hasCreatorProfile, currentUser.avatar, currentUser.name, t]);
 
   React.useEffect(() => {
     let active = true;
@@ -234,10 +234,10 @@ export default function AfterDarkSettings() {
         setBlockedUsers(users);
       })
       .catch(error => {
-        if (active) toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load blocked users.'));
+        if (active) toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiBlockedUsersLoadFailed')));
       });
     return () => { active = false; };
-  }, []);
+  }, [t]);
 
   React.useEffect(() => {
     if (!hasCreatorProfile) return undefined;
@@ -249,10 +249,10 @@ export default function AfterDarkSettings() {
         if (active) setPayoutMethods(methods);
       })
       .catch(error => {
-        if (active) toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load payout methods.'));
+        if (active) toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiPayoutMethodsLoadFailed')));
       });
     return () => { active = false; };
-  }, [hasCreatorProfile]);
+  }, [hasCreatorProfile, t]);
 
   React.useEffect(() => {
     if (!payoutProvider.startsWith('paystack_')) {
@@ -275,14 +275,14 @@ export default function AfterDarkSettings() {
       .catch(error => {
         if (active) {
           setPayoutBanks([]);
-          toast.error(error?.response?.data?.error || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '') || (error instanceof Error ? error.message : 'Could not load Paystack payout destinations.'));
+          toast.error(error?.response?.data?.error || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '') || (error instanceof Error ? error.message : t('afterDarkUiPaystackDestinationsLoadFailed')));
         }
       })
       .finally(() => {
         if (active) setIsLoadingPayoutBanks(false);
       });
     return () => { active = false; };
-  }, [payoutProvider]);
+  }, [payoutProvider, t]);
 
   const addPayoutMethod = async event => {
     event.preventDefault();
@@ -304,17 +304,17 @@ export default function AfterDarkSettings() {
       setPayoutAccountNumber('');
       setPayoutAccountName('');
       setPayoutBankCode('');
-      toast.success('Payout method added.');
+      toast.success(t('afterDarkUiPayoutMethodAdded'));
       try {
         const response = await afterDarkService.getPayoutMethods();
         const methods = Array.isArray(response) ? response : response?.methods || response?.items || [];
         if (!Array.isArray(methods)) throw new Error('The payout service returned invalid payout methods.');
         setPayoutMethods(methods);
       } catch (error) {
-        toast.error(error?.response?.data?.error || (error instanceof Error ? `Payout method added, but could not refresh the list: ${error.message}` : 'Payout method added, but could not refresh the list.'));
+        toast.error(error?.response?.data?.error || (error instanceof Error ? t('afterDarkUiPayoutAddedRefreshFailed', { error: error.message }) : t('afterDarkUiPayoutAddedRefreshFailedGeneric')));
       }
     } catch (error) {
-      toast.error(error?.response?.data?.error || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '') || (error instanceof Error ? error.message : 'Could not add payout method.'));
+      toast.error(error?.response?.data?.error || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '') || (error instanceof Error ? error.message : t('afterDarkUiAddPayoutMethodFailed')));
     } finally {
       setIsAddingPayoutMethod(false);
     }
@@ -397,25 +397,25 @@ export default function AfterDarkSettings() {
       const result = await afterDarkService.requestDataExport();
       const downloadUrl = result?.download_url || result?.url;
       if (downloadUrl) window.location.assign(downloadUrl);
-      else toast.success('Your data archive request was submitted.');
+      else toast.success(t('afterDarkUiDataArchiveRequested'));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not request your data archive.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiDataArchiveRequestFailed')));
     }
   };
 
   const revokeSessions = async () => {
-    if (!await confirm('Sign out all other devices?', {
-      title: 'Sign out other devices',
-      confirmLabel: 'Sign out',
+    if (!await confirm(t('afterDarkUiSignOutOtherDevicesConfirm'), {
+      title: t('afterDarkUiSignOutOtherDevices'),
+      confirmLabel: t('afterDarkUiSignOut'),
       tone: 'danger',
     })) return;
     setIsRevokingSessions(true);
     try {
       const result = await settingsService.terminateOtherSessions();
       if (result.token && currentUser) updateSession(currentUser, result.token);
-      toast.success('Other sessions have been signed out.');
+      toast.success(t('afterDarkUiOtherSessionsSignedOut'));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not terminate other sessions.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiTerminateSessionsFailed')));
     } finally {
       setIsRevokingSessions(false);
     }
@@ -427,9 +427,9 @@ export default function AfterDarkSettings() {
       const challenge = await settingsService.requestTwoFactorChange(enabled, twoFactorChannel);
       setTwoFactorChallenge(challenge);
       setTwoFactorCode('');
-      toast.success(`Verification code sent by ${challenge.channel}.`);
+      toast.success(t('afterDarkUiVerificationCodeSent', { channel: challenge.channel }));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not send a security code.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiSecurityCodeSendFailed')));
     } finally {
       setIsChangingTwoFactor(false);
     }
@@ -449,9 +449,9 @@ export default function AfterDarkSettings() {
       setTwoFactorChannel(result.channel);
       setTwoFactorChallenge(null);
       setTwoFactorCode('');
-      toast.success(result.enabled ? 'Two-factor sign-in is enabled.' : 'Two-factor sign-in is disabled.');
+      toast.success(t(result.enabled ? 'afterDarkUiTwoFactorEnabled' : 'afterDarkUiTwoFactorDisabled'));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'The code is invalid or expired.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiInvalidExpiredCode')));
     } finally {
       setIsChangingTwoFactor(false);
     }
@@ -461,9 +461,9 @@ export default function AfterDarkSettings() {
     try {
       await settingsService.unblockUser(id);
       setBlockedUsers(prev => prev.filter(user => user.id !== id));
-      toast.success('User unblocked.');
+      toast.success(t('afterDarkUiUserUnblocked'));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not unblock this user.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiUnblockUserFailed')));
     }
   };
 
@@ -684,19 +684,19 @@ export default function AfterDarkSettings() {
               const methodId = String(method.id || method.payout_method_id || `${method.provider || 'payout'}-${index}`);
               const accountNumber = String(method.account_number || method.phone_number || '');
               const isRevealed = isPageFocused && Boolean(revealedPayoutMethods[methodId]);
-              const maskedNumber = accountNumber ? `**** ${accountNumber.slice(-4)}` : 'Number unavailable';
+              const maskedNumber = accountNumber ? `**** ${accountNumber.slice(-4)}` : t('afterDarkUiNumberUnavailable');
               return (
                 <div key={methodId} className="flex min-w-0 flex-col gap-2 border-2 border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-white">{method.provider || method.type || 'Payout'}</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-white">{method.provider || method.type || t('afterDarkUiPayout')}</span>
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <span className="min-w-0 break-all text-[10px] font-bold text-zinc-400" aria-live="polite">
-                      {isRevealed ? `${method.account_name || 'Account'} · ${accountNumber || 'Number unavailable'}` : `Account holder · ${maskedNumber}`}
+                      {isRevealed ? `${method.account_name || t('afterDarkUiAccount')} · ${accountNumber || t('afterDarkUiNumberUnavailable')}` : `${t('afterDarkUiAccountHolder')} · ${maskedNumber}`}
                     </span>
                     <button
                       type="button"
                       disabled={!isPageFocused}
                       onClick={() => setRevealedPayoutMethods(current => ({ ...current, [methodId]: !current[methodId] }))}
-                      aria-label={isRevealed ? 'Hide payout details' : 'Reveal payout details'}
+                      aria-label={t(isRevealed ? 'afterDarkUiHidePayoutDetails' : 'afterDarkUiRevealPayoutDetails')}
                       className="flex h-8 w-8 shrink-0 items-center justify-center border border-zinc-700 text-zinc-400 hover:border-white hover:text-white disabled:opacity-40"
                     >
                       {isRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -737,7 +737,7 @@ export default function AfterDarkSettings() {
           {payoutProvider.startsWith('paystack_') && (
             <div className="sm:col-span-2">
               <label htmlFor="payout-bank" className="mb-2 block text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                {payoutProvider === 'paystack_bank' ? 'Bank' : 'Mobile money provider'}
+                {t(payoutProvider === 'paystack_bank' ? 'afterDarkUiBank' : 'afterDarkUiMobileMoneyProvider')}
               </label>
               <select
                 id="payout-bank"
@@ -747,7 +747,7 @@ export default function AfterDarkSettings() {
                 disabled={isLoadingPayoutBanks}
                 className="w-full border-2 border-zinc-800 bg-black p-3 text-xs font-bold uppercase text-white outline-none focus:border-white disabled:opacity-50"
               >
-                <option value="">{isLoadingPayoutBanks ? 'Loading destinations…' : 'Select destination'}</option>
+                <option value="">{isLoadingPayoutBanks ? t('afterDarkUiLoadingDestinations') : t('afterDarkUiSelectDestination')}</option>
                 {payoutBanks.map(bank => <option key={bank.code} value={bank.code}>{bank.name}</option>)}
               </select>
             </div>
@@ -765,7 +765,7 @@ export default function AfterDarkSettings() {
               className="w-full border-2 border-zinc-800 bg-black p-3 text-xs font-bold text-white outline-none focus:border-white"
             />
             <p className="mt-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">
-              {payoutProvider === 'paystack_bank' ? 'Enter the account number for the selected bank.' : 'Enter the Kenyan mobile number that receives the payout.'}
+              {t(payoutProvider === 'paystack_bank' ? 'afterDarkUiEnterBankAccountNumber' : 'afterDarkUiEnterKenyanPayoutNumber')}
             </p>
           </div>
           <button
@@ -774,7 +774,7 @@ export default function AfterDarkSettings() {
             className="flex w-full items-center justify-center gap-2 border-2 border-white bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest text-black transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 sm:w-auto"
           >
             {isAddingPayoutMethod && <RefreshCcw className="h-4 w-4 animate-spin" />}
-            {isAddingPayoutMethod ? 'Adding payout method…' : 'Add payout method'}
+            {isAddingPayoutMethod ? t('afterDarkUiAddingPayoutMethod') : t('afterDarkUiAddPayoutMethod')}
           </button>
         </form>
       </section>
@@ -870,7 +870,7 @@ export default function AfterDarkSettings() {
           </div>
         </div>
       </div>
-      <PagePrivacyShield active={!isPageFocused} message="Payout details are hidden while this window is inactive." />
+      <PagePrivacyShield active={!isPageFocused} message={t('afterDarkUiPayoutDetailsHiddenInactive')} />
     </div>
     ) : (
       <div className="space-y-8 animate-in fade-in duration-300">
@@ -947,7 +947,7 @@ export default function AfterDarkSettings() {
             />
             <div className="flex gap-2">
               <button type="submit" disabled={isChangingTwoFactor || twoFactorCode.length < 6} className="border-2 border-white bg-white px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-black disabled:opacity-50">
-                {isChangingTwoFactor ? 'Verifying...' : 'Confirm'}
+                {isChangingTwoFactor ? t('afterDarkUiVerifying') : t('afterDarkUiConfirm')}
               </button>
               <button type="button" onClick={() => setTwoFactorChallenge(null)} className="border-2 border-zinc-800 px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-zinc-400">
                 Cancel
@@ -1012,8 +1012,8 @@ export default function AfterDarkSettings() {
         
         <div className="space-y-3">
           {hasCreatorProfile && <CustomToggle label={t('adNewSubscribers')} description={t('adNewSubscribersDescription')} checked={notifEmail.subs} onChange={(v) => setNotifEmail({...notifEmail, subs: v})} />}
-          {hasCreatorProfile && <CustomToggle label="New purchases" description="Get an email when a member purchases a post or live pass." checked={notifEmail.sales !== false} onChange={(v) => setNotifEmail({...notifEmail, sales: v})} />}
-          {hasCreatorProfile && <CustomToggle label="Post likes" description="Get an email when a member likes your published post." checked={notifEmail.likes === true} onChange={(v) => setNotifEmail({...notifEmail, likes: v})} />}
+          {hasCreatorProfile && <CustomToggle label={t('afterDarkUiNewPurchases')} description={t('afterDarkUiEmailNewPurchases')} checked={notifEmail.sales !== false} onChange={(v) => setNotifEmail({...notifEmail, sales: v})} />}
+          {hasCreatorProfile && <CustomToggle label={t('afterDarkUiPostLikes')} description={t('afterDarkUiEmailPostLikes')} checked={notifEmail.likes === true} onChange={(v) => setNotifEmail({...notifEmail, likes: v})} />}
           {hasCreatorProfile && <CustomToggle label={t('adTipsUnlocks')} description={t('adTipsUnlocksDescription')} checked={notifEmail.tips} onChange={(v) => setNotifEmail({...notifEmail, tips: v})} />}
           <CustomToggle label={t('adDirectMessages')} description={hasCreatorProfile ? t('adCustomerMessagesDescription') : t('adCreatorRepliesDescription')} checked={notifEmail.messages} onChange={(v) => setNotifEmail({...notifEmail, messages: v})} />
           <CustomToggle label={t('adPlatformUpdates')} description={t('adPlatformUpdatesDescription')} checked={notifEmail.marketing} onChange={(v) => setNotifEmail({...notifEmail, marketing: v})} />
@@ -1076,8 +1076,8 @@ export default function AfterDarkSettings() {
                 const request = next ? afterDarkService.pauseCreator() : afterDarkService.resumeCreator();
                 request.then(() => {
                   setPaused(next);
-                  toast.success(`Creator account ${next ? 'paused' : 'resumed'}.`);
-                }).catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update creator status.')));
+                  toast.success(t(next ? 'afterDarkUiCreatorAccountPaused' : 'afterDarkUiCreatorAccountResumed'));
+                }).catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCreatorStatusUpdateFailed'))));
               }} className="px-4 py-3 bg-black border-2 border-zinc-800 text-white font-black uppercase text-[9px] tracking-widest hover:border-white transition-colors shrink-0">
                 {paused ? t('adResume') : t('adPause')}
               </button>
@@ -1099,10 +1099,10 @@ export default function AfterDarkSettings() {
                   .then(() => {
                     setCreatorStatus(false);
                     updateUser({ isCreator: false });
-                    toast.success('Creator account deactivated.');
+                    toast.success(t('afterDarkUiCreatorAccountDeactivated'));
                     navigate('/afterdark/feed');
                   })
-                  .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not deactivate creator status.')));
+                  .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCreatorStatusDeactivateFailed'))));
               }} className="flex w-full shrink-0 items-center justify-center gap-2 border-2 border-red-900 bg-black px-4 py-3 text-[9px] font-black uppercase tracking-widest text-red-500 transition-colors hover:border-red-500 hover:bg-red-950 sm:w-auto">
                 <Trash2 className="w-3 h-3" /> {t('adDeactivate')}
               </button>

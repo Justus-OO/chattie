@@ -66,10 +66,10 @@ export default function Onboarding() {
     setIsRequestingOtp(true);
     try {
       await profileService.requestEmailOTP(appToken);
-      toast.success('Verification code sent. Check your email inbox and spam folder.');
+      toast.success(t('coreUiVerificationEmailSent'));
     } catch (error) {
       console.error('Could not resend onboarding verification code:', error);
-      toast.error(error.message || 'Could not send verification code.');
+      toast.error(error.message || t('coreUiVerificationCodeSendFailed'));
     } finally {
       setIsRequestingOtp(false);
     }
@@ -255,13 +255,13 @@ export default function Onboarding() {
 
     // Step 2 Validation (Identity & Basics)
     if (step === 2) {
-      if (!profileData.avatarUrl || !profileData.avatarFile) return toast.error(t('uploadPhotoRequired') || 'Photo is required.');
-      if (profileData.displayName.trim().length < 2) return toast.error(t('validDisplayName') || 'Enter a valid name.');
-      if (!profileData.dob) return toast.error(t('dobRequired') || 'Date of birth is required.');
-      if (!profileData.gender) return toast.error(t('genderRequired') || 'Gender is required.');
+      if (!profileData.avatarUrl || !profileData.avatarFile) return toast.error(t('coreUiPhotoRequired'));
+      if (profileData.displayName.trim().length < 2) return toast.error(t('coreUiValidNameRequired'));
+      if (!profileData.dob) return toast.error(t('coreUiDateOfBirthRequired'));
+      if (!profileData.gender) return toast.error(t('coreUiGenderRequired'));
       
       const age = getAgeFromDate(profileData.dob);
-      if (age === null || age < 18) return toast.error(t('adultRequired') || 'You must be 18+ to use Chattie.');
+      if (age === null || age < 18) return toast.error(t('coreUiAgeRequired'));
       const heightCm = Number(profileData.heightCm);
       if (!Number.isInteger(heightCm) || heightCm < 100 || heightCm > 250) {
         return toast.error(t('heightRequired'));

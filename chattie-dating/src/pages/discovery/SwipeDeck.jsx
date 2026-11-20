@@ -435,7 +435,7 @@ export default function SwipeDeck() {
                 data-photo-navigation="left"
                 role="button"
                 tabIndex={0}
-                aria-label="Previous profile photo"
+                aria-label={t('coreUiPreviousProfilePhoto')}
                 onKeyDown={e => handlePhotoNavigationKeyDown(e, 'left')}
                 className="absolute inset-y-0 left-0 z-20 w-1/2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
               />
@@ -443,14 +443,14 @@ export default function SwipeDeck() {
                 data-photo-navigation="right"
                 role="button"
                 tabIndex={0}
-                aria-label="Next profile photo"
+                aria-label={t('coreUiNextProfilePhoto')}
                 onKeyDown={e => handlePhotoNavigationKeyDown(e, 'right')}
                 className="absolute inset-y-0 right-0 z-20 w-1/2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
               />
               {!showProfile && isLoadingProfile && (
                 <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/30" aria-live="polite">
                   <Loader2 className="h-7 w-7 animate-spin text-white" />
-                  <span className="sr-only">Loading profile photos</span>
+                  <span className="sr-only">{t('coreUiLoadingProfilePhotos')}</span>
                 </div>
               )}
 
@@ -617,10 +617,10 @@ export default function SwipeDeck() {
 
             <div className="flex justify-center items-center gap-4 relative py-4">
               <div className="w-28 h-28 border-2 border-white z-10 bg-zinc-950">
-                <img src={matchModal.user.images?.[0]} alt="Match" className="w-full h-full object-cover" />
+                <img src={matchModal.user.images?.[0]} alt={t('coreUiMatch')} className="w-full h-full object-cover" />
               </div>
               <div className="w-28 h-28 border-2 border-white z-0 bg-black flex items-center justify-center">
-                <span className="text-white text-xs font-bold uppercase tracking-widest">YOU</span>
+                <span className="text-white text-xs font-bold uppercase tracking-widest">{t('coreUiYou')}</span>
               </div>
             </div>
 
@@ -653,7 +653,7 @@ export default function SwipeDeck() {
           <div className="bg-black border-2 border-zinc-600 max-w-sm w-full p-6 space-y-6 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)]">
             <div className="flex items-center gap-3 text-white border-b-2 border-zinc-800 pb-4">
               <ShieldAlert className="w-5 h-5 text-zinc-400" />
-              <h2 className="font-bold text-sm uppercase tracking-widest">REPORT PROFILE</h2>
+              <h2 className="font-bold text-sm uppercase tracking-widest">{t('coreUiReportProfile')}</h2>
             </div>
             
             <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">

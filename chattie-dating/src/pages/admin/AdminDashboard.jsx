@@ -5,10 +5,13 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { adminService } from '../../api/admin.service';
+import { useI18n } from '../../i18n';
 
-const getErrorMessage = (error) => error?.response?.data?.error
+const getErrorMessage = (error, t) => error?.response?.data?.error
   || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '')
-  || (error instanceof Error ? error.message : 'Could not load dashboard telemetry.');
+  || (error instanceof Error && error.message === t('adminDashInvalidResponse')
+    ? error.message
+    : t('adminDashError'));
 
 const MetricCard = ({ label, value, detail, icon: Icon, tone = 'text-zinc-300' }) => (
   <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
@@ -22,6 +25,7 @@ const MetricCard = ({ label, value, detail, icon: Icon, tone = 'text-zinc-300' }
 );
 
 export default function AdminDashboard() {
+  const { t, locale } = useI18n();
   const [telemetry, setTelemetry] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -34,20 +38,20 @@ export default function AdminDashboard() {
     adminService.getDashboardTelemetry()
       .then((response) => {
         if (!response || !Array.isArray(response.recentActivity)) {
-          throw new Error('The dashboard service returned an invalid response.');
+          throw new Error(t('adminDashInvalidResponse'));
         }
         if (active) setTelemetry(response);
       })
       .catch((error) => {
         if (!active) return;
-        setLoadError(getErrorMessage(error));
+        setLoadError(getErrorMessage(error, t));
         setTelemetry(null);
       })
       .finally(() => {
         if (active) setIsLoading(false);
       });
     return () => { active = false; };
-  }, [refreshKey]);
+  }, [refreshKey, t]);
 
   return (
     <main className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-black p-2 font-mono text-zinc-300 sm:p-3 lg:p-4">
@@ -55,17 +59,17 @@ export default function AdminDashboard() {
         <header className="flex flex-col justify-between gap-4 border-b-2 border-zinc-800 pb-6 sm:flex-row sm:items-end">
           <div>
             <p className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-red-400">
-              <ShieldAlert className="h-4 w-4" /> Admin command center
+              <ShieldAlert className="h-4 w-4" /> {t('adminDashCommandCenter')}
             </p>
-            <h1 className="text-2xl font-black uppercase tracking-widest text-white sm:text-3xl">Platform overview</h1>
+            <h1 className="text-2xl font-black uppercase tracking-widest text-white sm:text-3xl">{t('adminDashPlatformOverview')}</h1>
             <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              Operational counts from the live database; no simulated telemetry.
+              {t('adminDashOperationalSummary')}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {telemetry && (
               <span className="text-[9px] uppercase tracking-widest text-zinc-600">
-                Updated {new Date(telemetry.generatedAt).toLocaleTimeString()}
+                {t('adminDashUpdated', { time: new Date(telemetry.generatedAt).toLocaleTimeString(locale) })}
               </span>
             )}
             <button
@@ -74,7 +78,7 @@ export default function AdminDashboard() {
               disabled={isLoading}
               className="flex items-center gap-2 border-2 border-zinc-700 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white disabled:opacity-50"
             >
-              <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+              <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> {t('adminDashRefresh')}
             </button>
           </div>
         </header>
@@ -83,34 +87,34 @@ export default function AdminDashboard() {
           <section role="alert" className="flex flex-wrap items-center justify-between gap-4 border-2 border-red-900 bg-red-950/30 p-4 text-xs text-red-300">
             <span>{loadError}</span>
             <button type="button" className="text-[10px] font-black uppercase underline" onClick={() => setRefreshKey((key) => key + 1)}>
-              Retry
+              {t('adminDashRetry')}
             </button>
           </section>
         )}
 
         {isLoading && !telemetry ? (
-          <p role="status" className="border-2 border-zinc-800 p-8 text-center text-xs text-zinc-500">Loading live platform data…</p>
+          <p role="status" className="border-2 border-zinc-800 p-8 text-center text-xs text-zinc-500">{t('adminDashLoading')}</p>
         ) : !telemetry ? (
-          <p className="border-2 border-dashed border-zinc-800 p-8 text-center text-xs text-zinc-500">Dashboard data is unavailable.</p>
+          <p className="border-2 border-dashed border-zinc-800 p-8 text-center text-xs text-zinc-500">{t('adminDashUnavailable')}</p>
         ) : (
           <>
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricCard label="Registered clients" value={telemetry.totalUsers} detail="Client accounts" icon={Users} tone="text-cyan-400" />
-              <MetricCard label="Recently active" value={telemetry.activeUsers24h} detail="Signed in during the last 24 hours" icon={Activity} tone="text-green-400" />
-              <MetricCard label="Online creators" value={telemetry.onlineCreators} detail={`Of ${Number(telemetry.totalCreators || 0).toLocaleString()} creator accounts`} icon={UserCheck} tone="text-purple-400" />
-              <MetricCard label="Open reports" value={telemetry.pendingReports} detail="Awaiting moderation review" icon={AlertTriangle} tone="text-amber-400" />
-              <MetricCard label="Open text rooms" value={telemetry.openTextRooms} detail="Rooms with active status" icon={MessageSquare} tone="text-blue-400" />
-              <MetricCard label="Active voice spaces" value={telemetry.activeVoiceRooms} detail="Active voice sessions" icon={Activity} tone="text-yellow-400" />
-              <MetricCard label="Paid checkouts" value={telemetry.paidCheckouts24h} detail="Confirmed in the last 24 hours" icon={Wallet} tone="text-green-400" />
+              <MetricCard label={t('adminDashRegisteredClients')} value={telemetry.totalUsers} detail={t('adminDashClientAccounts')} icon={Users} tone="text-cyan-400" />
+              <MetricCard label={t('adminDashRecentlyActive')} value={telemetry.activeUsers24h} detail={t('adminDashSignedIn24h')} icon={Activity} tone="text-green-400" />
+              <MetricCard label={t('adminDashOnlineCreators')} value={telemetry.onlineCreators} detail={t('adminDashCreatorAccounts', { count: Number(telemetry.totalCreators || 0).toLocaleString(locale) })} icon={UserCheck} tone="text-purple-400" />
+              <MetricCard label={t('adminDashOpenReports')} value={telemetry.pendingReports} detail={t('adminDashAwaitingModeration')} icon={AlertTriangle} tone="text-amber-400" />
+              <MetricCard label={t('adminDashOpenTextRooms')} value={telemetry.openTextRooms} detail={t('adminDashRoomsActive')} icon={MessageSquare} tone="text-blue-400" />
+              <MetricCard label={t('adminDashActiveVoiceSpaces')} value={telemetry.activeVoiceRooms} detail={t('adminDashVoiceSessions')} icon={Activity} tone="text-yellow-400" />
+              <MetricCard label={t('adminDashPaidCheckouts')} value={telemetry.paidCheckouts24h} detail={t('adminDashConfirmed24h')} icon={Wallet} tone="text-green-400" />
               <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
                 <div className="mb-4 flex items-start justify-between gap-3">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Data store</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{t('adminDashDataStore')}</span>
                   <Database className={`h-4 w-4 ${telemetry.databaseHealthy ? 'text-green-400' : 'text-red-400'}`} />
                 </div>
                 <p className={`text-lg font-black uppercase ${telemetry.databaseHealthy ? 'text-green-400' : 'text-red-400'}`}>
-                  {telemetry.databaseHealthy ? 'Connected' : 'Unavailable'}
+                  {telemetry.databaseHealthy ? t('adminDashConnected') : t('adminDashUnavailableState')}
                 </p>
-                <p className="mt-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">Admin queries completed successfully</p>
+                <p className="mt-2 text-[9px] font-bold uppercase tracking-widest text-zinc-600">{t('adminDashQueriesOk')}</p>
               </article>
             </section>
 
@@ -118,13 +122,13 @@ export default function AdminDashboard() {
               <div className="border-2 border-zinc-800 bg-zinc-950">
                 <header className="flex items-center justify-between border-b-2 border-zinc-800 bg-black p-4">
                   <div>
-                    <h2 className="text-xs font-black uppercase tracking-widest text-white">Recent system activity</h2>
-                    <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">Recorded user and admin audit events</p>
+                    <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adminDashRecentActivity')}</h2>
+                    <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">{t('adminDashAuditEvents')}</p>
                   </div>
                   <Activity className="h-4 w-4 text-yellow-400" />
                 </header>
                 {telemetry.recentActivity.length === 0 ? (
-                  <p className="p-8 text-center text-[10px] uppercase tracking-widest text-zinc-600">No audit activity has been recorded.</p>
+                  <p className="p-8 text-center text-[10px] uppercase tracking-widest text-zinc-600">{t('adminDashNoAuditActivity')}</p>
                 ) : (
                   <div className="max-h-[60dvh] divide-y divide-zinc-800 overflow-y-auto">
                     {telemetry.recentActivity.map((event) => (
@@ -135,7 +139,7 @@ export default function AdminDashboard() {
                           </span>
                           <p className="text-[10px] font-bold uppercase leading-relaxed text-zinc-300">{event.description}</p>
                         </div>
-                        <time className="shrink-0 text-[9px] text-zinc-600">{new Date(event.createdAt).toLocaleString()}</time>
+                        <time className="shrink-0 text-[9px] text-zinc-600">{new Date(event.createdAt).toLocaleString(locale)}</time>
                       </article>
                     ))}
                   </div>
@@ -144,18 +148,18 @@ export default function AdminDashboard() {
 
               <aside className="space-y-4">
                 <div className="border-2 border-zinc-800 bg-zinc-950 p-5">
-                  <h2 className="text-xs font-black uppercase tracking-widest text-white">Admin follow-up</h2>
-                  <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">Review unresolved reports and manage live moderation rules.</p>
+                  <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adminDashFollowUp')}</h2>
+                  <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">{t('adminDashFollowUpDescription')}</p>
                   <Link to="/admin/moderation" className="mt-4 inline-flex border-2 border-zinc-700 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white">
-                    Open moderation
+                    {t('adminDashOpenModeration')}
                   </Link>
                 </div>
                 <div className="border-2 border-zinc-800 bg-zinc-950 p-5">
-                  <h2 className="text-xs font-black uppercase tracking-widest text-white">Finance and payouts</h2>
-                  <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">Confirmed collections, payout liabilities, and withdrawal processing are tracked separately by currency.</p>
+                  <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adminDashFinancePayouts')}</h2>
+                  <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">{t('adminDashFinancePayoutDescription')}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Link to="/admin/finance" className="border-2 border-zinc-700 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white">Finance</Link>
-                    <Link to="/admin/creator-payouts" className="border-2 border-zinc-700 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white">Creator payouts</Link>
+                    <Link to="/admin/finance" className="border-2 border-zinc-700 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white">{t('adminDashFinance')}</Link>
+                    <Link to="/admin/creator-payouts" className="border-2 border-zinc-700 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white">{t('adminDashCreatorPayouts')}</Link>
                   </div>
                 </div>
               </aside>

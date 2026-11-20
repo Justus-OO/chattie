@@ -32,7 +32,7 @@ export default function AdminSidebar() {
               <h1 className="font-bold text-base leading-none text-white tracking-widest uppercase">
                 {t('platformAdmin')}
               </h1>
-              <span className="text-[9px] tracking-widest uppercase font-bold text-zinc-500">{role} workspace</span>
+              <span className="text-[9px] tracking-widest uppercase font-bold text-zinc-500">{role} {t('adminUiWorkspace')}</span>
             </div>
           </Link>
 
@@ -85,7 +85,7 @@ export default function AdminSidebar() {
             </NavLink>
             <NavLink to="/admin/afterdark-posts" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
               <Flame className="w-4 h-4 text-amber-400" />
-              <span className="text-xs font-bold uppercase tracking-widest">After Dark Posts</span>
+              <span className="text-xs font-bold uppercase tracking-widest">{t('adminUiAfterDarkPosts')}</span>
             </NavLink>
           </div>
 
@@ -110,15 +110,15 @@ export default function AdminSidebar() {
             </NavLink>
             <NavLink to="/admin/support" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
               <LifeBuoy className="w-4 h-4" style={{ color: 'var(--warning)' }} />
-              <span className="text-xs font-bold uppercase tracking-widest">Support inbox</span>
+              <span className="text-xs font-bold uppercase tracking-widest">{t('adminUiSupportInbox')}</span>
             </NavLink>
             <NavLink to="/admin/creator-applications" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
               <ClipboardCheck className="w-4 h-4" style={{ color: 'var(--warning)' }} />
-              <span className="text-xs font-bold uppercase tracking-widest">Creator applications</span>
+              <span className="text-xs font-bold uppercase tracking-widest">{t('adminUiCreatorApplications')}</span>
             </NavLink>
             <NavLink to="/admin/reports" className={({isActive}) => `flex items-center gap-3 p-3 border transition-colors rounded-none ${isActive ? 'bg-white text-black border-white' : 'hover:border-zinc-700'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
               <FileText className="w-4 h-4" style={{ color: 'var(--accent)' }} />
-              <span className="text-xs font-bold uppercase tracking-widest">Reports</span>
+              <span className="text-xs font-bold uppercase tracking-widest">{t('adminUiReports')}</span>
             </NavLink>
           </div>
 
@@ -132,20 +132,20 @@ export default function AdminSidebar() {
             <Lock className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-xs font-bold uppercase text-white">{sessionUser?.username || sessionUser?.name || 'Super Admin'}</p>
+            <p className="text-xs font-bold uppercase text-white">{sessionUser?.username || sessionUser?.name || t('adminUiSuperAdmin')}</p>
             <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: 'var(--accent)' }}>{t('overview')}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Link to="/admin/settings" className="p-2 transition-colors rounded-none text-zinc-400 hover:text-white" title="Admin settings" aria-label="Admin settings">
+          <Link to="/admin/settings" className="p-2 transition-colors rounded-none text-zinc-400 hover:text-white" title={t('adminUiAdminSettings')} aria-label={t('adminUiAdminSettings')}>
             <Settings className="w-4 h-4" />
           </Link>
           <button
             type="button"
             onClick={() => { logout(); navigate('/login', { replace: true }); }}
             className="p-2 transition-colors rounded-none text-zinc-400 hover:text-white"
-            title="Sign out"
-            aria-label="Sign out"
+            title={t('adminUiSignOut')}
+            aria-label={t('adminUiSignOut')}
           >
             <LogOut className="w-4 h-4" />
           </button>

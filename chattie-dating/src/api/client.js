@@ -14,7 +14,10 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     // 1. Try getting token from Zustand store
-    let token = useAppStore.getState().token;
+    const appState = useAppStore.getState();
+    let token = appState.token;
+    const language = appState.userPreferences?.language || 'en';
+    config.headers['Accept-Language'] = language;
 
     // 2. Fallback: If Zustand doesn't have it yet, check localStorage directly
     if (!token) {

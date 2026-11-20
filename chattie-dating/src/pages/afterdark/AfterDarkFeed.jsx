@@ -16,6 +16,7 @@ import AfterDarkChatHub from './AfterDarkChatHub';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
 import { PagePrivacyShield, usePageFocus } from '../../hooks/usePageFocus';
+import { useI18n } from '../../i18n';
 import {
   ConnectionQuality, ConnectionState, LocalAudioTrack, LocalVideoTrack, Room, RoomEvent, Track,
 } from 'livekit-client';
@@ -122,7 +123,7 @@ const FeedSkeleton = () => (
   </div>
 );
 
-const StoryCircle = ({ creator, isMe = false, onClick }) => (
+const StoryCircle = ({ creator, isMe = false, onClick, liveLabel, startLabel }) => (
   <button 
     type="button" 
     onClick={onClick} 
@@ -148,7 +149,7 @@ const StoryCircle = ({ creator, isMe = false, onClick }) => (
       )}
     </div>
     <span className="text-[9px] font-bold text-zinc-400 group-hover:text-white uppercase tracking-widest truncate w-full text-center transition-colors">
-      {isMe ? (creator.isLive ? 'Watch Live' : 'Go Live') : creator.name}
+      {isMe ? (creator.isLive ? liveLabel : startLabel) : creator.name}
     </span>
   </button>
 );
@@ -185,6 +186,7 @@ const TrendingCreatorCard = ({ creator, onClick }) => (
 );
 
 const LiveKitGuestTile = ({ track, name }) => {
+  const { t } = useI18n();
   const videoRef = useRef(null);
   useEffect(() => {
     const element = videoRef.current;
@@ -198,7 +200,7 @@ const LiveKitGuestTile = ({ track, name }) => {
       <video ref={videoRef} autoPlay playsInline className="aspect-video w-full object-cover rounded-none" />
       <div className="bg-zinc-950 border-t-2 border-zinc-800 px-2 py-1 flex justify-between items-center rounded-none">
         <span className="text-[9px] font-bold text-white uppercase tracking-widest truncate">{name}</span>
-        <span className="text-[8px] font-bold text-yellow-400 uppercase tracking-widest">GUEST</span>
+        <span className="text-[8px] font-bold text-yellow-400 uppercase tracking-widest">{t('afterDarkUiGuest')}</span>
       </div>
     </div>
   );
@@ -208,6 +210,7 @@ const LiveKitGuestTile = ({ track, name }) => {
 // LIVE STUDIO MODAL
 // ============================================================================
 const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveSessionChange }) => {
+  const { t } = useI18n();
   const [localStream, setLocalStream] = useState(null);
   const [liveSession, setLiveSession] = useState(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -334,7 +337,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setIsAutoCaptionsOn(false);
-      setError('Automatic captions are not supported in this browser. You can still send captions manually.');
+      setError(t('afterDarkUiAutomaticCaptionsUnsupported'));
       return undefined;
     }
 
@@ -357,12 +360,12 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
         new TextEncoder().encode(JSON.stringify({ type: 'caption', text })),
         { reliable: true, topic: 'chat' }
       ).catch(captionError => {
-        setError(captionError instanceof Error ? captionError.message : 'Could not publish the live caption.');
+        setError(captionError instanceof Error ? captionError.message : t('afterDarkUiLiveCaptionPublishFailed'));
       });
     };
     recognition.onerror = event => {
       if (event.error === 'no-speech' || event.error === 'aborted') return;
-      setError(`Automatic captions stopped: ${event.error}.`);
+      setError(t('afterDarkUiAutomaticCaptionsStopped', { error: event.error }));
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') setIsAutoCaptionsOn(false);
     };
     recognition.onend = () => {
@@ -372,7 +375,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
         try {
           recognition.start();
         } catch (error) {
-          setError(error instanceof Error ? `Could not restart automatic captions: ${error.message}` : 'Could not restart automatic captions.');
+          setError(error instanceof Error ? t('afterDarkUiAutomaticCaptionsRestartFailedWithError', { error: error.message }) : t('afterDarkUiAutomaticCaptionsRestartFailed'));
         }
       }, 500);
     };
@@ -381,7 +384,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
       recognition.start();
     } catch (error) {
       setIsAutoCaptionsOn(false);
-      setError(error instanceof Error ? `Could not start automatic captions: ${error.message}` : 'Could not start automatic captions.');
+      setError(error instanceof Error ? t('afterDarkUiAutomaticCaptionsStartFailedWithError', { error: error.message }) : t('afterDarkUiAutomaticCaptionsStartFailed'));
     }
 
     return () => {
@@ -397,7 +400,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
       }
       if (speechRecognitionRef.current === recognition) speechRecognitionRef.current = null;
     };
-  }, [captionLanguage, isAutoCaptionsOn, liveConnectionState, liveKitRoom]);
+  }, [captionLanguage, isAutoCaptionsOn, liveConnectionState, liveKitRoom, t]);
 
   useEffect(() => () => {
     if (tipAlertTimerRef.current) window.clearTimeout(tipAlertTimerRef.current);
@@ -680,16 +683,16 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
   const startStream = async () => {
     setError('');
     if (!creator.id) {
-      setError('Your account ID is unavailable. Sign in again before going live.');
+      setError(t('afterDarkUiAccountIdUnavailable'));
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError('Camera access is not supported in this browser.');
+      setError(t('afterDarkUiCameraAccessUnsupported'));
       return;
     }
     const passPrice = Number(livePassPrice);
     if (liveAccess === 'paid' && (!Number.isFinite(passPrice) || passPrice < 1)) {
-      setError('Enter a live pass price of at least KES 1.');
+      setError(t('afterDarkUiLivePassPriceMinimum'));
       return;
     }
 
@@ -724,12 +727,12 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
       const sessionResponse = startResponse?.session || startResponse?.live_session || startResponse;
       const sessionId = sessionResponse?.session_id || sessionResponse?.sessionId || sessionResponse?.id
         || startResponse?.session_id || startResponse?.sessionId;
-      if (!sessionId) throw new Error('The live service did not return a session ID.');
+      if (!sessionId) throw new Error(t('afterDarkUiLiveSessionIdMissing'));
       publishedSession = { sessionId };
 
       const hostToken = startResponse?.sfu_token || startResponse?.livekit_token;
       if (typeof hostToken !== 'string' || !hostToken) {
-        throw new Error('The live service did not return a valid host access token.');
+        throw new Error(t('afterDarkUiHostTokenInvalid'));
       }
 
       const videoTrack = stream.getVideoTracks()[0];
@@ -818,7 +821,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
     const sessionId = initialLiveSession?.sessionId || initialLiveSession?.session_id || initialLiveSession?.id;
     if (!sessionId || !creator.id || isStarting) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError('Camera and microphone access are not supported in this browser.');
+      setError(t('afterDarkUiCameraMicrophoneUnsupported'));
       return;
     }
 
@@ -832,7 +835,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
         const saved = localStorage.getItem(liveSessionKey(creator.id));
         if (saved) savedSession = JSON.parse(saved);
       } catch (storageError) {
-        throw new Error(`Could not restore saved broadcast details: ${storageError instanceof Error ? storageError.message : 'invalid local data'}`);
+        throw new Error(t('afterDarkUiRestoreBroadcastFailed', { error: storageError instanceof Error ? storageError.message : t('afterDarkUiInvalidLocalData') }));
       }
 
       const mediaMode = savedSession.sessionId === sessionId && ['video', 'audio', 'both'].includes(savedSession.mediaMode)
@@ -850,7 +853,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
       const response = await afterDarkService.refreshHostToken(sessionId);
       const token = response?.sfu_token || response?.livekit_token;
       if (typeof token !== 'string' || !token) {
-        throw new Error('The server did not return a host access token. Your broadcast may have ended.');
+        throw new Error(t('afterDarkUiHostTokenMissing'));
       }
 
       room = new Room(liveRoomOptions);
@@ -908,7 +911,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
       const response = await afterDarkService.refreshHostToken(liveSession.sessionId);
       const token = response?.sfu_token || response?.livekit_token;
       if (typeof token !== 'string' || !token) {
-        throw new Error('The live service did not return a valid host access token.');
+        throw new Error(t('afterDarkUiHostTokenInvalid'));
       }
 
       reconnectSourceStream = localStream.getTracks().every(track => track.readyState === 'live')
@@ -1042,11 +1045,11 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
 
   const toggleAutomaticCaptions = () => {
     if (!isAutoCaptionsOn && liveSession?.mediaMode === 'video') {
-      setError('Automatic captions need a microphone. Use manual captions for this video-only stream.');
+      setError(t('afterDarkUiAutomaticCaptionsNeedMicrophone'));
       return;
     }
     if (!isAutoCaptionsOn && !(window.SpeechRecognition || window.webkitSpeechRecognition)) {
-      setError('Automatic captions are not supported in this browser. You can still send captions manually.');
+      setError(t('afterDarkUiAutomaticCaptionsUnsupported'));
       return;
     }
     setError('');
@@ -1121,13 +1124,13 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
               <Radio className="w-4 h-4 text-yellow-400" />
             </div>
             <div>
-              <h2 id="live-studio-title" className="text-sm font-bold uppercase tracking-widest text-white">Creator Live Studio</h2>
+              <h2 id="live-studio-title" className="text-sm font-bold uppercase tracking-widest text-white">{t('afterDarkUiCreatorLiveStudio')}</h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-yellow-400">
-                {liveSession ? 'On air · creator control room' : initialLiveSession ? 'Broadcast detected · reconnect to reclaim the stage' : 'Broadcast direct to followers'}
+                {liveSession ? t('afterDarkUiOnAirCreatorControlRoom') : initialLiveSession ? t('afterDarkUiBroadcastDetectedReconnect') : t('afterDarkUiBroadcastDirectToFollowers')}
               </p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close live studio" className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors rounded-none">
+          <button onClick={onClose} aria-label={t('afterDarkUiCloseLiveStudio')} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors rounded-none">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1145,8 +1148,8 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                     ? <Mic className="w-10 h-10 text-zinc-600" />
                     : <VideoOff className="w-10 h-10 text-zinc-600" />}
                   <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                    {!localStream ? initialLiveSession ? 'Broadcast is active · this device needs to reconnect' : 'Camera Preview Offline' :
-                      localStream.getVideoTracks().length === 0 ? 'Audio-only broadcast' : 'Camera Muted'}
+                    {!localStream ? initialLiveSession ? t('afterDarkUiBroadcastActiveDeviceReconnect') : t('afterDarkUiCameraPreviewOffline') :
+                      localStream.getVideoTracks().length === 0 ? t('afterDarkUiAudioOnlyBroadcast') : t('afterDarkUiCameraMuted')}
                   </span>
                 </div>
               )}
@@ -1155,21 +1158,21 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                 <span className="absolute left-3 top-3 flex items-center gap-2 bg-yellow-400 border-2 border-black px-2.5 py-1 text-[10px] font-bold text-black uppercase tracking-widest rounded-none">
                   <span className={`h-2 w-2 bg-black rounded-none ${liveConnectionState === ConnectionState.Connected ? 'animate-pulse' : ''}`} />
                   {liveConnectionState === ConnectionState.Reconnecting || liveConnectionState === ConnectionState.SignalReconnecting
-                    ? 'RECONNECTING'
-                    : liveConnectionState === ConnectionState.Connected ? 'LIVE' : 'CONNECTION LOST'}
+                    ? t('afterDarkUiReconnecting').toUpperCase()
+                    : liveConnectionState === ConnectionState.Connected ? t('afterDarkUiLive').toUpperCase() : t('afterDarkUiConnectionLost').toUpperCase()}
                 </span>
               )}
               {localStream && (
                 <span className="absolute right-3 top-3 border border-black bg-zinc-950/80 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-white">
-                  {liveSession?.mediaMode === 'audio' ? 'Audio only' :
-                    liveSession?.mediaMode === 'video' ? 'Video only' :
-                      `Network: ${connectionQuality}`}
+                  {liveSession?.mediaMode === 'audio' ? t('afterDarkUiAudioOnly') :
+                    liveSession?.mediaMode === 'video' ? t('afterDarkUiVideoOnly') :
+                      t('afterDarkUiNetworkQuality', { quality: connectionQuality })}
                 </span>
               )}
               {tipAlert && (
                 <div role="status" className="absolute left-1/2 top-16 z-20 w-[min(90%,24rem)] -translate-x-1/2 border-2 border-black bg-yellow-400 p-3 text-black shadow-[4px_4px_0px_rgba(var(--shadow-rgb), 0.6)]">
                   <p className="text-xs font-extrabold uppercase">
-                    {tipAlert.sender_name || 'A viewer'} tipped KES {(Number(tipAlert.amount_cents) / 100).toLocaleString()}
+                    {t('afterDarkUiViewerTippedKes', { name: tipAlert.sender_name || t('afterDarkUiAViewer'), amount: (Number(tipAlert.amount_cents) / 100).toLocaleString() })}
                   </p>
                   {tipAlert.message && <p className="mt-1 truncate text-xs font-medium">{tipAlert.message}</p>}
                 </div>
@@ -1180,8 +1183,8 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
               {!localStream && initialLiveSession ? (
                 <div className="flex w-full flex-col gap-3 border-2 border-yellow-400 bg-zinc-950 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-widest text-yellow-400">Your broadcast is still live</p>
-                    <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-zinc-400">Reconnect camera and microphone to resume hosting. Your viewers can stay in the room.</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-yellow-400">{t('afterDarkUiBroadcastStillLive')}</p>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-zinc-400">{t('afterDarkUiReconnectCameraMicrophone')}</p>
                   </div>
                   <button
                     type="button"
@@ -1190,36 +1193,36 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                     className="flex shrink-0 items-center justify-center gap-2 border-2 border-yellow-400 bg-yellow-400 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-black hover:text-yellow-400 disabled:opacity-50"
                   >
                     <RefreshCcw className={`h-4 w-4 ${isStarting ? 'animate-spin' : ''}`} />
-                    {isStarting ? 'Reconnecting…' : 'Reconnect to broadcast'}
+                    {isStarting ? t('afterDarkUiReconnecting') : t('afterDarkUiReconnectToBroadcast')}
                   </button>
                 </div>
               ) : !localStream ? (
                 <>
                   <div className="flex flex-wrap border border-zinc-700">
                     <button type="button" onClick={() => setBroadcastMode('video')} className={`px-3 py-2 text-[10px] font-bold uppercase ${broadcastMode === 'video' ? 'bg-white text-black' : 'bg-black text-zinc-300'}`}>
-                      <Video className="mr-1 inline h-3.5 w-3.5" /> Video only
+                      <Video className="mr-1 inline h-3.5 w-3.5" /> {t('afterDarkUiVideoOnly')}
                     </button>
                     <button type="button" onClick={() => setBroadcastMode('both')} className={`px-3 py-2 text-[10px] font-bold uppercase ${broadcastMode === 'both' ? 'bg-white text-black' : 'bg-black text-zinc-300'}`}>
-                      <Radio className="mr-1 inline h-3.5 w-3.5" /> Video + audio
+                      <Radio className="mr-1 inline h-3.5 w-3.5" /> {t('afterDarkUiVideoAndAudio')}
                     </button>
                     <button type="button" onClick={() => setBroadcastMode('audio')} className={`px-3 py-2 text-[10px] font-bold uppercase ${broadcastMode === 'audio' ? 'bg-white text-black' : 'bg-black text-zinc-300'}`}>
-                      <Mic className="mr-1 inline h-3.5 w-3.5" /> Audio only
+                      <Mic className="mr-1 inline h-3.5 w-3.5" /> {t('afterDarkUiAudioOnly')}
                     </button>
                   </div>
                   <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-                    Live access
+                    {t('afterDarkUiLiveAccess')}
                     <select
                       value={liveAccess}
                       onChange={event => setLiveAccess(event.target.value)}
                       className="border border-zinc-700 bg-black px-2 py-2 text-white"
                     >
-                      <option value="free">Free</option>
-                      <option value="paid">Subscribers or live pass</option>
+                      <option value="free">{t('afterDarkUiFree')}</option>
+                      <option value="paid">{t('afterDarkUiSubscribersOrLivePass')}</option>
                     </select>
                   </label>
                   {liveAccess === 'paid' && (
                     <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-                      Live pass (KES)
+                      {t('afterDarkUiLivePassKes')}
                       <input
                         type="number"
                         min="1"
@@ -1236,7 +1239,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                     disabled={isStarting}
                     className="px-6 py-3 bg-white text-black border-2 border-white text-xs font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors disabled:opacity-50 flex items-center gap-2 rounded-none"
                   >
-                    <Radio className="w-4 h-4 text-yellow-500" /> {isStarting ? 'Starting...' : 'Start Broadcast'}
+                    <Radio className="w-4 h-4 text-yellow-500" /> {isStarting ? t('afterDarkUiStarting') : t('afterDarkUiStartBroadcast')}
                   </button>
                 </>
               ) : (
@@ -1244,13 +1247,13 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   {liveSession?.mediaMode !== 'audio' && (
                     <button type="button" onClick={toggleCamera} className="px-4 py-3 bg-black border-2 border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center gap-2 rounded-none">
                       {isCameraEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
-                      {isCameraEnabled ? 'Hide Cam' : 'Show Cam'}
+                      {t(isCameraEnabled ? 'afterDarkUiHideCamera' : 'afterDarkUiShowCamera')}
                     </button>
                   )}
                   {liveSession?.mediaMode !== 'video' && (
                     <button type="button" onClick={toggleMic} className="px-4 py-3 bg-black border-2 border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center gap-2 rounded-none">
                       {isMicEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                      {isMicEnabled ? 'Mute Mic' : 'Unmute Mic'}
+                      {t(isMicEnabled ? 'afterDarkUiMuteMic' : 'afterDarkUiUnmuteMic')}
                     </button>
                   )}
                   {liveConnectionState === ConnectionState.Disconnected && (
@@ -1261,11 +1264,11 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                       className="px-4 py-3 bg-black border-2 border-yellow-500 text-yellow-400 hover:bg-yellow-500 hover:text-black text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center gap-2 rounded-none disabled:opacity-50"
                     >
                       <RefreshCcw className={`w-4 h-4 ${isReconnecting ? 'animate-spin' : ''}`} />
-                      {isReconnecting ? 'Rejoining...' : 'Reconnect'}
+                      {isReconnecting ? t('afterDarkUiRejoining') : t('afterDarkUiReconnect')}
                     </button>
                   )}
                   <button type="button" onClick={endStream} className="ml-auto px-6 py-3 bg-black border-2 border-yellow-400 hover:bg-yellow-400 text-yellow-400 hover:text-black text-[10px] font-bold uppercase tracking-widest transition-colors rounded-none">
-                    End Live
+                    {t('afterDarkUiEndLive')}
                   </button>
                 </>
               )}
@@ -1281,7 +1284,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
           <div className="flex w-full min-h-0 flex-col gap-4 md:w-[clamp(14rem,22vw,18rem)]">
             <div className="flex h-[35dvh] min-h-0 flex-col overflow-hidden border-2 border-zinc-800 bg-zinc-950 p-4 rounded-none md:h-auto md:flex-1">
               <div className="mb-3 flex items-center justify-between border-b-2 border-zinc-800 pb-2">
-                <h3 className="text-[10px] font-bold text-white uppercase tracking-widest">Live Chat</h3>
+                <h3 className="text-[10px] font-bold text-white uppercase tracking-widest">{t('afterDarkUiLiveChat')}</h3>
                 <span className="text-[9px] font-bold text-zinc-500 uppercase flex items-center gap-1">
                   <Users className="w-3 h-3" /> {watcherIds.length}
                 </span>
@@ -1294,7 +1297,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   </p>
                 ))}
                 {liveChat.length === 0 && (
-                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-4 text-center">No messages yet.</p>
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-4 text-center">{t('afterDarkUiNoMessagesYet')}</p>
                 )}
               </div>
               <form onSubmit={sendHostMessage} className="mt-3 flex gap-2 border-t border-zinc-800 pt-3">
@@ -1302,8 +1305,8 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   value={hostMessage}
                   onChange={event => setHostMessage(event.target.value)}
                   maxLength={150}
-                  placeholder="Message viewers..."
-                  aria-label="Message viewers"
+                  placeholder={t('afterDarkUiMessageViewers')}
+                  aria-label={t('afterDarkUiMessageViewers')}
                   className="min-w-0 flex-1 border border-zinc-700 bg-black px-2 py-2 text-[10px] text-white outline-none focus:border-white"
                 />
                 <button
@@ -1311,7 +1314,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   disabled={!hostMessage.trim() || liveConnectionState !== ConnectionState.Connected}
                   className="border border-white bg-white px-3 text-[9px] font-bold uppercase text-black disabled:opacity-40"
                 >
-                  Send
+                  {t('afterDarkUiSend')}
                 </button>
               </form>
               <form onSubmit={sendLiveAnnouncement} className="mt-2 flex gap-2">
@@ -1319,8 +1322,8 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   value={announcementDraft}
                   onChange={event => setAnnouncementDraft(event.target.value)}
                   maxLength={180}
-                  placeholder="Pin an announcement for viewers..."
-                  aria-label="Live announcement"
+                  placeholder={t('afterDarkUiPinAnnouncementPlaceholder')}
+                  aria-label={t('afterDarkUiLiveAnnouncement')}
                   className="min-w-0 flex-1 border border-zinc-700 bg-black px-2 py-2 text-[10px] text-white outline-none focus:border-yellow-400"
                 />
                 <button
@@ -1328,26 +1331,26 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   disabled={!announcementDraft.trim() || liveConnectionState !== ConnectionState.Connected}
                   className="border border-yellow-400 bg-yellow-400 px-3 text-[9px] font-bold uppercase text-black disabled:opacity-40"
                 >
-                  Pin
+                  {t('afterDarkUiPin')}
                 </button>
               </form>
             </div>
 
             <div className="border-2 border-zinc-800 bg-zinc-950 p-4 rounded-none">
-              <h3 className="mb-3 border-b-2 border-zinc-800 pb-2 text-[10px] font-bold uppercase tracking-widest text-white">Live captions</h3>
+              <h3 className="mb-3 border-b-2 border-zinc-800 pb-2 text-[10px] font-bold uppercase tracking-widest text-white">{t('afterDarkUiLiveCaptions')}</h3>
               <div className="mb-3 flex items-center gap-2">
                 <select
                   value={captionLanguage}
                   onChange={event => setCaptionLanguage(event.target.value)}
                   disabled={!localStream || isAutoCaptionsOn}
-                  aria-label="Automatic caption language"
+                  aria-label={t('afterDarkUiAutomaticCaptionLanguage')}
                   className="min-w-0 flex-1 border border-zinc-700 bg-black px-2 py-2 text-[10px] text-white disabled:opacity-50"
                 >
-                  <option value="en-US">English (US)</option>
-                  <option value="en-GB">English (UK)</option>
-                  <option value="sw-KE">Kiswahili (Kenya)</option>
-                  <option value="fr-FR">French</option>
-                  <option value="es-ES">Spanish</option>
+                  <option value="en-US">{t('afterDarkUiEnglishUs')}</option>
+                  <option value="en-GB">{t('afterDarkUiEnglishUk')}</option>
+                  <option value="sw-KE">{t('afterDarkUiKiswahiliKenya')}</option>
+                  <option value="fr-FR">{t('afterDarkUiFrench')}</option>
+                  <option value="es-ES">{t('afterDarkUiSpanish')}</option>
                 </select>
                 <button
                   type="button"
@@ -1355,7 +1358,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   disabled={!localStream || liveConnectionState !== ConnectionState.Connected || liveSession?.mediaMode === 'video'}
                   className={`border px-2 py-2 text-[9px] font-bold uppercase disabled:opacity-40 ${isAutoCaptionsOn ? 'border-yellow-400 bg-yellow-400 text-black' : 'border-zinc-700 text-zinc-300'}`}
                 >
-                  {isAutoCaptionsOn ? 'Auto on' : 'Auto captions'}
+                  {t(isAutoCaptionsOn ? 'afterDarkUiAutoOn' : 'afterDarkUiAutoCaptions')}
                 </button>
               </div>
               <form onSubmit={sendLiveCaption} className="flex gap-2">
@@ -1363,8 +1366,8 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   value={captionDraft}
                   onChange={event => setCaptionDraft(event.target.value)}
                   maxLength={240}
-                  placeholder="Type a caption..."
-                  aria-label="Type a live caption"
+                  placeholder={t('afterDarkUiTypeCaption')}
+                  aria-label={t('afterDarkUiTypeLiveCaption')}
                   className="min-w-0 flex-1 border border-zinc-700 bg-black px-2 py-2 text-[10px] text-white outline-none focus:border-white"
                 />
                 <button
@@ -1372,16 +1375,16 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                   disabled={!captionDraft.trim() || liveConnectionState !== ConnectionState.Connected}
                   className="border border-white bg-white px-3 text-[9px] font-bold uppercase text-black disabled:opacity-40"
                 >
-                  Send
+                  {t('afterDarkUiSend')}
                 </button>
               </form>
-              <p className="mt-2 text-[9px] text-zinc-500">Automatic caption availability depends on your browser. Manual captions work in every browser.</p>
+              <p className="mt-2 text-[9px] text-zinc-500">{t('afterDarkUiCaptionBrowserAvailability')}</p>
             </div>
 
             <div className="border-2 border-zinc-800 bg-zinc-950 p-4 rounded-none">
-              <h3 className="mb-3 text-[10px] font-bold text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-2">Guest Requests</h3>
+              <h3 className="mb-3 text-[10px] font-bold text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-2">{t('afterDarkUiGuestRequests')}</h3>
               {guestRequests.length === 0 && guestTracks.length === 0 && (
-                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center py-2">No guests on stage.</p>
+                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center py-2">{t('afterDarkUiNoGuestsOnStage')}</p>
               )}
               
               <div className="flex flex-col gap-2">
@@ -1400,7 +1403,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                         } catch (err) {
                           setError(err?.response?.data?.error || (err instanceof Error ? err.message : 'Could not approve guest.'));
                         }
-                      }} className="bg-white text-black border-2 border-white px-2 py-1 text-[9px] font-bold uppercase hover:bg-zinc-200 rounded-none">Allow</button>
+                      }} className="bg-white text-black border-2 border-white px-2 py-1 text-[9px] font-bold uppercase hover:bg-zinc-200 rounded-none">{t('afterDarkUiAllow')}</button>
                       
                       <button type="button" onClick={async () => {
                         try {
@@ -1413,7 +1416,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                         } catch (err) {
                           setError(err?.response?.data?.error || (err instanceof Error ? err.message : 'Could not deny guest.'));
                         }
-                      }} className="bg-black border-2 border-zinc-700 text-zinc-400 px-2 py-1 text-[9px] font-bold uppercase hover:text-white rounded-none">Deny</button>
+                      }} className="bg-black border-2 border-zinc-700 text-zinc-400 px-2 py-1 text-[9px] font-bold uppercase hover:text-white rounded-none">{t('afterDarkUiDeny')}</button>
                     </span>
                   </div>
                 ))}
@@ -1455,6 +1458,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
 // MAIN COMPONENT: AFTER DARK FEED
 // ============================================================================
 export default function AfterDarkFeed() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isPageFocused = usePageFocus();
@@ -1532,15 +1536,15 @@ export default function AfterDarkFeed() {
         if (!active) return;
         const status = String(result?.status || '').toLowerCase();
         if (status === 'completed') {
-          toast.success('After Dark payment confirmed.');
+          toast.success(t('afterDarkUiPaymentConfirmed'));
           clearPaymentReturnParams();
         } else if (status === 'failed') {
-          toast.error('After Dark payment failed. You can try again.');
+          toast.error(t('afterDarkUiPaymentFailedRetry'));
           clearPaymentReturnParams();
         } else if (attempts < 10) {
           retryTimer = window.setTimeout(checkPayment, 3000);
         } else {
-          toast.info('Payment is still processing. Check your After Dark wallet or retry later.');
+          toast.info(t('afterDarkUiPaymentProcessing'));
           clearPaymentReturnParams();
         }
       } catch (error) {
@@ -1548,7 +1552,7 @@ export default function AfterDarkFeed() {
         if (attempts < 10) {
           retryTimer = window.setTimeout(checkPayment, 3000);
         } else {
-          toast.error(error?.response?.data?.error || 'Could not confirm the After Dark payment.');
+          toast.error(error?.response?.data?.error || t('afterDarkUiPaymentConfirmationFailed'));
           clearPaymentReturnParams();
         }
       }
@@ -1558,7 +1562,7 @@ export default function AfterDarkFeed() {
       active = false;
       window.clearTimeout(retryTimer);
     };
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, t]);
 
   // ==========================================
   // INITIAL DISCOVERY FETCH
@@ -1578,7 +1582,7 @@ export default function AfterDarkFeed() {
       const liveRecords = Array.isArray(liveResponse) ? liveResponse : liveResponse?.sessions || liveResponse?.items || [];
       
       if (![storyRecords, creatorRecords, liveRecords].every(Array.isArray)) {
-        throw new Error('After Dark discovery returned an invalid response format.');
+        throw new Error(t('afterDarkUiDiscoveryResponseInvalid'));
       }
 
       setStories(storyRecords.map(item => {
@@ -1637,7 +1641,7 @@ export default function AfterDarkFeed() {
       }
     });
     return () => { active = false; };
-  }, [liveCreatorId, liveCreator.name, liveCreator.avatar, setWalletBalance, updateUser]);
+  }, [liveCreatorId, liveCreator.name, liveCreator.avatar, setWalletBalance, t, updateUser]);
 
   useEffect(() => {
     let active = true;
@@ -1649,11 +1653,11 @@ export default function AfterDarkFeed() {
       })
       .catch(error => {
         if (active) {
-          toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load After Dark viewing preferences.'));
+          toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiViewingPreferencesLoadFailed')));
         }
       });
     return () => { active = false; };
-  }, []);
+  }, [t]);
 
   // ==========================================
   // DATA FETCHING & PAGINATION ENGINE
@@ -1686,7 +1690,7 @@ export default function AfterDarkFeed() {
       if (requestVersion !== feedRequestVersion.current) return;
       
       const records = Array.isArray(response) ? response : response?.posts || response?.items || [];
-      if (!Array.isArray(records)) throw new Error('The feed service returned an invalid response.');
+      if (!Array.isArray(records)) throw new Error(t('afterDarkUiFeedResponseInvalid'));
       
       const newPosts = await Promise.all(records.map(async record => {
         const post = normalizeFeedPost(record);
@@ -1706,7 +1710,7 @@ export default function AfterDarkFeed() {
 
     } catch (error) {
       if (requestVersion !== feedRequestVersion.current) return;
-      const message = error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load the feed.');
+      const message = error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiFeedLoadFailed'));
       setFeedError(message);
       if (reset) toast.error(message);
     } finally {
@@ -1717,7 +1721,7 @@ export default function AfterDarkFeed() {
         loadingMoreRef.current = false;
       }
     }
-  }, [activeFilter, searchQuery, mediaTypeFilter, feedScope]);
+  }, [activeFilter, searchQuery, mediaTypeFilter, feedScope, t]);
 
   useEffect(() => {
     setPage(0);
@@ -1767,7 +1771,7 @@ export default function AfterDarkFeed() {
 
   const handlePaymentSuccess = async (payment) => {
     if (payment?.payment_type === 'live_tip') {
-      toast.success(`KES ${(payment.amount_cents / 100).toLocaleString()} live tip sent.`);
+      toast.success(t('afterDarkUiLiveTipSentSimple', { amount: (payment.amount_cents / 100).toLocaleString() }));
       return;
     }
     if (selectedLiveCreator && (payment?.payment_type === 'subscription' || payment === `live-subscription-${selectedLiveCreator.id}`)) {
@@ -1788,10 +1792,10 @@ export default function AfterDarkFeed() {
     try {
       const mediaResponse = await afterDarkService.getPostMediaUrl(postId);
       const mediaUrl = mediaResponse?.url || mediaResponse?.media_url;
-      if (!mediaUrl) throw new Error('The server did not return authorized post media.');
+      if (!mediaUrl) throw new Error(t('afterDarkUiAuthorizedMediaMissing'));
       setPosts(prev => prev.map(post => String(post.id) === postId ? { ...post, mediaUrl } : post));
     } catch (error) {
-      toast.error(error?.response?.data?.error || 'Payment is confirmed, but the post media could not be opened. Refresh the feed to retry.');
+      toast.error(error?.response?.data?.error || t('afterDarkUiPostMediaOpenFailed'));
     }
   };
 
@@ -1810,7 +1814,7 @@ export default function AfterDarkFeed() {
         state: { creator, chatAccess },
       });
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not open this creator’s chat.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCreatorChatOpenFailed')));
     }
   };
   
@@ -1837,12 +1841,12 @@ export default function AfterDarkFeed() {
           };
         }
       } catch (error) {
-        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load this live session.'));
+        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiLiveSessionLoadFailed')));
         return;
       }
     }
     if (!session?.sessionId) {
-      toast.info(`${creator.name} is not currently live.`);
+      toast.info(t('afterDarkUiCreatorNotLive', { name: creator.name }));
       return;
     }
     setSelectedLiveCreator({ ...creator, liveSession: session });
@@ -1874,7 +1878,7 @@ export default function AfterDarkFeed() {
 
   const handleLiveWalletPurchase = async (creator, accessType, price) => {
     if (price > availableWalletBalance) {
-      toast.error('Your wallet balance is too low. Continue to checkout to use another payment method.');
+      toast.error(t('afterDarkUiLowBalanceCheckout'));
       return;
     }
 
@@ -1897,9 +1901,9 @@ export default function AfterDarkFeed() {
         (wallet.available_balance_cents !== undefined ? 100 : 1);
       setWalletBalance(nextBalance);
       updateUser({ walletBalance: nextBalance });
-      toast.success('Live access unlocked securely using your wallet balance.');
+      toast.success(t('afterDarkUiLiveAccessUnlocked'));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not process live access transaction.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiLiveAccessTransactionFailed')));
     }
   };
 
@@ -1960,15 +1964,15 @@ export default function AfterDarkFeed() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  aria-label="Search creators, posts, or tags"
-                  placeholder="Search posts..."
+                  aria-label={t('afterDarkUiSearchCreatorsPostsTags')}
+                  placeholder={t('afterDarkUiSearchPosts')}
                   className="w-full bg-black border-2 border-zinc-800 rounded-none pl-9 pr-3 py-2 text-xs font-bold text-white uppercase tracking-widest placeholder:text-zinc-600 focus:outline-none focus:border-white transition-colors"
                 />
               </div>
               <button 
                 type="button"
                 onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                aria-label="Toggle filters"
+                aria-label={t('afterDarkUiToggleFilters')}
                 className={`p-2 border-2 transition-colors rounded-none focus:outline-none ${
                   showAdvancedFilters 
                     ? 'bg-white text-black border-white' 
@@ -1984,7 +1988,7 @@ export default function AfterDarkFeed() {
           {showAdvancedFilters && (
             <div className="px-4 md:px-6 py-3 border-t-2 border-zinc-800 bg-black flex flex-wrap items-center justify-between gap-4 rounded-none">
               <div className="flex items-center gap-3">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Media Type</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiMediaType')}</span>
                 <div className="flex border-2 border-zinc-800 bg-black rounded-none">
                   {[
                     { id: 'all', label: 'All' },
@@ -2024,6 +2028,8 @@ export default function AfterDarkFeed() {
                   <StoryCircle
                     creator={{ ...liveCreator, isLive: Boolean(ownLiveSession) }}
                     isMe={true}
+                    liveLabel={t('afterDarkUiWatchLive')}
+                    startLabel={t('afterDarkUiGoLive')}
                     onClick={() => setIsLiveStudioOpen(true)}
                   />
                 )}
@@ -2041,10 +2047,10 @@ export default function AfterDarkFeed() {
           {/* Sharp Segmented Filter Tabs (Exact match to UserSettings 'Show Me' group) */}
           <div className="flex border-t-2 border-zinc-800 bg-black rounded-none">
             {[
-              { id: 'all', label: 'All Content', mobileLabel: 'All', icon: Filter },
-              { id: 'subscriber', label: 'Subscriber', mobileLabel: 'VIP', icon: Crown },
-              { id: 'ppv', label: 'One-Time Unlocks', mobileLabel: 'PPV', icon: Lock },
-              { id: 'free', label: 'Free Teasers', mobileLabel: 'Free', icon: Unlock },
+              { id: 'all', labelKey: 'afterDarkUiAllContent', mobileLabelKey: 'afterDarkUiAll', icon: Filter },
+              { id: 'subscriber', labelKey: 'afterDarkUiSubscribers', mobileLabelKey: 'afterDarkUiVip', icon: Crown },
+              { id: 'ppv', labelKey: 'afterDarkUiOneTimeUnlocks', mobileLabelKey: 'afterDarkUiPpv', icon: Lock },
+              { id: 'free', labelKey: 'afterDarkUiFreeTeasers', mobileLabelKey: 'afterDarkUiFree', icon: Unlock },
             ].map(tab => {
               const Icon = tab.icon;
               const isSelected = activeFilter === tab.id;
@@ -2060,16 +2066,16 @@ export default function AfterDarkFeed() {
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden truncate sm:inline">{tab.label}</span>
-                  <span className="truncate sm:hidden">{tab.mobileLabel}</span>
+                  <span className="hidden truncate sm:inline">{t(tab.labelKey)}</span>
+                  <span className="truncate sm:hidden">{t(tab.mobileLabelKey)}</span>
                 </button>
               );
             })}
           </div>
           <div className="flex border-t-2 border-zinc-800 bg-zinc-950">
             {[
-              { id: 'discover', label: 'For You' },
-              { id: 'following', label: 'Following' },
+              { id: 'discover', labelKey: 'afterDarkUiForYou' },
+              { id: 'following', labelKey: 'afterDarkUiFollowing' },
             ].map(scope => (
               <button
                 key={scope.id}
@@ -2080,7 +2086,7 @@ export default function AfterDarkFeed() {
                   feedScope === scope.id ? 'text-white' : 'text-zinc-500 hover:text-white'
                 }`}
               >
-                {scope.label}
+                {t(scope.labelKey)}
               </button>
             ))}
           </div>
@@ -2102,14 +2108,14 @@ export default function AfterDarkFeed() {
                   <AlertTriangle className="w-6 h-6 text-zinc-400" />
                 </div>
                 <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-2">
-                  {feedError ? 'Feed Unavailable' : 'No Content Found'}
+                  {feedError ? t('afterDarkUiFeedUnavailable') : t('afterDarkUiNoContentFound')}
                 </h3>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 max-w-sm mb-6 leading-relaxed">
                   {feedError || (!showExplicitContent
-                    ? 'Explicit posts are hidden by your viewing preference. Enable them in After Dark Settings if you want to see them. Posts awaiting moderation and region-restricted posts remain hidden.'
+                    ? t('afterDarkUiFeedExplicitPostsHidden')
                     : feedScope === 'following' && !searchQuery && activeFilter === 'all' && mediaTypeFilter === 'all'
-                      ? 'No posts from followed creators are available right now. Follow creators or switch to For You. Posts awaiting moderation and region-restricted posts remain hidden.'
-                      : 'No posts match these filters. Clear your search or filters. Posts awaiting moderation, region restrictions, and creator visibility settings can also keep posts out of the feed.')}
+                      ? t('afterDarkUiNoFollowedCreatorPosts')
+                      : t('afterDarkUiFeedNoMatches'))}
                 </p>
                 <button 
                   type="button"
@@ -2128,7 +2134,7 @@ export default function AfterDarkFeed() {
                   }}
                   className="px-6 py-3 bg-white text-black border-2 border-white text-xs font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors rounded-none"
                 >
-                  {feedError ? 'Retry Feed' : !showExplicitContent ? 'Viewing Settings' : 'Clear All Filters'}
+                  {feedError ? t('afterDarkUiRetryFeed') : !showExplicitContent ? t('afterDarkUiViewingSettings') : t('afterDarkUiClearAllFilters')}
                 </button>
               </div>
             ) : (
@@ -2165,11 +2171,11 @@ export default function AfterDarkFeed() {
                     </div>
                   ) : hasMore ? (
                     <div className="w-full py-4 border-t-2 border-dashed border-zinc-800 text-center">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Scroll to load more</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">{t('afterDarkUiScrollToLoadMore')}</span>
                     </div>
                   ) : (
                     <div className="w-full py-4 border-t-2 border-zinc-800 text-center">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">End of Feed</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiEndOfFeed')}</span>
                     </div>
                   )}
                 </div>
@@ -2186,12 +2192,12 @@ export default function AfterDarkFeed() {
         <div className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 flex items-center justify-between sticky top-0 z-20 rounded-none">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-yellow-400" />
-            <h2 className="text-xs font-bold uppercase tracking-widest text-white">Trending Now</h2>
+            <h2 className="text-xs font-bold uppercase tracking-widest text-white">{t('afterDarkUiTrendingNow')}</h2>
           </div>
           <button 
             type="button"
             onClick={() => { setPage(0); loadPosts(0, true); }} 
-            aria-label="Refresh feed" 
+            aria-label={t('afterDarkUiRefreshFeed')}
             className="p-1.5 bg-black border-2 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors rounded-none"
           >
             <RefreshCcw className="w-3.5 h-3.5" />
@@ -2202,11 +2208,11 @@ export default function AfterDarkFeed() {
           
           {/* Rising Creators Section */}
           <section className="space-y-3">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Rising Creators</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiRisingCreators')}</h3>
             <div className="space-y-2">
               {trendingCreators.length === 0 ? (
                 <div className="border-2 border-dashed border-zinc-800 p-6 text-center rounded-none">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">No creators loaded.</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiNoCreatorsLoaded')}</p>
                 </div>
               ) : (
                 trendingCreators.slice(0, 4).map((creator) => (
@@ -2252,9 +2258,9 @@ export default function AfterDarkFeed() {
           {/* Footer Links */}
           <section className="pt-6 border-t-2 border-zinc-800 space-y-3">
             <div className="flex flex-wrap gap-x-4 gap-y-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              <a href="#terms" onClick={e => e.preventDefault()} className="hover:text-white transition-colors">Terms</a>
-              <a href="#privacy" onClick={e => e.preventDefault()} className="hover:text-white transition-colors">Privacy</a>
-              <a href="#guidelines" onClick={e => e.preventDefault()} className="hover:text-white transition-colors">Guidelines</a>
+              <a href="#terms" onClick={e => e.preventDefault()} className="hover:text-white transition-colors">{t('afterDarkUiTerms')}</a>
+              <a href="#privacy" onClick={e => e.preventDefault()} className="hover:text-white transition-colors">{t('afterDarkUiPrivacy')}</a>
+              <a href="#guidelines" onClick={e => e.preventDefault()} className="hover:text-white transition-colors">{t('afterDarkUiGuidelines')}</a>
               <a href="#dmca" onClick={e => e.preventDefault()} className="hover:text-white transition-colors">DMCA</a>
             </div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">

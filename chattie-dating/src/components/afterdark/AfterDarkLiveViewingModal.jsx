@@ -10,9 +10,11 @@ import {
 } from '@livekit/components-react';
 import { ConnectionState, DisconnectReason, RoomEvent, Track } from 'livekit-client';
 import { afterDarkService } from '../../api/afterdark.service';
+import { useI18n } from '../../i18n';
 
 // Inner component that renders tracks once connected to LiveKit
 function LiveKitRenderer({ creator, isMuted, onConnectionStateChanged, onViewerCountChanged }) {
+  const { t } = useI18n();
   const room = useRoomContext();
   const connectionState = useConnectionState();
   const tracks = useTracks([Track.Source.Camera, Track.Source.Microphone], { onlySubscribed: true });
@@ -50,7 +52,7 @@ function LiveKitRenderer({ creator, isMuted, onConnectionStateChanged, onViewerC
           </div>
           <div className="text-center">
             <p className="text-xl font-semibold text-white">{creator.name}</p>
-            <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-zinc-400">Audio live</p>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-zinc-400">{t('afterDarkUiAudioLive')}</p>
           </div>
         </div>
       ) : (
@@ -68,7 +70,7 @@ function LiveKitRenderer({ creator, isMuted, onConnectionStateChanged, onViewerC
           <div key={track.participant.identity} className="relative w-[clamp(5rem,10vw,7rem)] overflow-hidden rounded-xl border border-white/20 bg-black/50 shadow-lg backdrop-blur-sm" style={{ aspectRatio: '3/4' }}>
             <VideoTrack trackRef={track} className="h-full w-full object-cover" />
             <span className="absolute bottom-1 left-1 max-w-[80%] truncate rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-              {track.participant.name || `Guest ${index + 1}`}
+              {track.participant.name || t('afterDarkUiGuestNumber', { number: index + 1 })}
             </span>
           </div>
         ))}
@@ -78,10 +80,10 @@ function LiveKitRenderer({ creator, isMuted, onConnectionStateChanged, onViewerC
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 px-6 text-center backdrop-blur-md">
           <Loader2 className={`h-10 w-10 text-[var(--accent)] ${connectionState === 'connecting' ? 'animate-spin' : ''}`} />
           <p className="font-semibold text-white drop-shadow-md">
-            {connectionState === ConnectionState.Connecting ? `Connecting to ${creator.name}…` :
+            {connectionState === ConnectionState.Connecting ? t('afterDarkUiConnectingToCreator', { name: creator.name }) :
               connectionState === ConnectionState.Reconnecting || connectionState === ConnectionState.SignalReconnecting
-                ? 'Network interrupted. Reconnecting…'
-                : connectionState === ConnectionState.Disconnected ? 'Connection lost' : 'Live unavailable'}
+                ? t('afterDarkUiNetworkInterrupted')
+                : connectionState === ConnectionState.Disconnected ? t('afterDarkUiConnectionLost') : t('afterDarkUiLiveUnavailable')}
           </p>
         </div>
       )}
@@ -118,6 +120,7 @@ function LiveTipDataHandler({ onTipReceived }) {
 }
 
 function LiveStageControls({ sessionId, stageState, setStageState, onError }) {
+  const { t } = useI18n();
   const room = useRoomContext();
 
   useEffect(() => {
@@ -157,13 +160,13 @@ function LiveStageControls({ sessionId, stageState, setStageState, onError }) {
 
   const requestStage = async () => {
     try {
-      if (!sessionId) throw new Error('This live session is not available for stage requests.');
+      if (!sessionId) throw new Error(t('afterDarkUiLiveSessionUnavailable'));
       await afterDarkService.requestStage(sessionId);
       await room.localParticipant.publishData(
         new TextEncoder().encode(JSON.stringify({
           type: 'stage-request',
           identity: room.localParticipant.identity,
-          name: room.localParticipant.name || 'Viewer',
+          name: room.localParticipant.name || t('afterDarkUiViewer'),
         })),
         { reliable: true, topic: 'live-control' }
       );
@@ -174,7 +177,7 @@ function LiveStageControls({ sessionId, stageState, setStageState, onError }) {
   };
 
   if (stageState === 'on-stage') {
-    return <span className="text-xs font-semibold text-emerald-300">You’re on stage</span>;
+    return <span className="text-xs font-semibold text-emerald-300">{t('afterDarkUiYoureOnStage')}</span>;
   }
   return (
     <button
@@ -183,14 +186,15 @@ function LiveStageControls({ sessionId, stageState, setStageState, onError }) {
       disabled={!sessionId || ['requested', 'approved'].includes(stageState)}
       className="absolute bottom-24 left-4 z-30 rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
     >
-      {stageState === 'requested' ? 'Request sent' : stageState === 'denied' ? 'Request denied' :
-        stageState === 'removed' ? 'Request stage again' : 'Request to join stage'}
+      {stageState === 'requested' ? t('afterDarkUiRequestSent') : stageState === 'denied' ? t('afterDarkUiRequestDenied') :
+        stageState === 'removed' ? t('afterDarkUiRequestStageAgain') : t('afterDarkUiRequestToJoinStage')}
     </button>
   );
 }
 
 // Nested component to safely access LiveKit room for sending messages
 function ChatInputControls({ messageText, setMessageText, sendMessage, sendReaction, connectionEnded }) {
+  const { t } = useI18n();
   const room = useRoomContext();
 
   return (
@@ -200,13 +204,13 @@ function ChatInputControls({ messageText, setMessageText, sendMessage, sendReact
         onChange={event => setMessageText(event.target.value)} 
         maxLength={150} 
         disabled={connectionEnded} 
-        placeholder="Add a comment..." 
+        placeholder={t('afterDarkUiAddComment')}
         className="min-w-0 flex-1 rounded-full border border-white/20 bg-black/40 px-4 py-2.5 text-sm text-white placeholder-white/60 outline-none backdrop-blur-md focus:border-white/50 focus:bg-black/60 disabled:opacity-50" 
       />
       <button 
         type="submit" 
         disabled={!messageText.trim() || connectionEnded} 
-        aria-label="Send message" 
+        aria-label={t('afterDarkUiSendMessage')}
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--text-on-accent)] transition-transform hover:scale-105 active:scale-95 disabled:opacity-50"
       >
         <Send className="h-4 w-4 ml-0.5" />
@@ -215,7 +219,7 @@ function ChatInputControls({ messageText, setMessageText, sendMessage, sendReact
         type="button" 
         disabled={connectionEnded} 
         onClick={() => sendReaction(room)} 
-        aria-label="Send heart reaction" 
+        aria-label={t('afterDarkUiSendHeartReaction')}
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/20 text-[var(--accent)] backdrop-blur-md transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 lg:hidden"
       >
         <Heart className="h-5 w-5 fill-current" />
@@ -227,6 +231,7 @@ function ChatInputControls({ messageText, setMessageText, sendMessage, sendReact
 export default function LiveViewer({
   creator, hasAccess, walletBalance, isOwnBroadcast, isCheckoutOpen, onClose, onManageBroadcast, onUseBalance, onCheckout, onTipSent, userAlias
 }) {
+  const { t } = useI18n();
   const [accessType, setAccessType] = useState('pass');
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
@@ -260,9 +265,9 @@ export default function LiveViewer({
   const reconnectGenerationRef = useRef(0);
 
   const handleStageError = useCallback(error => {
-    const message = error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not change your live stage status.');
+    const message = error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiStageStatusChangeFailed'));
     toast.error(message);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     setAccessType('pass');
@@ -288,7 +293,7 @@ export default function LiveViewer({
   useEffect(() => {
     const sessionId = creator?.liveSession?.sessionId;
     if (!sessionId && hasAccess && !isOwnBroadcast) {
-      setJoinError('This live broadcast is no longer available.');
+      setJoinError(t('afterDarkUiBroadcastNoLongerAvailable'));
       setJoinState('ended');
       return;
     }
@@ -304,18 +309,18 @@ export default function LiveViewer({
          setLiveKitToken(token);
          setJoinState('joined');
       } else {
-         setJoinError('The live service did not return a valid access token.');
+         setJoinError(t('afterDarkUiLiveAccessTokenInvalid'));
          setJoinState('failed');
       }
     }).catch(error => {
       if (!active) return;
-      const message = error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not join this live session.');
+      const message = error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiLiveJoinFailed'));
       setJoinError(message);
       setJoinState('failed');
     });
 
     return () => { active = false; };
-  }, [creator?.liveSession?.sessionId, hasAccess, isOwnBroadcast]);
+  }, [creator?.liveSession?.sessionId, hasAccess, isOwnBroadcast, t]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -376,14 +381,14 @@ export default function LiveViewer({
 
     if (reconnectAttemptsRef.current >= 3) {
       setJoinState('failed');
-      setJoinError('Connection lost. Retry to rejoin the live room.');
+      setJoinError(t('afterDarkUiLiveConnectionLostRetry'));
       return;
     }
 
     const attempt = ++reconnectAttemptsRef.current;
     const generation = ++reconnectGenerationRef.current;
     setJoinState('joining');
-    setJoinError(`Connection interrupted. Rejoining (${attempt}/3)…`);
+    setJoinError(t('afterDarkUiLiveConnectionRejoining', { attempt }));
     if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
     retryTimerRef.current = window.setTimeout(async () => {
       try {
@@ -391,18 +396,18 @@ export default function LiveViewer({
         if (generation !== reconnectGenerationRef.current) return;
         const token = data?.sfu_token || data?.livekit_token;
         if (typeof token !== 'string' || !token) {
-          throw new Error('The live service did not return a valid access token.');
+          throw new Error(t('afterDarkUiLiveAccessTokenInvalid'));
         }
         setLiveKitToken(token);
         setRoomGeneration(current => current + 1);
       } catch (error) {
         if (generation !== reconnectGenerationRef.current) return;
-        const message = error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not rejoin this live session.');
+        const message = error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiLiveRejoinFailed'));
         setJoinError(message);
         setJoinState('failed');
       }
     }, Math.min(1000 * (2 ** (attempt - 1)), 4000));
-  }, [creator?.liveSession?.sessionId]);
+  }, [creator?.liveSession?.sessionId, t]);
 
   const retryJoin = async () => {
     reconnectGenerationRef.current += 1;
@@ -417,13 +422,13 @@ export default function LiveViewer({
       if (generation !== reconnectGenerationRef.current) return;
       const token = data?.sfu_token || data?.livekit_token;
       if (typeof token !== 'string' || !token) {
-        throw new Error('The live service did not return a valid access token.');
+        throw new Error(t('afterDarkUiLiveAccessTokenInvalid'));
       }
       setLiveKitToken(token);
       setRoomGeneration(current => current + 1);
     } catch (error) {
       if (generation !== reconnectGenerationRef.current) return;
-      const message = error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not rejoin this live session.');
+      const message = error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiLiveRejoinFailed'));
       setJoinError(message);
       setJoinState('failed');
     }
@@ -451,7 +456,7 @@ export default function LiveViewer({
   const checkoutTip = () => {
     const amount = Number(tipAmount);
     if (!Number.isSafeInteger(amount) || amount <= 0) {
-      toast.error('Enter a valid tip amount in KES.');
+      toast.error(t('afterDarkUiValidTipAmount'));
       return;
     }
     onCheckout?.(creator, 'live_tip', amount, tipMessage.trim());
@@ -466,7 +471,7 @@ export default function LiveViewer({
     const message = {
       id: globalThis.crypto?.randomUUID?.() || `${Date.now()}`,
       senderId: room.localParticipant.identity,
-      name: userAlias || 'You',
+      name: userAlias || t('afterDarkUiYou'),
       text,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
@@ -479,7 +484,7 @@ export default function LiveViewer({
         : [...current.slice(-99), message]);
       setMessageText('');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not send your message.');
+      toast.error(error instanceof Error ? error.message : t('afterDarkUiSendMessageFailed'));
     }
   };
 
@@ -489,7 +494,7 @@ export default function LiveViewer({
       const payload = new TextEncoder().encode(JSON.stringify({ type: 'reaction' }));
       await room.localParticipant.publishData(payload, { reliable: false, topic: 'chat' });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not send your reaction.');
+      toast.error(error instanceof Error ? error.message : t('afterDarkUiSendReactionFailed'));
     }
   };
 
@@ -497,17 +502,17 @@ export default function LiveViewer({
     event.preventDefault();
     const amount = Number(tipAmount);
     if (!Number.isSafeInteger(amount) || amount <= 0) {
-      toast.error('Enter a valid tip amount in KES.');
+      toast.error(t('afterDarkUiValidTipAmount'));
       return;
     }
     const sessionId = creator?.liveSession?.sessionId;
     if (!sessionId) {
-      toast.error('This live session is no longer available.');
+      toast.error(t('afterDarkUiLiveSessionUnavailable'));
       return;
     }
 
     if (amount > Number(walletBalance || 0)) {
-      toast.error('Your wallet balance is too low. Add funds or choose another payment method.');
+      toast.error(t('afterDarkUiLowBalanceAddFunds'));
       return;
     }
 
@@ -519,16 +524,16 @@ export default function LiveViewer({
       });
       setTipOpen(false);
       setTipMessage('');
-      toast.success(`You tipped ${creator.name} KES ${amount.toLocaleString()}.`);
+      toast.success(t('afterDarkUiLiveTipSent', { name: creator.name, amount: amount.toLocaleString() }));
       if (response?.live_alert_published === false) {
-        toast.info('Your tip was sent, but the live alert could not be displayed.');
+        toast.info(t('afterDarkUiTipAlertUnavailable'));
       }
       if (onTipSent) {
         const walletRefreshed = await onTipSent();
-        if (walletRefreshed === false) toast.info('Your tip was sent. Wallet balance refresh is delayed.');
+        if (walletRefreshed === false) toast.info(t('afterDarkUiTipWalletRefreshDelayed'));
       }
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not send your tip.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiSendTipFailed')));
     } finally {
       setIsSendingTip(false);
     }
@@ -545,10 +550,10 @@ export default function LiveViewer({
         await navigator.share({ title: `${creator.name} is live`, url });
       } else {
         await navigator.clipboard.writeText(url);
-        toast.success('Live link copied.');
+        toast.success(t('afterDarkUiLiveLinkCopied'));
       }
     } catch (error) {
-      if (error?.name !== 'AbortError') toast.error('Could not share this live session.');
+      if (error?.name !== 'AbortError') toast.error(t('afterDarkUiShareLiveFailed'));
     }
   };
 
@@ -575,23 +580,23 @@ export default function LiveViewer({
                 </span>
               </div>
               <h2 className="text-xl font-bold text-white mt-2">{creator.name}'s Live Room</h2>
-              <p className="text-sm text-zinc-300">Unlock to join the conversation</p>
+              <p className="text-sm text-zinc-300">{t('afterDarkUiUnlockToJoinConversation')}</p>
             </div>
 
             <div className="w-full space-y-3">
               <div className="grid grid-cols-2 gap-3 rounded-2xl bg-white/5 p-1.5">
                 <button type="button" onClick={() => setAccessType('pass')} className={`flex flex-col items-center rounded-xl px-2 py-3 transition-colors ${accessType === 'pass' ? 'bg-white/15 text-white shadow-sm' : 'text-white/60 hover:text-white'}`}>
-                  <span className="text-sm font-semibold">Live Pass</span>
+                  <span className="text-sm font-semibold">{t('afterDarkUiLivePass')}</span>
                   <span className="mt-0.5 text-[11px]">KES {livePassPrice.toLocaleString()}</span>
                 </button>
                 <button type="button" onClick={() => setAccessType('subscription')} className={`flex flex-col items-center rounded-xl px-2 py-3 transition-colors ${accessType === 'subscription' ? 'bg-white/15 text-white shadow-sm' : 'text-white/60 hover:text-white'}`}>
-                  <span className="text-sm font-semibold">Monthly Sub</span>
+                  <span className="text-sm font-semibold">{t('afterDarkUiMonthlySub')}</span>
                   <span className="mt-0.5 text-[11px]">KES {subscriptionPrice.toLocaleString()}</span>
                 </button>
               </div>
 
               <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
-                <span className="text-sm text-zinc-400">Wallet Balance</span>
+                <span className="text-sm text-zinc-400">{t('afterDarkUiWalletBalance')}</span>
                 <span className="text-sm font-semibold text-white">KES {walletBalance.toLocaleString()}</span>
               </div>
 
@@ -612,8 +617,8 @@ export default function LiveViewer({
             <Radio className="h-8 w-8 text-yellow-400" />
           </div>
           <div>
-            <p className="text-lg font-black uppercase tracking-widest text-white">Your channel is on air</p>
-            <p className="mt-1 text-xs font-bold uppercase tracking-wide text-zinc-400">The broadcast is active. Return to the control room to continue hosting.</p>
+            <p className="text-lg font-black uppercase tracking-widest text-white">{t('afterDarkUiChannelOnAir')}</p>
+            <p className="mt-1 text-xs font-bold uppercase tracking-wide text-zinc-400">{t('afterDarkUiBroadcastActive')}</p>
           </div>
           <button type="button" onClick={onManageBroadcast} className="border-2 border-yellow-400 bg-yellow-400 px-5 py-3 text-xs font-black uppercase tracking-widest text-[var(--text-on-warning)] hover:bg-black hover:text-yellow-400">
             Return to Creator Studio
@@ -633,8 +638,8 @@ export default function LiveViewer({
             joinState === 'ended' ? <Radio className="h-12 w-12 text-zinc-400" /> :
               <Loader2 className="h-12 w-12 animate-spin text-[var(--accent)]" />}
           <div>
-            <p className="text-lg font-semibold text-white">{joinState === 'failed' ? 'Connection Failed' :
-              joinState === 'ended' ? 'This live session has ended' : 'Joining Live Room…'}</p>
+            <p className="text-lg font-semibold text-white">{joinState === 'failed' ? t('afterDarkUiConnectionFailed') :
+              joinState === 'ended' ? t('afterDarkUiLiveSessionEnded') : t('afterDarkUiJoiningLiveRoom')}</p>
             {joinError && <p role="alert" className="mt-2 text-sm text-red-400">{joinError}</p>}
           </div>
           {joinState === 'failed' && (
@@ -686,7 +691,7 @@ export default function LiveViewer({
                     <Gift className="h-6 w-6 shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-extrabold">
-                        {tipAlert.sender_name || 'A viewer'} tipped KES {(Number(tipAlert.amount_cents) / 100).toLocaleString()}
+                        {t('afterDarkUiViewerTippedKes', { name: tipAlert.sender_name || t('afterDarkUiAViewer'), amount: (Number(tipAlert.amount_cents) / 100).toLocaleString() })}
                       </p>
                       {tipAlert.message && <p className="truncate text-xs font-medium">{tipAlert.message}</p>}
                     </div>
@@ -707,10 +712,10 @@ export default function LiveViewer({
                 <form onSubmit={sendTip} className="absolute bottom-20 right-4 z-40 w-[min(90%,20rem)] space-y-3 rounded-2xl border border-white/15 bg-zinc-950/95 p-4 shadow-2xl backdrop-blur-xl">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-bold text-white">Send a live tip</p>
+                      <p className="font-bold text-white">{t('afterDarkUiSendLiveTip')}</p>
                       <p className="text-xs text-zinc-400">Wallet: KES {Number(walletBalance || 0).toLocaleString()}</p>
                     </div>
-                    <button type="button" onClick={() => setTipOpen(false)} aria-label="Close tip form" className="rounded-full bg-white/10 p-1.5 text-white">
+                    <button type="button" onClick={() => setTipOpen(false)} aria-label={t('afterDarkUiCloseTipForm')} className="rounded-full bg-white/10 p-1.5 text-white">
                       <X className="h-4 w-4" />
                     </button>
                   </div>
@@ -743,8 +748,8 @@ export default function LiveViewer({
                     value={tipMessage}
                     onChange={event => setTipMessage(event.target.value)}
                     maxLength={120}
-                    placeholder="Add a message (optional)"
-                    aria-label="Tip message"
+                    placeholder={t('afterDarkUiOptionalTipMessage')}
+                    aria-label={t('afterDarkUiTipMessage')}
                     className="w-full rounded-lg border border-white/15 bg-black px-3 py-2 text-sm text-white outline-none focus:border-[var(--accent)]"
                   />
                   <button
@@ -753,7 +758,7 @@ export default function LiveViewer({
                     className="flex w-full items-center justify-center gap-2 border-2 border-yellow-400 bg-yellow-400 py-2.5 text-sm font-bold text-[var(--text-on-warning)] disabled:opacity-50"
                   >
                     <Gift className="h-4 w-4" />
-                    {isSendingTip ? 'Sending…' : Number(tipAmount) > Number(walletBalance || 0) ? 'Insufficient wallet balance' : `Tip from wallet · KES ${Number(tipAmount || 0).toLocaleString()}`}
+                    {isSendingTip ? t('afterDarkUiSending') : Number(tipAmount) > Number(walletBalance || 0) ? t('afterDarkUiInsufficientWalletBalance') : t('afterDarkUiTipFromWalletKes', { amount: Number(tipAmount || 0).toLocaleString() })}
                   </button>
                   {onCheckout && Number(tipAmount) > Number(walletBalance || 0) && (
                     <button
@@ -775,9 +780,9 @@ export default function LiveViewer({
                     <span className="text-sm font-semibold text-white leading-tight">{creator.name}</span>
                     <span className="text-[10px] text-zinc-300 flex items-center gap-1">
                       <span className={`h-1.5 w-1.5 rounded-full ${connectionEnded ? 'bg-zinc-500' : 'animate-pulse bg-[var(--accent)]'}`} />
-                      {connectionEnded || joinState === 'ended' ? 'Ended' :
+                      {connectionEnded || joinState === 'ended' ? t('afterDarkUiEnded') :
                         connectionState === ConnectionState.Reconnecting || connectionState === ConnectionState.SignalReconnecting
-                          ? 'Reconnecting' : connectionState === ConnectionState.Connected ? 'Live' : 'Connecting'}
+                          ? t('afterDarkUiReconnecting') : connectionState === ConnectionState.Connected ? t('afterDarkUiLive') : t('afterDarkUiConnecting')}
                     </span>
                   </div>
                 </div>
@@ -787,7 +792,7 @@ export default function LiveViewer({
                     <Eye className="h-3.5 w-3.5 text-white/80" />
                     <span className="text-xs font-semibold text-white">{viewerCount}</span>
                   </div>
-                  <button type="button" onClick={onClose} aria-label="Leave live room" className="flex items-center justify-center rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition-colors hover:bg-white/20">
+                  <button type="button" onClick={onClose} aria-label={t('afterDarkUiLeaveLiveRoom')} className="flex items-center justify-center rounded-full bg-black/40 p-1.5 text-white backdrop-blur-md transition-colors hover:bg-white/20">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
@@ -801,10 +806,10 @@ export default function LiveViewer({
                 <button type="button" onClick={shareLive} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md">
                   <Share2 className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={() => setTipOpen(open => !open)} aria-label="Send a tip" className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-400 text-[var(--text-on-warning)] shadow-lg">
+                <button type="button" onClick={() => setTipOpen(open => !open)} aria-label={t('afterDarkUiSendATip')} className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-400 text-[var(--text-on-warning)] shadow-lg">
                   <Gift className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={toggleCaptions} aria-label={captionsEnabled ? 'Turn captions off' : 'Turn captions on'} className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-md ${captionsEnabled ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-black/40 text-white'}`}>
+                <button type="button" onClick={toggleCaptions} aria-label={t(captionsEnabled ? 'afterDarkUiTurnCaptionsOff' : 'afterDarkUiTurnCaptionsOn')} className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-md ${captionsEnabled ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-black/40 text-white'}`}>
                   <span className="text-xs font-black">CC</span>
                 </button>
                 <span className="rounded-full bg-black/40 px-2 py-1 text-[10px] text-white">♥ {reactionCount}</span>
@@ -854,13 +859,13 @@ export default function LiveViewer({
                   <button type="button" onClick={() => setIsMuted(m => !m)} className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
                     {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                   </button>
-                  <button type="button" onClick={shareLive} aria-label="Share live" className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
+                  <button type="button" onClick={shareLive} aria-label={t('afterDarkUiShareLive')} className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
                     <Share2 className="h-4 w-4" />
                   </button>
-                  <button type="button" onClick={() => setTipOpen(open => !open)} aria-label="Send a tip" className="rounded-full bg-amber-400 p-2 text-[var(--text-on-warning)] hover:bg-amber-300">
+                  <button type="button" onClick={() => setTipOpen(open => !open)} aria-label={t('afterDarkUiSendATip')} className="rounded-full bg-amber-400 p-2 text-[var(--text-on-warning)] hover:bg-amber-300">
                     <Gift className="h-4 w-4" />
                   </button>
-                  <button type="button" onClick={toggleCaptions} aria-label={captionsEnabled ? 'Turn captions off' : 'Turn captions on'} className={`rounded-full p-2 ${captionsEnabled ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-white/10 text-white'}`}>
+                  <button type="button" onClick={toggleCaptions} aria-label={t(captionsEnabled ? 'afterDarkUiTurnCaptionsOff' : 'afterDarkUiTurnCaptionsOn')} className={`rounded-full p-2 ${captionsEnabled ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-white/10 text-white'}`}>
                     <span className="text-[10px] font-black">CC</span>
                   </button>
                   <span className="text-xs text-white">♥ {reactionCount}</span>

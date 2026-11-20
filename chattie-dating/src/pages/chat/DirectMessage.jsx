@@ -666,7 +666,7 @@ export default function DirectMessage() {
                   )}
 
                   <button
-                    onClick={() => { setIsScreenSharing(!isScreenSharing); toast(isScreenSharing ? 'Screen share stopped' : 'Screen share started (placeholder)'); }}
+                    onClick={() => { setIsScreenSharing(!isScreenSharing); toast(t(isScreenSharing ? 'coreUiScreenShareStopped' : 'coreUiScreenShareStarted')); }}
                     className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${isScreenSharing ? 'bg-green-500 text-black border-green-500' : 'border-zinc-700 text-zinc-200'}`}
                     title={t('toggleScreenShare')}
                   >
@@ -674,7 +674,7 @@ export default function DirectMessage() {
                   </button>
 
                   <button
-                    onClick={() => { setSwappedCamera(!swappedCamera); toast('Camera switched'); }}
+                    onClick={() => { setSwappedCamera(!swappedCamera); toast(t('coreUiCameraSwitched')); }}
                     className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200"
                     title={t('swapCamera')}
                   >
@@ -682,7 +682,7 @@ export default function DirectMessage() {
                   </button>
 
                   <button
-                    onClick={() => { setSpeakerOn(!speakerOn); toast(speakerOn ? 'Speaker off' : 'Speaker on'); }}
+                    onClick={() => { setSpeakerOn(!speakerOn); toast(t(speakerOn ? 'coreUiSpeakerOff' : 'coreUiSpeakerOn')); }}
                     className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${speakerOn ? 'border-white text-white' : 'border-zinc-700 text-zinc-200'}`}
                     title={t('toggleSpeaker')}
                   >
@@ -701,7 +701,7 @@ export default function DirectMessage() {
                     onClick={() => {
                       // best-effort mute all request to backend
                       publishMessage && publishMessage(JSON.stringify({ type: 'mute_all', room_id: userId }));
-                      toast('Requested to mute all (server must enforce)');
+                      toast(t('coreUiMuteAllRequested'));
                     }}
                     className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200"
                     title={t('muteAll')}

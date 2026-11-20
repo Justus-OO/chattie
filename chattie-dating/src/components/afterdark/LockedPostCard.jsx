@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
 import { useAppDialogs } from '../modals/useAppDialogs';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
 // INLINE COMPONENT: CUSTOM VIDEO PLAYER
@@ -79,7 +80,7 @@ const CustomVideoPlayer = ({ src, poster, isUnlocked, watermark, creatorName }) 
           <div className="flex items-center justify-between mb-3">
             <button 
               onClick={togglePlay} 
-              aria-label={isPlaying ? "Pause" : "Play"}
+              aria-label={t(isPlaying ? 'afterDarkUiPause' : 'afterDarkUiPlay')}
               className="text-white hover:text-yellow-400 transition-colors"
             >
               {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
@@ -87,14 +88,14 @@ const CustomVideoPlayer = ({ src, poster, isUnlocked, watermark, creatorName }) 
             <div className="flex items-center gap-4">
               <button 
                 onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }} 
-                aria-label={isMuted ? "Unmute" : "Mute"}
+                aria-label={t(isMuted ? 'afterDarkUiUnmute' : 'afterDarkUiMute')}
                 className="text-white hover:text-yellow-400 transition-colors"
               >
                 {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
               </button>
               <button 
                 onClick={(e) => { e.stopPropagation(); videoRef.current?.requestFullscreen(); }} 
-                aria-label="Fullscreen"
+                aria-label={t('afterDarkUiFullscreen')}
                 className="text-white hover:text-yellow-400 transition-colors"
               >
                 <Maximize className="w-5 h-5" />
@@ -121,6 +122,7 @@ const CustomVideoPlayer = ({ src, poster, isUnlocked, watermark, creatorName }) 
 const COMMENTS_PAGE_SIZE = 20;
 
 export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscribe, onMessageCreator, onOpenCreator }) {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const { confirm } = useAppDialogs();
   const currentUser = useAppStore(state => state.user);
@@ -190,7 +192,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
         setLikesCount(count => Math.max(0, count + (liked === isLiked ? 0 : liked ? 1 : -1)));
       }
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update your like.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiLikeUpdateFailed')));
     } finally {
       setIsLikePending(false);
     }
@@ -216,7 +218,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
     if (!commentInput.trim()) return;
 
     if (!isUnlocked && pricingStrategy !== 'free') {
-      toast.error('You must unlock the content to comment.');
+      toast.error(t('afterDarkUiUnlockToComment'));
       return;
     }
 
@@ -228,7 +230,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
       setCommentsCount(count => count + 1);
       setCommentInput('');
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not post your comment.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCommentPostFailed')));
     } finally {
       setIsSubmittingComment(false);
     }
@@ -236,14 +238,14 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
 
   const handleReport = async () => {
     setShowMenu(false);
-    if (!await confirm('Report this post for review?', {
-      title: 'Report post',
-      confirmLabel: 'Submit report',
+    if (!await confirm(t('afterDarkUiReportPostConfirm'), {
+      title: t('afterDarkUiReportPost'),
+      confirmLabel: t('afterDarkUiSubmitReport'),
       tone: 'danger',
     })) return;
     afterDarkService.submitReport({ target_type: 'post', target_id: id, reason: 'User report' })
-      .then(() => toast.success('Report submitted for review.'))
-      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not submit the report.')));
+      .then(() => toast.success(t('afterDarkUiReportSubmitted')))
+      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiReportSubmitFailed'))));
   };
 
   const loadComments = async (offset = 0, append = false) => {
@@ -252,7 +254,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
     try {
       const result = await afterDarkService.getComments(id, { limit: COMMENTS_PAGE_SIZE, offset });
       const records = Array.isArray(result) ? result : result?.comments || result?.items || [];
-      if (!Array.isArray(records)) throw new Error('The comments service returned an invalid response.');
+      if (!Array.isArray(records)) throw new Error(t('afterDarkUiCommentsResponseInvalid'));
       setComments(current => {
         if (!append) return records;
         const existingIds = new Set(current.map(comment => comment?.id).filter(Boolean));
@@ -264,7 +266,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
         setCommentsCount(Number(result.total_count ?? result.total));
       }
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load comments.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCommentsLoadFailed')));
     } finally {
       setIsLoadingComments(false);
     }
@@ -287,7 +289,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
       const result = await afterDarkService.toggleFollow(creator.id);
       setIsFollowing(Boolean(result?.following ?? result?.is_following));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update your follow.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiFollowUpdateFailed')));
     } finally {
       setIsFollowPending(false);
     }
@@ -296,10 +298,10 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
   const copyPostLink = async () => {
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/afterdark/cprofile/${encodeURIComponent(creator.id)}?post=${encodeURIComponent(id)}`);
-      toast.success('Link copied to clipboard');
+      toast.success(t('afterDarkUiLinkCopied'));
       setShowMenu(false);
     } catch {
-      toast.error('Unable to copy the post link from this browser.');
+      toast.error(t('afterDarkUiCopyPostLinkFailed'));
     }
   };
 
@@ -337,12 +339,12 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
         <div className="flex items-center gap-2">
           {!isUnlocked && pricingStrategy === 'subscriber' && (
             <button onClick={handleFollow} disabled={isFollowPending} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 border-2 border-zinc-700 text-[9px] font-black text-white uppercase tracking-widest hover:border-white transition-colors disabled:opacity-50">
-              <UserPlus className="w-3 h-3" /> {isFollowing ? 'Following' : 'Follow'}
+              <UserPlus className="w-3 h-3" /> {t(isFollowing ? 'afterDarkUiFollowing' : 'afterDarkUiFollow')}
             </button>
           )}
           
           <div className="relative">
-            <button onClick={() => setShowMenu(!showMenu)} aria-label="More options" className="p-2 text-zinc-500 hover:text-white transition-colors">
+            <button onClick={() => setShowMenu(!showMenu)} aria-label={t('afterDarkUiMoreOptions')} className="p-2 text-zinc-500 hover:text-white transition-colors">
               <MoreVertical className="w-5 h-5" />
             </button>
             
@@ -420,7 +422,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
               // Explicit Content Warning for unlocked/free posts
               <div className="bg-black/90 p-6 border-2 border-zinc-700 max-w-sm w-full animate-in fade-in zoom-in duration-300 flex flex-col items-center">
                 <AlertTriangle className="w-12 h-12 text-yellow-500 mb-4" />
-                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">EXPLICIT CONTENT</h3>
+                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">{t('afterDarkUiExplicitContent')}</h3>
                 <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-6 leading-relaxed">
                   This media contains mature themes. Viewer discretion is advised.
                 </p>
@@ -437,7 +439,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 <div className="w-16 h-16 rounded-full bg-yellow-500/10 border-2 border-yellow-500 flex items-center justify-center mb-4">
                   <Lock className="w-6 h-6 text-yellow-500" />
                 </div>
-                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">LOCKED PPV MEDIA</h3>
+                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">{t('afterDarkUiLockedPpvMedia')}</h3>
                 <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center gap-1.5">
                   <DollarSign className="w-3 h-3" /> One-Time Purchase
                 </p>
@@ -447,7 +449,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 >
                   UNLOCK FOR KES {price}
                 </button>
-                <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mt-4">Secure M-Pesa Checkout</span>
+                <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mt-4">{t('afterDarkUiSecureMpesaCheckout')}</span>
               </div>
             ) : pricingStrategy === 'subscriber' ? (
               // Subscriber Only Lock Overlay
@@ -455,7 +457,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 <div className="w-16 h-16 rounded-full bg-green-500/10 border-2 border-green-500 flex items-center justify-center mb-4">
                   <Crown className="w-6 h-6 text-green-500" />
                 </div>
-                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">VIP SUBSCRIBERS ONLY</h3>
+                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">{t('afterDarkUiVipSubscribersOnly')}</h3>
                 <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6 text-center leading-relaxed">
                   Subscribe to {creator.name}'s tier to unlock this and all past content.
                 </p>
@@ -476,7 +478,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
         <p className="text-[11px] font-bold text-white leading-relaxed tracking-wider mb-3">
           <span className="font-black uppercase text-zinc-400 mr-2">{creator.name}</span>
           {isUnlocked ? caption : (
-            <span className="text-zinc-600 italic">Caption hidden. Unlock to view full description...</span>
+            <span className="text-zinc-600 italic">{t('afterDarkUiCaptionHiddenUnlock')}</span>
           )}
         </p>
         
@@ -497,7 +499,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
           <button 
             onClick={handleLike}
             disabled={isLikePending}
-            aria-label={isLiked ? "Unlike" : "Like"}
+            aria-label={t(isLiked ? 'afterDarkUiUnlike' : 'afterDarkUiLike')}
             className={`flex items-center gap-2 transition-colors disabled:opacity-50 ${isLiked ? 'text-red-500' : 'text-zinc-400 hover:text-white'}`}
           >
             <Heart className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
@@ -506,14 +508,14 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
           
           <button 
             onClick={toggleComments}
-            aria-label="Toggle comments"
+            aria-label={t('afterDarkUiToggleComments')}
             className={`flex items-center gap-2 transition-colors ${showComments ? 'text-white' : 'text-zinc-400 hover:text-white'}`}
           >
             <MessageSquare className="w-5 h-5" />
             <span className="text-[10px] font-black uppercase">{commentsCount}</span>
           </button>
           
-          <button onClick={copyPostLink} aria-label="Copy post link" className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors">
+          <button onClick={copyPostLink} aria-label={t('afterDarkUiCopyPostLink')} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors">
             <Share2 className="w-5 h-5" />
           </button>
         </div>
@@ -524,16 +526,16 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 border-2 border-yellow-500/50 text-yellow-500 hover:bg-yellow-500 hover:text-black transition-colors"
           >
             <Coins className="w-4 h-4" />
-            <span className="text-[9px] font-black uppercase tracking-widest">SEND TIP</span>
+            <span className="text-[9px] font-black uppercase tracking-widest">{t('afterDarkUiSendTip')}</span>
           </button>
           <button
             type="button"
             onClick={() => onMessageCreator?.(creator)}
             className="flex items-center gap-1.5 border-2 border-zinc-700 bg-black px-3 py-1.5 text-zinc-300 transition-colors hover:border-white hover:text-white"
-            aria-label={`Open paid chat with ${creator.name}`}
+            aria-label={t('afterDarkUiOpenPaidChatWith', { name: creator.name })}
           >
             <MessageSquare className="h-4 w-4" />
-            <span className="text-[9px] font-black uppercase tracking-widest">PAID CHAT</span>
+            <span className="text-[9px] font-black uppercase tracking-widest">{t('afterDarkUiPaidChat')}</span>
           </button>
         </div>
       </div>
@@ -546,7 +548,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
           <div className="p-4 border-b-2 border-zinc-900 bg-zinc-950 flex gap-3">
             <img 
               src={currentUser?.avatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&q=80'} 
-              alt="You" 
+              alt={t('afterDarkUiYou')}
               className="w-8 h-8 object-cover border-2 border-zinc-700 grayscale shrink-0"
             />
             <form onSubmit={handleAddComment} className="flex-1 flex gap-2">
@@ -554,13 +556,13 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 type="text" 
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
-                placeholder={isUnlocked || pricingStrategy === 'free' ? "Add a comment..." : "Unlock to comment..."}
+                placeholder={t(isUnlocked || pricingStrategy === 'free' ? 'afterDarkUiAddComment' : 'afterDarkUiUnlockToComment')}
                 disabled={!isUnlocked && pricingStrategy !== 'free'}
                 className="flex-1 bg-black border-2 border-zinc-800 text-white text-[10px] font-bold px-3 outline-none focus:border-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               />
               <button 
                 type="submit"
-                aria-label="Post comment"
+                aria-label={t('afterDarkUiPostComment')}
                 disabled={isSubmittingComment || (!isUnlocked && pricingStrategy !== 'free') || !commentInput.trim()}
                 className="px-4 bg-white text-black border-2 border-white font-black hover:bg-zinc-200 disabled:opacity-50 disabled:hover:bg-white transition-colors flex items-center justify-center"
               >
@@ -576,7 +578,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
               </div>
             ) : comments.length === 0 ? (
-              <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest text-center py-4">No comments yet. Be the first.</p>
+              <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest text-center py-4">{t('afterDarkUiNoCommentsBeFirst')}</p>
             ) : (
               comments.filter(Boolean).map((comment, index) => {
                 const user = comment.user && typeof comment.user === 'object' ? comment.user : {};
@@ -585,7 +587,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 const userName = user.name || user.display_name || user.username
                   || comment.user_name || comment.username
                   || (isCurrentUser ? currentUser?.name || currentUser?.username : '')
-                  || 'Member';
+                  || t('afterDarkUiMember');
                 const userAvatar = user.avatar || user.avatar_url || comment.avatar_url
                   || (isCurrentUser ? currentUser?.avatar : '')
                   || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&q=80';
@@ -607,7 +609,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                       </div>
                       <p className="text-[10px] font-bold text-zinc-400 leading-relaxed">{comment.text ?? comment.content ?? ''}</p>
                     </div>
-                    <button aria-label="Report comment" className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all">
+                    <button aria-label={t('afterDarkUiReportComment')} className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all">
                       <Flag className="w-3 h-3" />
                     </button>
                   </div>
@@ -622,7 +624,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 className="mx-auto flex items-center gap-2 border border-zinc-700 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:border-white hover:text-white disabled:opacity-50"
               >
                 {isLoadingComments && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {isLoadingComments ? 'Loading comments' : 'Load older comments'}
+                {isLoadingComments ? t('afterDarkUiLoadingComments') : t('afterDarkUiLoadOlderComments')}
               </button>
             )}
           </div>

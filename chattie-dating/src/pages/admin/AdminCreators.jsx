@@ -11,11 +11,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminService } from '../../api/admin.service';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 export default function AdminCreators() {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState('ROSTER');
   const [creators, setCreators] = useState([]);
   const [personas, setPersonas] = useState([]);
@@ -93,7 +95,7 @@ export default function AdminCreators() {
         (rosterData != null && !Array.isArray(rosterData)) ||
         (personasData != null && !Array.isArray(personasData))
       ) {
-        throw new Error('The server returned an invalid creators or profiles list.');
+        throw new Error(t('adminUiInvalidCreatorsList'));
       }
 
       setCreators((rosterData || []).map(creator => ({
@@ -104,7 +106,7 @@ export default function AdminCreators() {
       setLoadError('');
     } catch (error) {
       console.error("Failed to fetch admin data", error);
-      const message = error.response?.data?.error || error.message || 'Failed to sync with operator engine.';
+      const message = error.response?.data?.error || error.message || t('adminUiSyncOperatorEngineError');
       setLoadError(message);
       toast.error(message);
     } finally {
@@ -118,12 +120,12 @@ export default function AdminCreators() {
       setPersonaLoadError('');
       const data = await adminService.getPersonaMetrics();
       if (!Array.isArray(data)) {
-        throw new Error('The server returned an invalid persona list.');
+        throw new Error(t('adminUiInvalidPersonaList'));
       }
       setPersonas(data);
     } catch (error) {
       console.error('Failed to fetch assignable persona profiles', error);
-      const message = error.response?.data?.error || error.message || 'Failed to load persona profiles.';
+      const message = error.response?.data?.error || error.message || t('adminUiLoadPersonaProfilesError');
       setPersonaLoadError(message);
       toast.error(message);
     } finally {
@@ -152,26 +154,26 @@ export default function AdminCreators() {
       const latitude = Number(newPersonaForm.latitude);
       const longitude = Number(newPersonaForm.longitude);
       if (name.length < 2) {
-        toast.error("Persona name must be at least 2 characters.");
+        toast.error(t('adminUiPersonaNameTooShort'));
         return;
       }
       if (bio.length < 10) {
-        toast.error("Persona bio must be at least 10 characters.");
+        toast.error(t('adminUiPersonaBioTooShort'));
         return;
       }
       if (!newPersonaForm.city.trim() || !newPersonaForm.country.trim() || !/^[a-z]{2}$/i.test(newPersonaForm.countryCode.trim())) {
-        toast.error("Enter the persona's city, country, and two-letter country code.");
+        toast.error(t('adminUiPersonaLocationRequired'));
         return;
       }
       if (!newPersonaForm.latitude.trim() || !newPersonaForm.longitude.trim() ||
         !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
         latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 ||
         (latitude === 0 && longitude === 0)) {
-        toast.error("Enter valid coordinates for the persona's actual location.");
+        toast.error(t('adminUiPersonaCoordinatesInvalid'));
         return;
       }
       if (interests.length < 3 || interests.length > 7) {
-        toast.error("Enter 3 to 7 unique interests, separated by commas.");
+        toast.error(t('adminUiPersonaInterestsInvalid'));
         return;
       }
       
@@ -184,7 +186,7 @@ export default function AdminCreators() {
         longitude,
         interests
       });
-      toast.success('New Virtual Persona (User Account) provisioned successfully');
+      toast.success(t('adminUiVirtualPersonaProvisioned'));
       
       setShowCreatePersonaModal(false);
       setNewPersonaForm({ 
@@ -204,7 +206,7 @@ export default function AdminCreators() {
       });
       await refreshPersonas();
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to create new persona");
+      toast.error(error.response?.data?.error || t('adminUiCreatePersonaError'));
     }
   };
 
@@ -216,9 +218,9 @@ export default function AdminCreators() {
       if (selectedCreator?.id === id) {
         setSelectedCreator(prev => ({ ...prev, commissionRate: newRate }));
       }
-      toast.success(`Commission split updated to ${newRate}%`);
+      toast.success(t('adminUiCommissionSplitUpdated', { rate: newRate }));
     } catch (error) {
-      toast.error("Failed to update commission rate");
+      toast.error(t('adminUiUpdateCommissionError'));
     }
   };
 
@@ -229,7 +231,7 @@ export default function AdminCreators() {
       const email = newOperatorForm.email.trim();
       const username = newOperatorForm.username.trim();
       if (!email || !username || !newOperatorForm.password || !displayName || !newOperatorForm.gender || !newOperatorForm.dateOfBirth) {
-        toast.error("Display name, email, username, password, gender, and date of birth are required.");
+        toast.error(t('adminUiOperatorFieldsRequired'));
         return;
       }
       setIsProvisioningCreator(true);
@@ -242,12 +244,12 @@ export default function AdminCreators() {
         date_of_birth: newOperatorForm.dateOfBirth,
         intent: newOperatorForm.intent,
       });
-      toast.success('Operator provisioned successfully');
+      toast.success(t('adminUiOperatorProvisioned'));
       setShowAddModal(false);
       setNewOperatorForm({ username: '', email: '', password: '', displayName: '', gender: '', dateOfBirth: '', intent: 'companion' });
       await fetchDashboardData();
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to provision new operator");
+      toast.error(error.response?.data?.error || t('adminUiProvisionOperatorError'));
     } finally {
       setIsProvisioningCreator(false);
     }
@@ -280,9 +282,9 @@ export default function AdminCreators() {
           security: { ...prev.security, locked: isLocked }
         }));
       }
-      toast.success(isLocked ? 'Account Suspended & Terminated' : 'Account Unrestored & Accessible');
+      toast.success(isLocked ? t('adminUiAccountSuspendedTerminated') : t('adminUiAccountRestoredAccessible'));
     } catch (error) {
-      toast.error("Failed to lock/unlock account");
+      toast.error(t('adminUiLockAccountError'));
     }
   };
 
@@ -294,9 +296,9 @@ export default function AdminCreators() {
       if (selectedCreator?.id === id) {
         setSelectedCreator(prev => ({ ...prev, status: newStatus }));
       }
-      toast.success(`Operator status forcefully set to ${newStatus}`);
+      toast.success(t('adminUiOperatorStatusSet', { status: newStatus }));
     } catch (error) {
-      toast.error("Failed to override status");
+      toast.error(t('adminUiOverrideStatusError'));
     }
   };
 
@@ -316,16 +318,16 @@ export default function AdminCreators() {
       if (selectedCreator?.id === id) {
         setSelectedCreator(prev => ({ ...prev, autoPilotActive: nextState }));
       }
-      toast.success(nextState ? 'AI Auto-Pilot engaged for operator personas.' : 'AI Auto-Pilot disengaged. Manual control restored.');
+      toast.success(nextState ? t('adminUiAiAutopilotEnabled') : t('adminUiAiAutopilotDisabled'));
     } catch (error) {
-      toast.error("Failed to toggle AI Auto-Pilot");
+      toast.error(t('adminUiToggleAiAutopilotError'));
     }
   };
 
   const handleBindPersona = async (creatorId, persona) => {
     if (!creatorId || !persona?.id || busyPersonaId) return;
     if (persona.manager_id && persona.manager_id !== creatorId) {
-      toast.error('This profile is already assigned to another creator.');
+      toast.error(t('adminUiProfileAlreadyAssigned'));
       return;
     }
 
@@ -348,10 +350,10 @@ export default function AdminCreators() {
           ? current
           : { ...current, personas: [...assigned, assignedPersona] };
       });
-      toast.success(`${persona.name || persona.display_name} assigned successfully.`);
+      toast.success(t('adminUiProfileAssigned', { name: persona.name || persona.display_name }));
       setShowAssignModal(false);
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to assign profile to creator.");
+      toast.error(error.response?.data?.error || t('adminUiAssignProfileError'));
       if (error.response?.status === 409) await fetchDashboardData();
     } finally {
       setBusyPersonaId('');
@@ -372,9 +374,9 @@ export default function AdminCreators() {
       setSelectedCreator(current => current?.id === creatorId
         ? { ...current, personas: (current.personas || []).filter(persona => persona.id !== personaId) }
         : current);
-      toast.success('Profile unassigned from creator.');
+      toast.success(t('adminUiProfileUnassigned'));
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to unassign profile.");
+      toast.error(error.response?.data?.error || t('adminUiUnassignProfileError'));
     } finally {
       setBusyPersonaId('');
     }
@@ -385,9 +387,9 @@ export default function AdminCreators() {
     setNotifyingCreatorId(creatorId);
     try {
       const result = await adminService.notifyOperatorPendingReplies(creatorId);
-      toast.success(`Reply reminder sent for ${result.pendingReplies} pending conversation(s).`);
+      toast.success(t('adminUiReplyReminderSent', { count: result.pendingReplies }));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to send reply reminder.');
+      toast.error(error.response?.data?.error || t('adminUiSendReplyReminderError'));
     } finally {
       setNotifyingCreatorId('');
     }
@@ -407,7 +409,7 @@ export default function AdminCreators() {
       if (!Array.isArray(galleryData)) throw new Error('The server returned an invalid media list.');
       setVaultMedia(galleryData);
     } catch (error) {
-      toast.error(error.response?.data?.error || error.message || "Failed to load vault assets");
+      toast.error(error.response?.data?.error || error.message || t('adminUiLoadVaultAssetsError'));
     } finally {
       setIsLoadingGallery(false);
     }
@@ -435,10 +437,10 @@ export default function AdminCreators() {
         }
       }
 
-      toast.success('Primary avatar updated successfully.');
+      toast.success(t('adminUiPrimaryAvatarUpdated'));
       fetchDashboardData();
     } catch (error) {
-      toast.error("Failed to set primary asset");
+      toast.error(t('adminUiSetPrimaryAssetError'));
     }
   };
 
@@ -446,10 +448,10 @@ export default function AdminCreators() {
     try {
       await adminService.deleteAsset(imageId);
       setVaultMedia(prev => prev.filter(img => img.id !== imageId));
-      toast('Asset permanently deleted from vault.');
+      toast.success(t('adminUiAssetDeletedFromVault'));
       if (previewImage?.id === imageId) setPreviewImage(null);
     } catch (error) {
-      toast.error("Failed to delete asset");
+      toast.error(t('adminUiDeleteAssetError'));
     }
   };
 
@@ -485,7 +487,7 @@ export default function AdminCreators() {
   const executeBulkUpload = async () => {
     if (!selectedVaultPersona) return;
     if (uploadFiles.length === 0) {
-      toast.error('No files queued for injection.');
+      toast.error(t('adminUiNoFilesQueued'));
       return;
     }
 
@@ -498,14 +500,14 @@ export default function AdminCreators() {
 
       await adminService.injectAssets(selectedVaultPersona.id, formData);
 
-      toast.success(`${uploadFiles.length} assets successfully injected into vault.`);
+      toast.success(t('adminUiAssetsInjected', { count: uploadFiles.length }));
       setUploadFiles([]);
       
       // Refresh the gallery
       const galleryData = await adminService.getVaultGallery(selectedVaultPersona.id);
       setVaultMedia(galleryData || []);
     } catch (error) {
-      toast.error("Bulk injection failed");
+      toast.error(t('adminUiBulkInjectionError'));
     } finally {
       setIsUploading(false);
     }
@@ -560,7 +562,7 @@ export default function AdminCreators() {
             disabled={isLoading}
             className="border border-red-400 px-3 py-2 font-black uppercase tracking-widest disabled:opacity-50"
           >
-            {isLoading ? 'Retrying…' : 'Retry'}
+            {isLoading ? t('adminUiRetrying') : t('adminUiRetry')}
           </button>
         </div>
       )}
@@ -572,10 +574,10 @@ export default function AdminCreators() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
-              <Users className="w-8 h-8 text-blue-500" /> Creator & Operator Engine
+              <Users className="w-8 h-8 text-blue-500" /> {t('adminUiCreatorOperatorEngine')}
             </h1>
             <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-              MANAGE HUMAN OPERATORS, OVERRIDE STATUS, CONFIGURE PAYOUT SPLITS & AUDIT CHAT QUEUES
+              {t('adminUiCreatorOperatorEngineDescription')}
             </p>
           </div>
           
@@ -583,16 +585,16 @@ export default function AdminCreators() {
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 bg-white text-black border-2 border-white px-6 py-3 font-black text-xs uppercase tracking-widest hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1"
           >
-            <UserPlus className="w-4 h-4" /> Onboard New Operator
+            <UserPlus className="w-4 h-4" /> {t('adminUiOnboardNewOperator')}
           </button>
         </div>
 
         {/* Tab Navigation */}
         <div className="flex flex-wrap gap-2 border-b-2 border-zinc-800">
           {[
-            { id: 'ROSTER', label: `STAFF ROSTER (${creators.length})`, icon: ShieldCheck },
-            { id: 'PERFORMANCE', label: 'OPERATOR TELEMETRY', icon: BarChart3 },
-            { id: 'QUEUE_ROUTING', label: `PERSONA QUEUES (${personas.length})`, icon: Radio },
+            { id: 'ROSTER', label: t('adminUiStaffRoster', { count: creators.length }), icon: ShieldCheck },
+            { id: 'PERFORMANCE', label: t('adminUiOperatorTelemetry'), icon: BarChart3 },
+            { id: 'QUEUE_ROUTING', label: t('adminUiPersonaQueues', { count: personas.length }), icon: Radio },
           ].map(tab => (
             <button
               key={tab.id}
@@ -632,7 +634,7 @@ export default function AdminCreators() {
                     <Search className="w-4 h-4 text-zinc-500" />
                     <input 
                       type="text" 
-                      placeholder="SEARCH NAME, EMAIL, OR ID..."
+                      placeholder={t('adminUiSearchCreators')}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full border-none bg-transparent text-xs font-bold uppercase tracking-widest text-white outline-none placeholder:text-zinc-600 md:w-[clamp(16rem,26vw,20rem)]"
@@ -660,12 +662,12 @@ export default function AdminCreators() {
                   <table className="w-full text-left text-xs font-mono whitespace-nowrap">
                     <thead className="bg-black border-b-2 border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-widest">
                       <tr>
-                        <th className="p-4">Operator Details</th>
-                        <th className="p-4">Assigned Personas</th>
-                        <th className="p-4">Status & Presence</th>
-                        <th className="p-4">Control State</th>
-                        <th className="p-4">Earnings / Split</th>
-                        <th className="p-4 text-right">Actions</th>
+                        <th className="p-4">{t('adminUiOperatorDetails')}</th>
+                        <th className="p-4">{t('adminUiAssignedPersonas')}</th>
+                        <th className="p-4">{t('adminUiStatusPresence')}</th>
+                        <th className="p-4">{t('adminUiControlState')}</th>
+                        <th className="p-4">{t('adminUiEarningsSplit')}</th>
+                        <th className="p-4 text-right">{t('adminUiActions')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y-2 divide-zinc-900 text-zinc-300 font-bold uppercase tracking-wide">
@@ -673,7 +675,7 @@ export default function AdminCreators() {
                         <tr>
                           <td colSpan="6" className="p-12 text-center text-zinc-500">
                             <UserX className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                            NO OPERATORS MATCHING CRITERIA
+                            {t('adminUiNoOperatorsMatchCriteria')}
                           </td>
                         </tr>
                       ) : (
@@ -681,7 +683,7 @@ export default function AdminCreators() {
                           <tr key={creator.id} className="hover:bg-zinc-900 transition-colors group cursor-pointer" onClick={() => setSelectedCreator(creator)}>
                             <td className="p-4">
                               <div className="flex flex-col">
-                                <span className="text-white font-black text-sm">{creator.displayName || creator.username || creator.realName || 'Unknown'}</span>
+                                <span className="text-white font-black text-sm">{creator.displayName || creator.username || creator.realName || t('adminUiUnknown')}</span>
                                 <span className="text-[10px] text-zinc-500 flex items-center gap-2">
                                   {creator.id} | {creator.email}
                                   {creator.security?.mfaEnabled && <Lock className="w-3 h-3 text-green-500 inline" />}
@@ -691,11 +693,11 @@ export default function AdminCreators() {
                             <td className="p-4">
                               <div className="flex items-center gap-1.5">
                                 {!creator.personas || creator.personas.length === 0 ? (
-                                  <span className="text-[9px] text-zinc-600 bg-zinc-950 px-2 py-1 border border-zinc-800">UNASSIGNED</span>
+                                  <span className="text-[9px] text-zinc-600 bg-zinc-950 px-2 py-1 border border-zinc-800">{t('adminUiUnassigned')}</span>
                                 ) : (
                                   creator.personas.map(p => (
                                     <div key={p.id} className="flex items-center gap-2 bg-black border border-zinc-700 px-2 py-1 pr-3 rounded-full">
-                                      <img src={p.image || p.avatar_url || 'https://via.placeholder.com/50'} alt="p" className="w-5 h-5 rounded-full object-cover grayscale" />
+                                      <img src={p.image || p.avatar_url || 'https://via.placeholder.com/50'} alt={t('adminUiPersonaImage')} className="w-5 h-5 rounded-full object-cover grayscale" />
                                       <span className="text-[9px] text-zinc-300">{p.name || p.display_name}</span>
                                     </div>
                                   ))
@@ -724,13 +726,13 @@ export default function AdminCreators() {
                                   creator.autoPilotActive ? 'bg-blue-500/20 text-blue-400 border-blue-500' : 'bg-black text-zinc-600 border-zinc-800 hover:text-zinc-400'
                                 }`}
                               >
-                                {creator.autoPilotActive ? <><Bot className="w-3 h-3" /> AI ACTIVE</> : <><User className="w-3 h-3" /> MANUAL</>}
+                                {creator.autoPilotActive ? <><Bot className="w-3 h-3" /> {t('adminUiAiActive')}</> : <><User className="w-3 h-3" /> {t('adminUiManual')}</>}
                               </button>
                             </td>
                             <td className="p-4">
                               <div className="flex flex-col">
                                 <span className="text-green-400 font-black">${(creator.totalEarnings || 0).toLocaleString()}</span>
-                                <span className="text-[9px] text-zinc-500">{creator.commissionRate || 50}% CREATOR CUT</span>
+                                <span className="text-[9px] text-zinc-500">{creator.commissionRate || 50}% {t('adminUiCreatorCut')}</span>
                               </div>
                             </td>
                             <td className="p-4 text-right">
@@ -757,10 +759,10 @@ export default function AdminCreators() {
               <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="mb-6">
                   <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-blue-400" /> Operator Telemetry (Human Layer)
+                    <BarChart3 className="w-5 h-5 text-blue-400" /> {t('adminUiOperatorTelemetryHumanLayer')}
                   </h2>
                   <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-                    MONITOR STAFF LATENCY, OUTPUT VOLUME, AND SESSION EFFICIENCY
+                    {t('adminUiOperatorTelemetryDescription')}
                   </p>
                 </div>
 
@@ -779,29 +781,29 @@ export default function AdminCreators() {
 
                       <div className="grid grid-cols-2 gap-4 flex-1">
                         <div>
-                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">Avg Reply Time</span>
+                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">{t('adminUiAverageReplyTime')}</span>
                           <span className={`text-xl font-black ${parseInt(creator.performance?.avgReplyTime || '0') > 20 ? 'text-yellow-400' : 'text-green-400'}`}>
-                            {creator.performance?.avgReplyTime || 'N/A'}
+                            {creator.performance?.avgReplyTime || t('adminUiNotAvailable')}
                           </span>
                         </div>
                         <div>
-                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">Total Msgs</span>
+                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">{t('adminUiTotalMessages')}</span>
                           <span className="text-xl font-black text-white">{(creator.performance?.msgsSent || 0).toLocaleString()}</span>
                         </div>
                         <div>
-                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">Live Sessions</span>
+                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">{t('adminUiLiveSessions')}</span>
                           <span className="text-xl font-black text-blue-400">{creator.performance?.activeSessions || 0}</span>
                         </div>
                         <div>
-                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">Quality Rating</span>
+                          <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">{t('adminUiQualityRating')}</span>
                           <span className="text-xl font-black text-purple-400">
-                            {creator.performance?.ratingSampleSize >= 5 ? `${Number(creator.performance.rating).toFixed(1)} / 5` : 'Insufficient data'}
+                            {creator.performance?.ratingSampleSize >= 5 ? `${Number(creator.performance.rating).toFixed(1)} / 5` : t('adminUiInsufficientData')}
                           </span>
                           <span className="mt-1 block text-[9px] text-zinc-600">
-                            {creator.performance?.ratingSampleSize || 0} inbound · {creator.performance?.answeredMessages || 0} replies · {creator.performance?.substantiatedReports || 0} substantiated reports
+                            {t('adminUiOperatorQualityBreakdown', { inbound: creator.performance?.ratingSampleSize || 0, replies: creator.performance?.answeredMessages || 0, reports: creator.performance?.substantiatedReports || 0 })}
                           </span>
                           <span className="mt-1 block text-[8px] leading-relaxed text-zinc-600">
-                            Admin-only estimate: reply coverage adjusted for resolved creator reports; shown after 5 inbound messages in the last 30 days.
+                            {t('adminUiOperatorQualityEstimate')}
                           </span>
                         </div>
                       </div>
@@ -819,17 +821,17 @@ export default function AdminCreators() {
                 <div className="flex justify-between items-start mb-6">
                   <div>
                     <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
-                      <Radio className="w-5 h-5 text-green-400" /> Persona Queues & Vaults
+                      <Radio className="w-5 h-5 text-green-400" /> {t('adminUiPersonaQueuesVaults')}
                     </h2>
                     <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-                      MONITOR VIRTUAL PERSONA REVENUE, MEDIA INTEGRITY, AND INDEPENDENT QUEUE LOAD
+                      {t('adminUiPersonaQueuesVaultsDescription')}
                     </p>
                   </div>
                   <button 
                     onClick={() => setShowCreatePersonaModal(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-white text-black font-black text-[10px] uppercase tracking-widest border-2 border-white hover:bg-transparent hover:text-white transition-colors"
                   >
-                    <Plus className="w-4 h-4" /> Create Persona Profile
+                    <Plus className="w-4 h-4" /> {t('adminUiCreatePersonaProfile')}
                   </button>
                 </div>
 
@@ -843,40 +845,40 @@ export default function AdminCreators() {
                           <img src={p.image || p.avatar_url || 'https://via.placeholder.com/50'} alt={p.name} className="w-12 h-12 object-cover border-2 border-zinc-700" />
                           <div>
                             <h4 className="text-sm font-black text-white uppercase">{p.name || p.display_name}</h4>
-                            <span className="text-[10px] text-zinc-500 font-mono">{p.archetype || p.intent || 'General'}</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">{p.archetype || p.intent || t('adminUiGeneral')}</span>
                           </div>
                         </div>
                         <span className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[9px] font-black uppercase">
-                          {p.activeChats || 0} Active Chats
+                          {t('adminUiActiveChats', { count: p.activeChats || 0 })}
                         </span>
                       </div>
 
                       {/* Persona Dual-Tracking Metrics */}
                       <div className="space-y-3 relative z-10">
                         <div className="flex items-center justify-between text-xs font-mono border-b border-zinc-900 pb-2">
-                          <span className="text-zinc-500 uppercase flex items-center gap-2"><DollarSign className="w-3 h-3"/> Persona Revenue:</span>
+                          <span className="text-zinc-500 uppercase flex items-center gap-2"><DollarSign className="w-3 h-3"/> {t('adminUiPersonaRevenue')}:</span>
                           <span className="text-green-400 font-black">${(p.earnings || 0).toLocaleString()}</span>
                         </div>
                         
                         <div className="flex items-center justify-between text-xs font-mono border-b border-zinc-900 pb-2">
-                          <span className="text-zinc-500 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3"/> Media Vault Assets:</span>
-                          <span className="text-zinc-300 font-black">{p.mediaVault || 0} ITEMS</span>
+                          <span className="text-zinc-500 uppercase flex items-center gap-2"><ImageIcon className="w-3 h-3"/> {t('adminUiMediaVaultAssets')}:</span>
+                          <span className="text-zinc-300 font-black">{t('adminUiItemsCount', { count: p.mediaVault || 0 })}</span>
                         </div>
 
                         <div className="flex items-center justify-between text-xs font-mono border-b border-zinc-900 pb-2">
-                          <span className="text-zinc-500 uppercase flex items-center gap-2"><Clock className="w-3 h-3"/> Open Chat Requests:</span>
+                          <span className="text-zinc-500 uppercase flex items-center gap-2"><Clock className="w-3 h-3"/> {t('adminUiOpenChatRequests')}:</span>
                           <span className={`font-black ${(p.unread || 0) > 0 ? 'text-yellow-400' : 'text-zinc-400'}`}>{p.unread || 0}</span>
                         </div>
 
                         <div className="flex items-center justify-between text-xs font-mono border-b border-zinc-900 pb-2">
-                          <span className="text-zinc-500 uppercase flex items-center gap-2"><MessageSquare className="w-3 h-3"/> Unanswered Chats:</span>
+                          <span className="text-zinc-500 uppercase flex items-center gap-2"><MessageSquare className="w-3 h-3"/> {t('adminUiUnansweredChats')}:</span>
                           <span className={`font-black ${(p.pendingReplies || 0) > 0 ? 'text-red-400' : 'text-zinc-400'}`}>{p.pendingReplies || 0}</span>
                         </div>
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1">
-                          <span className="text-zinc-500 uppercase flex items-center gap-2"><Activity className="w-3 h-3"/> Control State:</span>
+                          <span className="text-zinc-500 uppercase flex items-center gap-2"><Activity className="w-3 h-3"/> {t('adminUiControlState')}:</span>
                           <span className={`font-black px-2 py-0.5 border ${p.autoPilotActive ? 'text-blue-400 border-blue-500 bg-blue-500/10' : 'text-purple-400 border-purple-500 bg-purple-500/10'}`}>
-                            {p.autoPilotActive ? '🤖 AI AUTO-PILOT' : '👤 HUMAN OPERATOR'}
+                            {p.autoPilotActive ? `🤖 ${t('adminUiAiAutopilot')}` : `👤 ${t('adminUiHumanOperator')}`}
                           </span>
                         </div>
                       </div>
@@ -888,19 +890,19 @@ export default function AdminCreators() {
                           disabled={!p.manager_id || !p.pendingReplies || Boolean(notifyingCreatorId)}
                           className="flex-1 py-2 bg-black border-2 border-zinc-700 text-xs font-black uppercase text-white hover:border-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          {notifyingCreatorId === p.manager_id ? 'Sending…' : p.pendingReplies ? 'Notify Creator' : 'No Pending Replies'}
+                          {notifyingCreatorId === p.manager_id ? t('adminUiSending') : p.pendingReplies ? t('adminUiNotifyCreator') : t('adminUiNoPendingReplies')}
                         </button>
                         <button 
                           onClick={() => openVaultGallery(p)}
                           className="px-4 py-2 bg-zinc-900 border-2 border-zinc-700 text-xs font-black uppercase text-blue-400 hover:text-blue-300 hover:border-blue-500 transition-colors flex items-center gap-1"
-                          title="Manage Persona Vault"
+                          title={t('adminUiManagePersonaVault')}
                         >
-                          <ImageIcon className="w-3 h-3" /> Vault
+                          <ImageIcon className="w-3 h-3" /> {t('adminUiVault')}
                         </button>
                         <button 
-                          onClick={() => toast.info(`Opening shadow inspection for ${p.name || p.display_name}...`)}
+                          onClick={() => toast.info(t('adminUiOpeningShadowInspection', { name: p.name || p.display_name }))}
                           className="px-4 py-2 bg-zinc-900 border-2 border-zinc-700 text-xs font-black uppercase text-zinc-300 hover:text-white hover:border-white transition-colors flex items-center gap-1"
-                          title="Shadow Persona Chats"
+                          title={t('adminUiShadowPersonaChats')}
                         >
                           <Eye className="w-3 h-3" />
                         </button>
@@ -928,7 +930,7 @@ export default function AdminCreators() {
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${(selectedCreator.status === 'ONLINE' || selectedCreator.status === 'active') ? 'bg-green-500/10 text-green-400 border-green-500' : selectedCreator.status === 'SUSPENDED' ? 'bg-red-500/10 text-red-500 border-red-500' : 'bg-zinc-800 text-zinc-400 border-zinc-600'}`}>
-                    {selectedCreator.status === 'active' ? 'ONLINE' : (selectedCreator.status || 'OFFLINE')}
+                    {selectedCreator.status === 'active' ? t('adminUiOnline') : (selectedCreator.status || t('adminUiOffline'))}
                   </span>
                   <span className="text-[10px] text-zinc-500 font-bold font-mono">ID: {selectedCreator.id}</span>
                 </div>
@@ -952,7 +954,7 @@ export default function AdminCreators() {
                     drawerTab === tab ? 'border-white text-white' : 'border-transparent text-zinc-600 hover:text-zinc-400'
                   }`}
                 >
-                  {tab}
+                  {t(`adminUiCreatorDrawerTab${tab.charAt(0) + tab.slice(1).toLowerCase()}`)}
                 </button>
               ))}
             </div>
@@ -965,8 +967,8 @@ export default function AdminCreators() {
                 <div className="space-y-6 animate-in fade-in duration-200">
                   <div className="flex justify-between items-center bg-zinc-950 p-4 border-2 border-zinc-800">
                     <div>
-                      <h4 className="text-[10px] font-black text-white uppercase tracking-widest">Bound Profiles</h4>
-                      <p className="text-[9px] text-zinc-500 font-bold mt-1">Personas this operator controls.</p>
+                      <h4 className="text-[10px] font-black text-white uppercase tracking-widest">{t('adminUiBoundProfiles')}</h4>
+                      <p className="text-[9px] text-zinc-500 font-bold mt-1">{t('adminUiBoundProfilesDescription')}</p>
                     </div>
                     <button 
                       onClick={() => {
@@ -975,14 +977,14 @@ export default function AdminCreators() {
                       }}
                       className="px-4 py-2 bg-white text-black font-black text-[9px] uppercase tracking-widest border-2 border-white hover:bg-black hover:text-white transition-colors flex items-center gap-2"
                     >
-                      <Link2 className="w-3 h-3" /> Assign Persona
+                      <Link2 className="w-3 h-3" /> {t('adminUiAssignPersona')}
                     </button>
                   </div>
 
                   {!selectedCreator.personas || selectedCreator.personas.length === 0 ? (
                     <div className="p-12 border-2 border-dashed border-zinc-800 text-center">
                       <Users className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-                      <h5 className="text-xs font-black text-zinc-400 uppercase tracking-widest">No Personas Assigned</h5>
+                      <h5 className="text-xs font-black text-zinc-400 uppercase tracking-widest">{t('adminUiNoPersonasAssigned')}</h5>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-4">
@@ -993,13 +995,13 @@ export default function AdminCreators() {
                             <div>
                               <h5 className="text-sm font-black text-white uppercase">{p.name || p.display_name}</h5>
                               <div className="flex gap-3 text-[9px] text-zinc-500 font-bold uppercase font-mono mt-1">
-                                <span>{p.archetype || p.intent || 'General'}</span>
+                                <span>{p.archetype || p.intent || t('adminUiGeneral')}</span>
                                 <span>|</span>
                                 <span className="text-green-400">${(p.earnings || 0).toLocaleString()}</span>
                                 <span>|</span>
-                                <span className="text-blue-400">{p.mediaVault || 0} Media</span>
+                                <span className="text-blue-400">{t('adminUiPersonaMediaCount', { count: p.mediaVault || 0 })}</span>
                                 <span>|</span>
-                                <span className={(p.pendingReplies || 0) > 0 ? 'text-red-400' : ''}>{p.pendingReplies || 0} awaiting reply</span>
+                                <span className={(p.pendingReplies || 0) > 0 ? 'text-red-400' : ''}>{t('adminUiAwaitingReplyCount', { count: p.pendingReplies || 0 })}</span>
                               </div>
                             </div>
                           </div>
@@ -1012,13 +1014,13 @@ export default function AdminCreators() {
                                 disabled={Boolean(notifyingCreatorId)}
                                 className="px-2 py-1 border-2 border-red-900 text-red-400 text-[9px] font-black uppercase hover:border-red-500 disabled:opacity-50"
                               >
-                                {notifyingCreatorId === selectedCreator.id ? 'Sending…' : 'Notify'}
+                                {notifyingCreatorId === selectedCreator.id ? t('adminUiSending') : t('adminUiNotify')}
                               </button>
                             )}
                             <button 
                               onClick={() => openVaultGallery(p)}
                               className="p-2 border-2 border-zinc-800 text-blue-400 hover:bg-blue-500 hover:text-black transition-colors"
-                              title="Manage Media Vault"
+                              title={t('adminUiManageMediaVault')}
                             >
                               <ImageIcon className="w-4 h-4" />
                             </button>
@@ -1026,7 +1028,7 @@ export default function AdminCreators() {
                               onClick={() => handleUnbindPersona(selectedCreator.id, p.id)}
                               disabled={Boolean(busyPersonaId)}
                               className="p-2 border-2 border-zinc-800 text-red-500 hover:bg-red-500 hover:text-black transition-colors disabled:opacity-50"
-                              title="Unbind Persona"
+                              title={t('adminUiUnbindPersona')}
                             >
                               {busyPersonaId === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlink className="w-4 h-4" />}
                             </button>
@@ -1044,24 +1046,24 @@ export default function AdminCreators() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-zinc-950 border-2 border-zinc-800 p-6">
                       <span className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2 flex items-center gap-2">
-                        <DollarSign className="w-3 h-3 text-green-500" /> Operator Lifetime Earned
+                        <DollarSign className="w-3 h-3 text-green-500" /> {t('adminUiOperatorLifetimeEarned')}
                       </span>
                       <span className="text-3xl font-black text-white">${(selectedCreator.totalEarnings || 0).toLocaleString()}</span>
                     </div>
                     <div className="bg-zinc-950 border-2 border-zinc-800 p-6">
                       <span className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2 flex items-center gap-2">
-                        <Percent className="w-3 h-3 text-blue-500" /> Current Split
+                        <Percent className="w-3 h-3 text-blue-500" /> {t('adminUiCurrentSplit')}
                       </span>
-                      <span className="text-3xl font-black text-blue-400">{selectedCreator.commissionRate || 50}% <span className="text-xs text-zinc-600">CUT</span></span>
+                      <span className="text-3xl font-black text-blue-400">{selectedCreator.commissionRate || 50}%                       <span className="text-xs text-zinc-600">{t('adminUiCut')}</span></span>
                     </div>
                   </div>
 
                   <div className="bg-black border-2 border-zinc-800 p-6 space-y-6">
-                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-3">Adjust Revenue Split</h4>
+                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-3">{t('adminUiAdjustRevenueSplit')}</h4>
                     <div className="space-y-4">
                       <div className="flex justify-between text-xs font-bold text-zinc-400 uppercase font-mono">
-                        <span>Platform: {100 - (selectedCreator.commissionRate || 50)}%</span>
-                        <span>Operator: {selectedCreator.commissionRate || 50}%</span>
+                        <span>{t('adminUiPlatform')}: {100 - (selectedCreator.commissionRate || 50)}%</span>
+                        <span>{t('adminUiOperator')}: {selectedCreator.commissionRate || 50}%</span>
                       </div>
                       <input 
                         type="range" 
@@ -1080,11 +1082,11 @@ export default function AdminCreators() {
                 <div className="space-y-6 animate-in fade-in duration-200">
                   <div className="bg-black border-2 border-zinc-800 p-6 space-y-4 font-mono">
                     <h4 className="text-[10px] font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-3 flex items-center gap-2">
-                      <Terminal className="w-3 h-3 text-red-500" /> Operator Access & Hardware
+                      <Terminal className="w-3 h-3 text-red-500" /> {t('adminUiOperatorAccessHardware')}
                     </h4>
                     
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-500">Force Status Override</span>
+                      <span className="text-zinc-500">{t('adminUiForceStatusOverride')}</span>
                       <div className="flex gap-1">
                         {['ONLINE', 'OFFLINE'].map(st => (
                           <button
@@ -1099,11 +1101,11 @@ export default function AdminCreators() {
                     </div>
 
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-500">Last Known IP</span>
-                      <span className="text-white bg-zinc-900 px-2 py-1">{selectedCreator.security?.lastIp || 'Unknown'}</span>
+                      <span className="text-zinc-500">{t('adminUiLastKnownIp')}</span>
+                      <span className="text-white bg-zinc-900 px-2 py-1">{selectedCreator.security?.lastIp || t('adminUiUnknown')}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-500">2FA / MFA Configured</span>
+                      <span className="text-zinc-500">{t('adminUiTwoFactorConfigured')}</span>
                       <span className={`px-2 py-1 ${selectedCreator.security?.mfaEnabled ? 'text-green-400 bg-green-500/15' : 'text-red-500 bg-red-500/15'}`}>
                         {selectedCreator.security?.mfaEnabled ? 'ENABLED' : 'DISABLED'}
                       </span>
@@ -1111,7 +1113,7 @@ export default function AdminCreators() {
                   </div>
 
                   <div className="bg-zinc-950 border-2 border-red-900/50 p-6 space-y-4">
-                    <h4 className="text-[10px] font-black text-red-500 uppercase tracking-widest">Danger Zone</h4>
+                    <h4 className="text-[10px] font-black text-red-500 uppercase tracking-widest">{t('adminUiDangerZone')}</h4>
                     <button 
                       onClick={() => handleToggleLock(selectedCreator.id)}
                       className={`w-full py-4 border-2 font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${
@@ -1121,9 +1123,9 @@ export default function AdminCreators() {
                       }`}
                     >
                       {selectedCreator.security?.locked ? (
-                        <><Unlock className="w-4 h-4" /> Restore Access (Unsuspend)</>
+                        <><Unlock className="w-4 h-4" /> {t('adminUiRestoreAccessUnsuspend')}</>
                       ) : (
-                        <><Lock className="w-4 h-4" /> Suspend & Terminate Sessions</>
+                        <><Lock className="w-4 h-4" /> {t('adminUiSuspendTerminateSessions')}</>
                       )}
                     </button>
                   </div>
@@ -1134,22 +1136,22 @@ export default function AdminCreators() {
               {drawerTab === 'TELEMETRY' && (
                 <div className="space-y-6 animate-in fade-in duration-200 font-mono">
                   <div className="bg-zinc-950 border-2 border-zinc-800 p-6 space-y-4">
-                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-3">Operator Output Metrics</h4>
+                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-3">{t('adminUiOperatorOutputMetrics')}</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-3 bg-black border border-zinc-800">
-                        <span className="block text-[9px] text-zinc-500">Average Reply Latency</span>
+                        <span className="block text-[9px] text-zinc-500">{t('adminUiAverageReplyLatency')}</span>
                         <span className="text-lg font-black text-green-400">{selectedCreator.performance?.avgReplyTime || 'N/A'}</span>
                       </div>
                       <div className="p-3 bg-black border border-zinc-800">
-                        <span className="block text-[9px] text-zinc-500">Total Messages Delivered</span>
+                        <span className="block text-[9px] text-zinc-500">{t('adminUiTotalMessagesDelivered')}</span>
                         <span className="text-lg font-black text-white">{(selectedCreator.performance?.msgsSent || 0).toLocaleString()}</span>
                       </div>
                       <div className="p-3 bg-black border border-zinc-800">
-                        <span className="block text-[9px] text-zinc-500">Active Concurrent Sessions</span>
+                        <span className="block text-[9px] text-zinc-500">{t('adminUiActiveConcurrentSessions')}</span>
                         <span className="text-lg font-black text-blue-400">{selectedCreator.performance?.activeSessions || 0}</span>
                       </div>
                       <div className="p-3 bg-black border border-zinc-800">
-                        <span className="block text-[9px] text-zinc-500">QA Rating Score</span>
+                        <span className="block text-[9px] text-zinc-500">{t('adminUiQaRatingScore')}</span>
                         <span className="text-lg font-black text-purple-400">
                           {selectedCreator.performance?.ratingSampleSize >= 5 ? `${Number(selectedCreator.performance.rating).toFixed(1)} / 5` : 'Insufficient data'}
                         </span>
@@ -1179,17 +1181,17 @@ export default function AdminCreators() {
           <div className="relative w-full max-w-lg bg-black border-2 border-white shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 1)] flex flex-col z-10">
             <div className="p-6 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                <UserPlus className="w-4 h-4" /> Onboard Operator
+                <UserPlus className="w-4 h-4" /> {t('adminUiOnboardOperator')}
               </h2>
               <button onClick={() => setShowAddModal(false)} className="text-zinc-500 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
             <div className="max-h-[70dvh] overflow-y-auto p-6 space-y-4 font-mono custom-scrollbar">
               
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Display Name</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiDisplayName')}</label>
                 <input 
                   type="text" 
-                  placeholder="Elena NYC"
+                  placeholder={t('adminUiOperatorDisplayNameExample')}
                   required
                   value={newOperatorForm.displayName}
                   onChange={(e) => setNewOperatorForm({...newOperatorForm, displayName: e.target.value})}
@@ -1199,7 +1201,7 @@ export default function AdminCreators() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Date of Birth *</label>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiDateOfBirthRequired')}</label>
                   <input
                     type="date"
                     required
@@ -1210,26 +1212,26 @@ export default function AdminCreators() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Gender *</label>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiGenderRequired')}</label>
                   <select
                     required
                     value={newOperatorForm.gender}
                     onChange={(e) => setNewOperatorForm({ ...newOperatorForm, gender: e.target.value })}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white transition-colors"
                   >
-                    <option value="">Select gender</option>
-                    <option value="female">Female</option>
-                    <option value="male">Male</option>
-                    <option value="other">Other</option>
+                    <option value="">{t('adminUiSelectGender')}</option>
+                    <option value="female">{t('adminUiFemale')}</option>
+                    <option value="male">{t('adminUiMale')}</option>
+                    <option value="other">{t('adminUiOther')}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Login Username *</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiLoginUsernameRequired')}</label>
                 <input 
                   type="text" 
-                  placeholder="operator_johndoe"
+                  placeholder={t('adminUiOperatorUsernameExample')}
                   value={newOperatorForm.username}
                   onChange={(e) => setNewOperatorForm({...newOperatorForm, username: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors" 
@@ -1237,10 +1239,10 @@ export default function AdminCreators() {
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Work Email *</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiWorkEmailRequired')}</label>
                 <input 
                   type="email" 
-                  placeholder="john@agency.com"
+                  placeholder={t('adminUiWorkEmailExample')}
                   value={newOperatorForm.email}
                   onChange={(e) => setNewOperatorForm({...newOperatorForm, email: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors" 
@@ -1248,10 +1250,10 @@ export default function AdminCreators() {
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Temporary Password *</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiTemporaryPasswordRequired')}</label>
                 <input 
                   type="password" 
-                  placeholder="********"
+                  placeholder={t('adminUiMaskedPasswordExample')}
                   value={newOperatorForm.password}
                   onChange={(e) => setNewOperatorForm({...newOperatorForm, password: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors" 
@@ -1264,7 +1266,7 @@ export default function AdminCreators() {
                   disabled={isProvisioningCreator}
                   className="w-full py-4 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] disabled:opacity-50"
                 >
-                  {isProvisioningCreator ? <Loader2 className="inline w-4 h-4 animate-spin" /> : 'Create Creator Account'}
+                  {isProvisioningCreator ? <Loader2 className="inline w-4 h-4 animate-spin" /> : t('adminUiCreateCreatorAccount')}
                 </button>
               </div>
             </div>
@@ -1280,7 +1282,7 @@ export default function AdminCreators() {
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAssignModal(false)} />
           <div className="relative w-full max-w-md bg-black border-2 border-blue-500 shadow-[8px_8px_0px_rgba(var(--info-rgb), 0.3)] flex flex-col z-10">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center">
-              <h2 className="text-xs font-black text-white uppercase tracking-widest">Assign to {selectedCreator.displayName || selectedCreator.username}</h2>
+              <h2 className="text-xs font-black text-white uppercase tracking-widest">{t('adminUiAssignToCreator', { name: selectedCreator.displayName || selectedCreator.username })}</h2>
               <button onClick={() => setShowAssignModal(false)} className="text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>
             </div>
             
@@ -1289,14 +1291,14 @@ export default function AdminCreators() {
                 onClick={() => setShowCreatePersonaModal(true)}
                 className="w-full py-2 bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] font-black uppercase flex items-center justify-center gap-2 hover:bg-blue-500 hover:text-black transition-colors"
               >
-                <Plus className="w-3 h-3" /> Create New Persona Profile
+                <Plus className="w-3 h-3" /> {t('adminUiCreateNewPersonaProfile')}
               </button>
             </div>
 
             <div className="max-h-[50dvh] overflow-y-auto p-4 space-y-2 custom-scrollbar">
               {isLoadingPersonas ? (
                 <div className="flex items-center justify-center gap-2 py-6 text-xs text-zinc-500">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Loading persona accounts…
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('adminUiLoadingPersonaAccounts')}
                 </div>
               ) : personaLoadError ? (
                 <div className="space-y-3 py-4 text-center">
@@ -1305,14 +1307,14 @@ export default function AdminCreators() {
                     onClick={() => void refreshPersonas()}
                     className="px-3 py-1 border border-zinc-700 text-[9px] font-black uppercase text-zinc-300 hover:border-white"
                   >
-                    Retry
+                    {t('adminUiRetry')}
                   </button>
                 </div>
               ) : personas.filter(p => !p.manager_id || p.manager_id === selectedCreator.id).length === 0 ? (
                 <p className="text-xs text-zinc-500 text-center py-4 font-mono">
                   {personas.length === 0
-                    ? 'No persona accounts found. Create a persona profile to get started.'
-                    : 'All persona accounts are assigned to other creators.'}
+                    ? t('adminUiNoPersonaAccountsCreateOne')
+                    : t('adminUiAllPersonaAccountsAssigned')}
                 </p>
               ) : personas
                   .filter(p => !p.manager_id || p.manager_id === selectedCreator.id)
@@ -1329,14 +1331,14 @@ export default function AdminCreators() {
                       </div>
                     </div>
                     {isAlreadyAssigned ? (
-                      <span className="text-[9px] text-zinc-600 font-bold uppercase font-mono">Assigned</span>
+                      <span className="text-[9px] text-zinc-600 font-bold uppercase font-mono">{t('adminUiAssigned')}</span>
                     ) : (
                       <button 
                         onClick={() => handleBindPersona(selectedCreator.id, p)}
                         disabled={Boolean(busyPersonaId)}
                         className="px-3 py-1 bg-blue-500 text-black text-[9px] font-black uppercase border-2 border-blue-500 hover:bg-black hover:text-blue-500 transition-colors disabled:opacity-50"
                       >
-                        {busyPersonaId === p.id ? 'Assigning…' : 'Assign'}
+                        {busyPersonaId === p.id ? t('adminUiAssigning') : t('adminUiAssign')}
                       </button>
                     )}
                   </div>
@@ -1356,7 +1358,7 @@ export default function AdminCreators() {
           <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-white bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 1)]">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
-                <Plus className="w-4 h-4" /> Provision Virtual Persona
+                <Plus className="w-4 h-4" /> {t('adminUiProvisionVirtualPersona')}
               </h2>
               <button onClick={() => setShowCreatePersonaModal(false)} className="text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>
             </div>
@@ -1365,10 +1367,10 @@ export default function AdminCreators() {
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Display Name *</label>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiDisplayNameRequired')}</label>
                   <input 
                     type="text" 
-                    placeholder="e.g. Luna / Sarah"
+                    placeholder={t('adminUiPersonaNameExample')}
                     value={newPersonaForm.name}
                     onChange={(e) => setNewPersonaForm({...newPersonaForm, name: e.target.value})}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors" 
@@ -1376,36 +1378,36 @@ export default function AdminCreators() {
                 </div>
 
                 <div>
-                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Archetype / Category</label>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiArchetypeCategory')}</label>
                   <select 
                     value={newPersonaForm.archetype}
                     onChange={(e) => setNewPersonaForm({...newPersonaForm, archetype: e.target.value})}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors appearance-none"
                   >
-                    <option value="General">General</option>
-                    <option value="Companion">Companion</option>
-                    <option value="Gamer">Gamer</option>
-                    <option value="Creator">Creator / Influencer</option>
+                    <option value="General">{t('adminUiGeneral')}</option>
+                    <option value="Companion">{t('adminUiCompanion')}</option>
+                    <option value="Gamer">{t('adminUiGamer')}</option>
+                    <option value="Creator">{t('adminUiCreatorInfluencer')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Gender identity</label>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiGenderIdentity')}</label>
                   <select 
                     value={newPersonaForm.gender}
                     onChange={(e) => setNewPersonaForm({...newPersonaForm, gender: e.target.value})}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors appearance-none"
                   >
-                    <option value="Female">Female</option>
-                    <option value="Male">Male</option>
-                    <option value="Non-Binary">Non-Binary</option>
+                    <option value="Female">{t('adminUiFemale')}</option>
+                    <option value="Male">{t('adminUiMale')}</option>
+                    <option value="Non-Binary">{t('adminUiNonBinary')}</option>
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Calendar className="w-3 h-3"/> Date of Birth</label>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Calendar className="w-3 h-3"/> {t('adminUiDateOfBirth')}</label>
                   <input 
                     type="date" 
                     value={newPersonaForm.dateOfBirth}
@@ -1415,10 +1417,10 @@ export default function AdminCreators() {
                 </div>
 
                 <div>
-                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Height (CM)</label>
+                  <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiHeightCm')}</label>
                   <input 
                     type="number" 
-                    placeholder="165"
+                    placeholder={t('adminUiHeightExample')}
                     value={newPersonaForm.height}
                     onChange={(e) => setNewPersonaForm({...newPersonaForm, height: Number(e.target.value) || 0})}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white transition-colors" 
@@ -1427,21 +1429,21 @@ export default function AdminCreators() {
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Primary Avatar URL *</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiPrimaryAvatarUrlRequired')}</label>
                 <input 
                   type="text" 
-                  placeholder="https://..."
+                  placeholder={t('adminUiAvatarUrlExample')}
                   value={newPersonaForm.avatarUrl}
                   onChange={(e) => setNewPersonaForm({...newPersonaForm, avatarUrl: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-zinc-300 outline-none focus:border-white transition-colors" 
                 />
-                <p className="mt-1 text-[9px] text-zinc-600">Use a public image URL or the canonical Backblaze object URL configured on the server.</p>
+                <p className="mt-1 text-[9px] text-zinc-600">{t('adminUiPersonaAvatarUrlHelp')}</p>
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Biography / Description *</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiBiographyDescriptionRequired')}</label>
                 <textarea 
-                  placeholder="At least 10 characters. This appears on the discovery profile."
+                  placeholder={t('adminUiPersonaBioPlaceholder')}
                   value={newPersonaForm.bio}
                   onChange={(e) => setNewPersonaForm({...newPersonaForm, bio: e.target.value})}
                   className="min-h-[clamp(5rem,12vh,8rem)] w-full resize-none border-2 border-zinc-800 bg-black p-3 text-xs uppercase text-white transition-colors outline-none focus:border-white"
@@ -1449,33 +1451,33 @@ export default function AdminCreators() {
               </div>
 
               <div className="space-y-3 border-t-2 border-zinc-800 pt-4">
-                <h3 className="text-[10px] font-black text-white uppercase tracking-widest">Discovery Location *</h3>
+                <h3 className="text-[10px] font-black text-white uppercase tracking-widest">{t('adminUiDiscoveryLocationRequired')}</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <input
                     type="text"
                     maxLength={100}
-                    placeholder="City"
+                    placeholder={t('adminUiPersonaCity')}
                     value={newPersonaForm.city}
                     onChange={(e) => setNewPersonaForm({ ...newPersonaForm, city: e.target.value })}
-                    aria-label="Persona city"
+                    aria-label={t('adminUiPersonaCity')}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
                   />
                   <input
                     type="text"
                     maxLength={100}
-                    placeholder="Country"
+                    placeholder={t('adminUiPersonaCountry')}
                     value={newPersonaForm.country}
                     onChange={(e) => setNewPersonaForm({ ...newPersonaForm, country: e.target.value })}
-                    aria-label="Persona country"
+                    aria-label={t('adminUiPersonaCountry')}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
                   />
                   <input
                     type="text"
                     maxLength={2}
-                    placeholder="Country code (KE)"
+                    placeholder={t('adminUiCountryCodeKenya')}
                     value={newPersonaForm.countryCode}
                     onChange={(e) => setNewPersonaForm({ ...newPersonaForm, countryCode: e.target.value.toUpperCase() })}
-                    aria-label="Persona two-letter country code"
+                    aria-label={t('adminUiPersonaCountryCode')}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white uppercase outline-none focus:border-white"
                   />
                 </div>
@@ -1485,10 +1487,10 @@ export default function AdminCreators() {
                     min="-90"
                     max="90"
                     step="any"
-                    placeholder="Latitude"
+                    placeholder={t('adminUiLatitude')}
                     value={newPersonaForm.latitude}
                     onChange={(e) => setNewPersonaForm({ ...newPersonaForm, latitude: e.target.value })}
-                    aria-label="Persona latitude"
+                    aria-label={t('adminUiPersonaLatitude')}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
                   />
                   <input
@@ -1496,21 +1498,21 @@ export default function AdminCreators() {
                     min="-180"
                     max="180"
                     step="any"
-                    placeholder="Longitude"
+                    placeholder={t('adminUiLongitude')}
                     value={newPersonaForm.longitude}
                     onChange={(e) => setNewPersonaForm({ ...newPersonaForm, longitude: e.target.value })}
-                    aria-label="Persona longitude"
+                    aria-label={t('adminUiPersonaLongitude')}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
                   />
                 </div>
-                <p className="text-[9px] text-zinc-600">Use the persona’s actual discovery location. Coordinates 0,0 are not accepted.</p>
+                <p className="text-[9px] text-zinc-600">{t('adminUiPersonaDiscoveryLocationHelp')}</p>
               </div>
 
               <div>
-                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Interests * (3–7, comma-separated)</label>
+                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('adminUiInterestsRequired')}</label>
                 <input
                   type="text"
-                  placeholder="Music, hiking, cooking"
+                  placeholder={t('adminUiInterestsExample')}
                   value={newPersonaForm.interests}
                   onChange={(e) => setNewPersonaForm({ ...newPersonaForm, interests: e.target.value })}
                   className="w-full bg-black border-2 border-zinc-800 p-3 text-xs text-white outline-none focus:border-white"
@@ -1544,7 +1546,7 @@ export default function AdminCreators() {
               <div className="flex gap-6 items-center">
                 <div className="w-16 h-16 border-2 border-zinc-700 bg-black overflow-hidden relative group">
                   {selectedVaultPersona.image || selectedVaultPersona.avatar_url ? (
-                    <img src={selectedVaultPersona.image || selectedVaultPersona.avatar_url} alt="primary" className="w-full h-full object-cover" />
+                    <img src={selectedVaultPersona.image || selectedVaultPersona.avatar_url} alt={t('adminUiPrimaryImage')} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-zinc-600"><Camera className="w-6 h-6" /></div>
                   )}
@@ -1558,8 +1560,8 @@ export default function AdminCreators() {
                   </h2>
                   <div className="mt-2 text-[10px] text-zinc-400 font-mono font-bold flex gap-4">
                     <span>ID: {selectedVaultPersona.id}</span>
-                    <span>OP: <span className="text-green-400">{selectedVaultPersona.assignedOp || 'UNASSIGNED'}</span></span>
-                    <span>ASSETS: <span className="text-blue-400">{vaultMedia.length}</span></span>
+                    <span>{t('adminUiOperatorAbbreviation')}: <span className="text-green-400">{selectedVaultPersona.assignedOp || t('adminUiUnassigned')}</span></span>
+                    <span>{t('adminUiAssets')}: <span className="text-blue-400">{vaultMedia.length}</span></span>
                   </div>
                 </div>
               </div>
@@ -1578,7 +1580,7 @@ export default function AdminCreators() {
                 <div className="space-y-2">
                   <div className="flex justify-between items-end">
                     <h4 className="text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-2">
-                      <UploadCloud className="w-4 h-4 text-blue-400" /> Bulk Asset Injection
+                      <UploadCloud className="w-4 h-4 text-blue-400" /> {t('adminUiBulkAssetInjection')}
                     </h4>
                     {uploadFiles.length > 0 && (
                       <button 
@@ -1586,7 +1588,7 @@ export default function AdminCreators() {
                         disabled={isUploading}
                         className="px-4 py-1.5 bg-blue-600 text-black font-black uppercase text-[10px] flex items-center gap-2 hover:bg-blue-500 disabled:opacity-50 transition-colors"
                       >
-                        {isUploading ? <><Loader2 className="w-3 h-3 animate-spin" /> INJECTING...</> : <><Upload className="w-3 h-3" /> PUSH {uploadFiles.length} ASSETS</>}
+                        {isUploading ? <><Loader2 className="w-3 h-3 animate-spin" /> {t('adminUiInjecting')}</> : <><Upload className="w-3 h-3" /> {t('adminUiPushAssets', { count: uploadFiles.length })}</>}
                       </button>
                     )}
                   </div>
@@ -1610,8 +1612,8 @@ export default function AdminCreators() {
                       onChange={(e) => handleFiles(Array.from(e.target.files || []))}
                     />
                     <UploadCloud className={`w-8 h-8 mb-2 ${dragActive ? 'text-blue-500 animate-bounce' : 'text-zinc-600'}`} />
-                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-1">Drag & Drop Media Here</h3>
-                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">Supports JPG, PNG, MP4. (Max 50MB/File)</p>
+                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-1">{t('adminUiDragDropMediaHere')}</h3>
+                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiSupportedMediaTypes')}</p>
                   </div>
 
                   {/* Upload Preview Queue */}
@@ -1619,7 +1621,7 @@ export default function AdminCreators() {
                     <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mt-2 border-2 border-zinc-800 p-2 bg-black">
                       {uploadFiles.map(file => (
                         <div key={file.id} className="relative group border border-zinc-800 aspect-square overflow-hidden">
-                          <img src={file.preview} alt="preview" className="w-full h-full object-cover opacity-60" />
+                          <img src={file.preview} alt={t('adminUiAssetPreview')} className="w-full h-full object-cover opacity-60" />
                           <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
                               onClick={(e) => { e.stopPropagation(); setUploadFiles(prev => prev.filter(f => f.id !== file.id)); }}
@@ -1658,11 +1660,11 @@ export default function AdminCreators() {
                             previewImage?.id === img.id ? 'border-white ring-4 ring-white/20' : 'border-zinc-800 hover:border-zinc-500'
                           }`}
                         >
-                          <img src={img.url} alt="vault asset" className="w-full h-full object-cover" />
+                          <img src={img.url} alt={t('adminUiVaultAsset')} className="w-full h-full object-cover" />
                           
                           {img.isPrimary && (
                             <div className="absolute top-2 left-2 bg-green-500 text-black px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest flex items-center gap-1 shadow-md">
-                              <Star className="w-2 h-2" /> Primary
+                              <Star className="w-2 h-2" /> {t('adminUiPrimary')}
                             </div>
                           )}
                           
@@ -1682,13 +1684,13 @@ export default function AdminCreators() {
               {previewImage && (
                 <div className="flex w-[clamp(14rem,22vw,20rem)] shrink-0 flex-col border-l-2 border-zinc-800 bg-zinc-950 animate-in slide-in-from-right-8 duration-200">
                   <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center">
-                    <span className="text-[10px] font-black text-white uppercase tracking-widest">Asset Inspector</span>
+                    <span className="text-[10px] font-black text-white uppercase tracking-widest">{t('adminUiAssetInspector')}</span>
                     <button onClick={() => setPreviewImage(null)} className="text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>
                   </div>
                   
                   <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
                     <div className="aspect-[3/4] border-2 border-zinc-800 bg-black">
-                      <img src={previewImage.url} alt="inspect" className="w-full h-full object-contain" />
+                      <img src={previewImage.url} alt={t('adminUiAssetPreview')} className="w-full h-full object-contain" />
                     </div>
 
                     <div className="space-y-3 font-mono text-[10px] uppercase font-bold bg-black p-4 border-2 border-zinc-800 text-zinc-400">
@@ -1696,17 +1698,17 @@ export default function AdminCreators() {
                         <span>ID</span><span className="text-white truncate ml-4">{previewImage.id}</span>
                       </div>
                       <div className="flex justify-between border-b border-zinc-900 pb-1">
-                        <span>Type</span><span className="text-white">{previewImage.type || 'IMAGE'}</span>
+                        <span>{t('adminUiType')}</span><span className="text-white">{previewImage.type || 'IMAGE'}</span>
                       </div>
                       <div className="flex justify-between border-b border-zinc-900 pb-1">
-                        <span>Size</span><span className="text-white">{previewImage.size || 'Unknown'}</span>
+                        <span>{t('adminUiSize')}</span><span className="text-white">{previewImage.size || t('adminUiUnknown')}</span>
                       </div>
                       <div className="flex justify-between border-b border-zinc-900 pb-1">
-                        <span>Uploaded</span><span className="text-white">{previewImage.uploadedAt || 'Recently'}</span>
+                        <span>{t('adminUiUploaded')}</span><span className="text-white">{previewImage.uploadedAt || t('adminUiRecently')}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Status</span>
-                        {previewImage.isPrimary ? <span className="text-green-400">PRIMARY AVATAR</span> : <span>GALLERY ASSET</span>}
+                        <span>{t('adminUiStatus')}</span>
+                        {previewImage.isPrimary ? <span className="text-green-400">{t('adminUiPrimaryAvatar')}</span> : <span>{t('adminUiGalleryAsset')}</span>}
                       </div>
                     </div>
 
@@ -1716,14 +1718,14 @@ export default function AdminCreators() {
                           onClick={() => handleSetPrimary(previewImage.id)}
                           className="w-full py-3 bg-black border-2 border-green-500 text-green-500 hover:bg-green-500 hover:text-black font-black text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
                         >
-                          <Star className="w-3 h-3" /> Set as Primary Avatar
+                          <Star className="w-3 h-3" /> {t('adminUiSetPrimaryAvatar')}
                         </button>
                       )}
                       <button 
                         onClick={() => handleDeleteMedia(previewImage.id)}
                         className="w-full py-3 bg-red-600 border-2 border-red-500 text-black hover:bg-black hover:text-red-500 font-black text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
                       >
-                        <Trash2 className="w-3 h-3" /> Permanently Delete
+                        <Trash2 className="w-3 h-3" /> {t('adminUiPermanentlyDelete')}
                       </button>
                     </div>
                   </div>

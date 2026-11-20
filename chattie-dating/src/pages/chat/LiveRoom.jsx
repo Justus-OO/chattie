@@ -61,25 +61,26 @@ const formatChatTimestamp = (value) => {
 };
 
 const ActiveVoiceGrid = ({ members }) => {
+  const { t } = useI18n();
   const participants = useParticipants();
   const listenerCount = participants.length;
   return (
     <div className="w-full">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="mb-1 text-[10px] font-black uppercase tracking-[0.3em] text-yellow-400">Live room</p>
-          <h3 className="text-2xl font-black tracking-tight text-white sm:text-3xl">In the conversation</h3>
+          <p className="mb-1 text-[10px] font-black uppercase tracking-[0.3em] text-yellow-400">{t('coreUiLiveRoom')}</p>
+          <h3 className="text-2xl font-black tracking-tight text-white sm:text-3xl">{t('coreUiInConversation')}</h3>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-zinc-200">
           <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-          {listenerCount} {listenerCount === 1 ? 'person' : 'people'} connected
+          {t('coreUiPeopleConnected', { count: listenerCount })}
         </div>
       </div>
       {listenerCount === 0 ? (
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] px-6 py-16 text-center">
           <Volume2 className="mx-auto mb-4 h-8 w-8 text-zinc-500" />
-          <p className="font-semibold text-white">You’re first in the room</p>
-          <p className="mt-1 text-sm text-zinc-400">Others will appear here as they join.</p>
+          <p className="font-semibold text-white">{t('coreUiFirstInRoom')}</p>
+          <p className="mt-1 text-sm text-zinc-400">{t('coreUiOthersAppear')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -112,14 +113,14 @@ const ActiveVoiceGrid = ({ members }) => {
                 </span>
                 {role && role !== 'member' && (
                   <span className="mt-1 text-[9px] font-bold uppercase tracking-wider text-yellow-400">
-                    {role === 'creator' ? 'Owner' : role}
+                    {role === 'creator' ? t('coreUiOwner') : role}
                   </span>
                 )}
                 <span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${
                   isMuted ? 'bg-zinc-900 text-zinc-400' : isSpeaking ? 'bg-green-500/10 text-green-300' : 'bg-zinc-900 text-zinc-300'
                 }`}>
                   {isMuted ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
-                  {isMuted ? 'Muted' : isSpeaking ? 'Speaking' : 'In room'}
+                  {isMuted ? t('coreUiMuted') : isSpeaking ? t('coreUiSpeaking') : t('coreUiInRoom')}
                 </span>
               </div>
             );
@@ -131,12 +132,13 @@ const ActiveVoiceGrid = ({ members }) => {
 };
 
 const RoomVoiceControls = () => {
+  const { t } = useI18n();
   const { isMicrophoneEnabled } = useLocalParticipant();
   return (
     <div className="flex flex-col items-center gap-2">
       <TrackToggle
         source={Track.Source.Microphone}
-        aria-label={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
+        aria-label={t(isMicrophoneEnabled ? 'coreUiMuteMicrophone' : 'coreUiUnmuteMicrophone')}
         className={`w-14 h-14 rounded-full flex items-center justify-center border transition-colors focus:outline-none ${
           isMicrophoneEnabled
             ? 'border-white bg-white text-black hover:bg-zinc-200'
@@ -144,7 +146,7 @@ const RoomVoiceControls = () => {
         }`}
       />
       <span className={`text-[9px] font-bold uppercase tracking-widest ${isMicrophoneEnabled ? 'text-zinc-300' : 'text-red-400'}`}>
-        Mic {isMicrophoneEnabled ? 'on' : 'muted'}
+        {t(isMicrophoneEnabled ? 'coreUiMicOn' : 'coreUiMicMuted')}
       </span>
     </div>
   );
@@ -159,10 +161,10 @@ export default function LiveRoom() {
   const location = useLocation();
   
   const [selectedRoom, setSelectedRoom] = useState(
-    location.state?.selectedRoom || { name: 'Connecting...', active: 0, icon: '🐾' }
+    location.state?.selectedRoom || { name: t('coreUiConnecting'), active: 0, icon: '🐾' }
   );
 
-  const currentUser = useAppStore((state) => state.user) || { id: 'me', name: 'You', tier: 'STANDARD' };
+  const currentUser = useAppStore((state) => state.user) || { id: 'me', name: t('coreUiYou'), tier: 'STANDARD' };
   const appToken = useAppStore((state) => state.token);
   const theme = useAppStore((state) => state.userPreferences?.theme || 'dark');
   
@@ -315,7 +317,7 @@ export default function LiveRoom() {
         const participants = await chatService.getRoomParticipants(roomId);
         if (active) setRoomParticipants(Array.isArray(participants) ? participants : []);
       } catch (error) {
-        if (active) toast.error(error.response?.data || 'Unable to load room members');
+        if (active) toast.error(error.response?.data || t('coreUiRoomMembersLoadFailed'));
       } finally {
         if (active) setIsLoadingParticipants(false);
       }
@@ -327,7 +329,7 @@ export default function LiveRoom() {
       active = false;
       window.clearInterval(refresh);
     };
-  }, [roomId, membershipStatus]);
+  }, [roomId, membershipStatus, t]);
 
   // ============================================================================
   // EFFECTS: LOAD HISTORY & CONNECT TEXT WEBSOCKET (WITH RECONNECTION BACKOFF)
@@ -352,7 +354,7 @@ export default function LiveRoom() {
         const historyArray = Array.isArray(history) ? history : [];
         const formatted = historyArray.map(msg => ({
           id: msg.id,
-          sender: msg.sender_id === currentUser?.id ? 'You' : (msg.sender_name || 'User'),
+          sender: msg.sender_id === currentUser?.id ? t('coreUiYou') : (msg.sender_name || t('coreUiUser')),
           sender_id: msg.sender_id,
           role: msg.role || 'member',
           text: msg.content || msg.text,
@@ -369,7 +371,7 @@ export default function LiveRoom() {
           return [...formatted, ...current.filter((message) => !historyIDs.has(message.id))];
         });
       } catch (error) {
-        if (!disposed) toast.error(error.response?.data?.error || 'Unable to load room messages');
+        if (!disposed) toast.error(error.response?.data?.error || t('coreUiRoomMessagesLoadFailed'));
       } finally {
         if (!disposed) setIsLoadingMessages(false);
       }
@@ -419,7 +421,7 @@ export default function LiveRoom() {
                 ? { ...message, status: 'failed' }
                 : message
             )));
-            toast.error(incomingMsg.reason || 'Message was not sent');
+            toast.error(incomingMsg.reason || t('coreUiMessageNotSent'));
             return;
           }
 
@@ -436,7 +438,7 @@ export default function LiveRoom() {
 
           if (incomingMsg.type === 'typing') {
             const senderId = incomingMsg.sender_id;
-            const senderName = incomingMsg.sender_name || 'Someone';
+            const senderName = incomingMsg.sender_name || t('coreUiSomeone');
             
             setTypingUsers(prev => {
               const current = { ...prev };
@@ -475,7 +477,7 @@ export default function LiveRoom() {
               ...prev,
               {
                 id: msgId,
-                sender: incomingMsg.sender_name || 'User',
+                sender: incomingMsg.sender_name || t('coreUiUser'),
                 sender_id: incomingMsg.sender_id,
                 role: incomingMsg.role || 'member',
                 text: incomingMsg.content || incomingMsg.text,
@@ -512,7 +514,7 @@ export default function LiveRoom() {
         wsRef.current.close();
       }
     };
-  }, [roomId, membershipStatus, currentUser?.id, appToken, navigate]);
+  }, [roomId, membershipStatus, currentUser?.id, appToken, navigate, t]);
 
   useEffect(() => {
     if (membershipStatus !== 'member' || !roomId || !roomHasVoiceFeatures) return undefined;
@@ -528,11 +530,11 @@ export default function LiveRoom() {
         if (wasActive && !session?.active && voiceToken) {
           setVoiceToken('');
           setActiveMode('text');
-          toast('The host ended the voice space');
+          toast(t('coreUiHostEndedVoice'));
         }
       } catch (error) {
         if (active && !hasLoaded) {
-          toast.error(error.response?.data?.error || 'Unable to load voice space status');
+          toast.error(error.response?.data?.error || t('coreUiVoiceStatusLoadFailed'));
         }
       }
     };
@@ -542,7 +544,7 @@ export default function LiveRoom() {
       active = false;
       window.clearInterval(refreshInterval);
     };
-  }, [roomId, membershipStatus, roomHasVoiceFeatures, voiceSession.active, voiceToken]);
+  }, [roomId, membershipStatus, roomHasVoiceFeatures, voiceSession.active, voiceToken, t]);
 
   // ============================================================================
   // GLOBAL NOTIFICATION SOCKET (For 1-on-1 Calls)
@@ -575,14 +577,14 @@ export default function LiveRoom() {
               setRoomAdminData(details);
               setSelectedRoom(details);
             }).catch(() => {
-              toast.error('Room access was approved, but room details could not be refreshed');
+              toast.error(translateRef.current('coreUiApprovedRoomRefreshFailed'));
             });
-            toast.success('Your request to join was approved');
+            toast.success(translateRef.current('coreUiJoinRequestApproved'));
             return;
           }
           if ((incoming.type === 'ROOM_KICKED' || incoming.type === 'ROOM_BANNED') && incoming.data?.room_id === roomId) {
             wsIntentionalClose.current = true;
-            toast.error('Your access to this room was removed');
+            toast.error(translateRef.current('coreUiRoomAccessRemoved'));
             navigate('/rooms');
             return;
           }
@@ -591,7 +593,7 @@ export default function LiveRoom() {
             if (incoming.from === currentUser?.id || incoming.sender_id === currentUser?.id) return;
             setIncomingCallData({
               fromId: incoming.from || incoming.sender_id,
-              fromName: incoming.from_name || incoming.sender_name || 'Caller',
+              fromName: incoming.from_name || incoming.sender_name || translateRef.current('coreUiCaller'),
               roomId: incoming.room_id,
               mode: incoming.mode || 'video'
             });
@@ -600,7 +602,7 @@ export default function LiveRoom() {
           if (incoming.type === 'call_answered') {
             stopRingtone();
             setIncomingCallData(null);
-            if (!isInPrivateCall) setIsInPrivateCall(true);
+            if (!isInPrivateCallRef.current) setIsInPrivateCall(true);
             return;
           }
           if (incoming.type === 'call_rejected') {
@@ -681,7 +683,7 @@ export default function LiveRoom() {
     try {
       setJoinRequests(await chatService.getRoomJoinRequests(roomId));
     } catch (error) {
-      toast.error(error.response?.data || 'Unable to load join requests');
+      toast.error(error.response?.data || t('coreUiJoinRequestsLoadFailed'));
     }
   };
 
@@ -690,9 +692,9 @@ export default function LiveRoom() {
       await chatService.manageJoinRequest(roomId, targetId, approve);
       setJoinRequests((requests) => requests.filter((request) => request.user_id !== targetId));
       setRoomAdminData((room) => ({ ...room, pendingCount: Math.max(0, (room.pendingCount || 0) - 1) }));
-      toast.success(approve ? 'Member approved' : 'Request declined');
+      toast.success(t(approve ? 'coreUiMemberApproved' : 'coreUiRequestDeclined'));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Unable to process join request');
+      toast.error(error.response?.data?.error || t('coreUiJoinRequestFailed'));
     }
   };
 
@@ -710,7 +712,7 @@ export default function LiveRoom() {
         return { ...item, reactions };
       }));
     } catch (error) {
-      toast.error(error.response?.data || 'Unable to update reaction');
+      toast.error(error.response?.data || t('coreUiReactionUpdateFailed'));
     }
   };
 
@@ -721,7 +723,7 @@ export default function LiveRoom() {
         item.id === message.id ? { ...item, isPinned: !item.isPinned } : item
       )));
     } catch (error) {
-      toast.error(error.response?.data || 'Unable to update pinned message');
+      toast.error(error.response?.data || t('coreUiPinnedMessageUpdateFailed'));
     }
   };
 
@@ -750,9 +752,9 @@ export default function LiveRoom() {
         participant.id === target.id ? { ...participant, is_muted: muted } : participant
       )));
       setSelectedProfile((profile) => ({ ...profile, is_muted: muted }));
-      toast.success(muted ? 'Member muted' : 'Member unmuted');
+      toast.success(t(muted ? 'coreUiMemberMuted' : 'coreUiMemberUnmuted'));
     } catch (error) {
-      toast.error(error.response?.data || 'Unable to update member restrictions');
+      toast.error(error.response?.data || t('coreUiMemberRestrictionsUpdateFailed'));
     }
   };
 
@@ -763,9 +765,9 @@ export default function LiveRoom() {
         participant.id === target.id ? { ...participant, role } : participant
       )));
       setSelectedProfile((profile) => ({ ...profile, role }));
-      toast.success(role === 'admin' ? 'Administrator role granted' : 'Administrator role removed');
+      toast.success(t(role === 'admin' ? 'coreUiAdminRoleGranted' : 'coreUiAdminRoleRemoved'));
     } catch (error) {
-      toast.error(error.response?.data || 'Unable to update member role');
+      toast.error(error.response?.data || t('coreUiMemberRoleUpdateFailed'));
     }
   };
 
@@ -830,7 +832,7 @@ export default function LiveRoom() {
   // ============================================================================
   const connectToVoice = async () => {
     if (!voiceSession.active) {
-      toast.error('The room host has not started a voice space');
+      toast.error(t('coreUiVoiceSpaceNotStarted'));
       return;
     }
     setIsConnectingVoice(true);
@@ -865,16 +867,16 @@ export default function LiveRoom() {
       setActiveMode('voice');
       setIsConnectingVoice(true);
       try {
-        const voice = await chatService.getVoiceToken(roomId, currentUser.name || 'Host');
+        const voice = await chatService.getVoiceToken(roomId, currentUser.name || t('coreUiHost'));
         setVoiceToken(voice.token);
-        toast.success('Your voice space is live');
+        toast.success(t('coreUiVoiceSpaceLive'));
       } catch (error) {
-        toast.error(error.response?.data?.error || 'Voice is live, but your microphone could not connect');
+        toast.error(error.response?.data?.error || t('coreUiVoiceMicrophoneConnectFailed'));
       } finally {
         setIsConnectingVoice(false);
       }
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Unable to start the voice space');
+      toast.error(error.response?.data?.error || t('coreUiVoiceStartFailed'));
     } finally {
       setIsUpdatingVoiceSession(false);
     }
@@ -887,9 +889,9 @@ export default function LiveRoom() {
       setVoiceSession(session);
       setVoiceToken('');
       setActiveMode('text');
-      toast.success('Voice space ended');
+      toast.success(t('coreUiVoiceSpaceEnded'));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Unable to end the voice space');
+      toast.error(error.response?.data?.error || t('coreUiVoiceEndFailed'));
     } finally {
       setIsUpdatingVoiceSession(false);
     }
@@ -986,7 +988,7 @@ export default function LiveRoom() {
       }
       const res = await apiClient.post('/rooms/voice-token', {
         room_id: incomingCallData.roomId,
-        participant_name: currentUser?.name || 'Guest'
+        participant_name: currentUser?.name || t('coreUiGuest')
       });
       setPrivateCallToken(res.data.token);
       setIsInPrivateCall(true);
@@ -1072,7 +1074,7 @@ export default function LiveRoom() {
     return (
       <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-2 text-center font-mono text-zinc-300 sm:p-3 lg:p-4">
         <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
-        <h2 className="text-sm font-black text-white uppercase tracking-widest">VERIFYING LOUNGE ACCESS...</h2>
+        <h2 className="text-sm font-black text-white uppercase tracking-widest">{t('coreUiVerifyingLoungeAccess')}</h2>
       </div>
     );
   }
@@ -1163,7 +1165,7 @@ export default function LiveRoom() {
               <button 
                 onClick={() => {
                   setIsNotificationsMuted(!isNotificationsMuted);
-                  toast(isNotificationsMuted ? 'Alerts Enabled' : 'Alerts Muted');
+                  toast(t(isNotificationsMuted ? 'coreUiAlertsEnabled' : 'coreUiAlertsMuted'));
                 }}
                 className={`hidden sm:flex p-2 border-2 transition-colors ${isNotificationsMuted ? 'text-zinc-600 border-zinc-800 bg-zinc-950' : 'text-zinc-400 border-transparent hover:border-zinc-700 hover:bg-zinc-900 hover:text-white'}`}
               >
@@ -1172,7 +1174,7 @@ export default function LiveRoom() {
 
               <button
                 onClick={() => setIsMessageSearchOpen((open) => !open)}
-                aria-label={isMessageSearchOpen ? 'Close message search' : 'Search messages'}
+                aria-label={t(isMessageSearchOpen ? 'coreUiCloseMessageSearch' : 'coreUiSearchMessages')}
                 className={`p-2 border-2 transition-colors ${isMessageSearchOpen ? 'border-white bg-white text-black' : 'border-transparent text-zinc-400 hover:border-zinc-700 hover:bg-zinc-900 hover:text-white'}`}
               >
                 <Search className="w-5 h-5" />
@@ -1181,8 +1183,8 @@ export default function LiveRoom() {
               <button 
                 onClick={handleLeaveRoom}
                 className="flex items-center gap-1.5 p-2 border-2 border-transparent text-red-500 hover:border-red-900 hover:bg-zinc-950 transition-colors text-[10px] font-black uppercase tracking-widest"
-                title="Leave room"
-                aria-label="Leave room"
+                title={t('coreUiLeaveRoom')}
+                aria-label={t('coreUiLeaveRoom')}
               >
                 <DoorOpen className="w-5 h-5" />
               </button>
@@ -1203,10 +1205,10 @@ export default function LiveRoom() {
                 <span className={`h-2.5 w-2.5 rounded-full ${voiceSession.active ? 'bg-red-500 animate-pulse' : 'bg-zinc-600'}`} />
                 <div>
                   <p className="text-[11px] font-bold tracking-wide text-white">
-                    {voiceSession.active ? 'Live voice space' : 'Voice space is not live'}
+                    {t(voiceSession.active ? 'coreUiLiveVoiceSpace' : 'coreUiVoiceSpaceNotLive')}
                   </p>
                   <p className="text-[10px] text-zinc-400">
-                    {voiceSession.active ? 'Join to listen; speaking is role-controlled' : 'Text chat is always available'}
+                    {t(voiceSession.active ? 'coreUiJoinToListen' : 'coreUiTextChatAlwaysAvailable')}
                   </p>
                 </div>
               </div>
@@ -1230,7 +1232,7 @@ export default function LiveRoom() {
                     disabled={isUpdatingVoiceSession}
                     className="border-2 border-red-500/60 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-red-400 hover:bg-red-500 hover:text-black disabled:opacity-50"
                   >
-                    {isUpdatingVoiceSession ? 'Please wait...' : 'End voice'}
+                    {isUpdatingVoiceSession ? t('coreUiPleaseWait') : t('coreUiEndVoice')}
                   </button>
                 ) : (
                   <button
@@ -1238,7 +1240,7 @@ export default function LiveRoom() {
                     disabled={isUpdatingVoiceSession}
                     className="border-2 border-zinc-700 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-yellow-400 hover:text-yellow-400 disabled:opacity-50"
                   >
-                    {isUpdatingVoiceSession ? 'Please wait...' : 'Start voice'}
+                    {isUpdatingVoiceSession ? t('coreUiPleaseWait') : t('coreUiStartVoice')}
                   </button>
                 ))}
               </div>
@@ -1255,8 +1257,8 @@ export default function LiveRoom() {
                   type="search"
                   value={messageSearch}
                   onChange={(event) => setMessageSearch(event.target.value)}
-                  placeholder="Search recent messages"
-                  aria-label="Search recent messages"
+                  placeholder={t('coreUiSearchRecentMessages')}
+                  aria-label={t('coreUiSearchRecentMessages')}
                   className="min-w-0 flex-1 bg-transparent py-2 text-sm text-white outline-none placeholder:text-zinc-600"
                   autoFocus
                 />
@@ -1268,7 +1270,7 @@ export default function LiveRoom() {
                     setMessageSearch('');
                     setIsMessageSearchOpen(false);
                   }}
-                  aria-label="Close message search"
+                  aria-label={t('coreUiCloseMessageSearch')}
                   className="p-1 text-zinc-500 hover:text-white"
                 >
                   <X className="h-4 w-4" />
@@ -1282,12 +1284,12 @@ export default function LiveRoom() {
               >
                 <Pin className="h-4 w-4 shrink-0 text-yellow-400" />
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-yellow-400">
-                  {pinnedMessages.length > 1 ? `${pinnedMessages.length} pinned` : 'Pinned'}
+                  {pinnedMessages.length > 1 ? t('coreUiPinnedCount', { count: pinnedMessages.length }) : t('coreUiPinned')}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
-                  {latestPinnedMessage.sender}: {parseMessageContent(latestPinnedMessage.text).text || 'Media attachment'}
+                  {latestPinnedMessage.sender}: {parseMessageContent(latestPinnedMessage.text).text || t('coreUiMediaAttachment')}
                 </span>
-                <span className="shrink-0 text-[8px] font-black uppercase tracking-widest text-zinc-600">Jump</span>
+                <span className="shrink-0 text-[8px] font-black uppercase tracking-widest text-zinc-600">{t('coreUiJump')}</span>
               </button>
             )}
           </div>
@@ -1299,19 +1301,19 @@ export default function LiveRoom() {
               <section className="w-full border border-zinc-800 bg-zinc-950 p-3 sm:p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div className="min-w-0">
-                    <p className="mb-1 text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">About this room</p>
+                    <p className="mb-1 text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">{t('coreUiAboutThisRoom')}</p>
                     <p className="max-w-3xl text-sm leading-relaxed text-zinc-300">
-                      {selectedRoom.description || selectedRoom.desc || "Be respectful and follow the room rules."}
+                      {selectedRoom.description || selectedRoom.desc || t('coreUiRoomRespectRules')}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2 text-[9px] font-black uppercase tracking-widest">
                     <span className="border border-zinc-700 px-2 py-1 text-zinc-300">
-                    {selectedRoom.content_mode === 'mature' ? '18+ room' : 'General room'}
+                    {selectedRoom.content_mode === 'mature' ? t('coreUiAdultRoom') : t('coreUiGeneralRoom')}
                     </span>
                     {selectedRoom.slow_mode_seconds > 0 && (
                       <span className="border border-zinc-700 px-2 py-1 text-zinc-300">{selectedRoom.slow_mode_seconds}s slow mode</span>
                     )}
-                    {selectedRoom.is_read_only && <span className="border border-zinc-700 px-2 py-1 text-zinc-300">Moderator-only posting</span>}
+                    {selectedRoom.is_read_only && <span className="border border-zinc-700 px-2 py-1 text-zinc-300">{t('coreUiModeratorOnlyPosting')}</span>}
                     {selectedRoom.tags?.map((tag, idx) => (
                       <span key={idx} className="border border-zinc-700 px-2 py-1 text-zinc-400">#{tag}</span>
                     ))}
@@ -1319,7 +1321,7 @@ export default function LiveRoom() {
                 </div>
                 {selectedRoom.rules && (
                   <details className="mt-3 border-t border-zinc-800 pt-3">
-                    <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-yellow-400">Room rules</summary>
+                    <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-yellow-400">{t('coreUiRoomRules')}</summary>
                     <p className="mt-2 whitespace-pre-wrap text-[10px] leading-relaxed text-zinc-400">{selectedRoom.rules}</p>
                   </details>
                 )}
@@ -1328,18 +1330,18 @@ export default function LiveRoom() {
               {isLoadingMessages && messages.length === 0 ? (
                 <div className="flex items-center justify-center gap-2 py-12 text-zinc-500">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-[9px] font-black uppercase tracking-widest">Loading conversation...</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest">{t('coreUiLoadingConversation')}</span>
                 </div>
               ) : visibleMessages.length === 0 ? (
                 <div className="mx-auto max-w-md py-12 text-center">
                   <MessageSquare className="mx-auto mb-3 h-6 w-6 text-zinc-700" />
                   <p className="text-xs font-black uppercase tracking-widest text-zinc-400">
-                    {normalizedMessageSearch ? 'No matching messages' : 'Start the conversation'}
+                    {t(normalizedMessageSearch ? 'coreUiNoMatchingMessages' : 'coreUiStartConversation')}
                   </p>
                   <p className="mt-2 text-[10px] leading-relaxed text-zinc-600">
                     {normalizedMessageSearch
-                      ? 'Try another phrase. Search covers the recent messages loaded in this room.'
-                      : 'Say hello to the group. Keep messages respectful and follow the room rules.'}
+                      ? t('coreUiTryAnotherPhrase')
+                      : t('coreUiSayHello')}
                   </p>
                 </div>
               ) : visibleMessages.map((msg, idx) => {
@@ -1363,7 +1365,7 @@ export default function LiveRoom() {
                         {showAvatar && (
                           <div className="relative">
                             <img 
-                              src={msg.avatar} alt="avatar"
+                              src={msg.avatar} alt={t('coreUiAvatar')}
                               onClick={() => setSelectedProfile({ name: msg.sender, avatar: msg.avatar, role: messageRole || 'member', id: msg.sender_id })}
                               className={`w-10 h-10 object-cover grayscale border-2 cursor-pointer transition-colors ${canViewFullProfiles ? 'border-zinc-700 hover:border-white' : 'blur-[2px] border-zinc-800'}`}
                             />
@@ -1402,25 +1404,25 @@ export default function LiveRoom() {
                             {quote}
                           </div>
                         )}
-                        {msg.media && <img src={msg.media} alt="attachment" className="max-w-[min(70vw,16rem)] border-2 border-black/20 overflow-hidden object-cover" />}
+                        {msg.media && <img src={msg.media} alt={t('coreUiAttachedFile')} className="max-w-[min(70vw,16rem)] border-2 border-black/20 overflow-hidden object-cover" />}
                         {text && <div>{text}</div>}
                       </div>
                       <div className="flex flex-wrap items-center gap-1 mt-1">
-                        {msg.isPinned && <span className="text-[9px] uppercase font-black tracking-widest text-yellow-400">Pinned</span>}
+                        {msg.isPinned && <span className="text-[9px] uppercase font-black tracking-widest text-yellow-400">{t('coreUiPinned')}</span>}
                         {(msg.reactions || []).map((reaction) => (
                           <button
                             key={reaction.emoji}
                             onClick={() => handleToggleReaction(msg, reaction.emoji)}
                             className={`px-2 py-1 border text-[10px] ${reaction.reacted ? 'border-yellow-500 text-yellow-300' : 'border-zinc-700 text-zinc-400'}`}
-                            aria-label={`Toggle ${reaction.emoji} reaction`}
+                            aria-label={t('coreUiToggleReaction', { emoji: reaction.emoji })}
                           >
                             {reaction.emoji} {reaction.count}
                           </button>
                         ))}
-                        <button onClick={() => handleToggleReaction(msg, '👍')} className="px-2 py-1 border border-zinc-800 text-[10px] text-zinc-500 hover:text-white" aria-label="React with thumbs up">+ 👍</button>
+                        <button onClick={() => handleToggleReaction(msg, '👍')} className="px-2 py-1 border border-zinc-800 text-[10px] text-zinc-500 hover:text-white" aria-label={t('coreUiReactThumbsUp')}>+ 👍</button>
                         {canModerateRoom && (
                           <button onClick={() => handleTogglePin(msg)} className="px-2 py-1 border border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-yellow-400">
-                            {msg.isPinned ? 'Unpin' : 'Pin'}
+                            {t(msg.isPinned ? 'coreUiUnpin' : 'coreUiPin')}
                           </button>
                         )}
                       </div>
@@ -1458,7 +1460,7 @@ export default function LiveRoom() {
               
               {showEmojiPicker && (
                 <div className="absolute bottom-[calc(100%+10px)] left-16 bg-black border-2 border-zinc-700 p-2 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] z-50">
-                  <Suspense fallback={<div className="p-4 text-xs text-zinc-400">Loading emoji...</div>}>
+                  <Suspense fallback={<div className="p-4 text-xs text-zinc-400">{t('coreUiLoadingEmoji')}</div>}>
                     <EmojiPicker theme={theme} onEmojiClick={handleEmojiSelect} searchDisabled={true} skinTonesDisabled={true} height={350} width={300} />
                   </Suspense>
                 </div>
@@ -1470,7 +1472,7 @@ export default function LiveRoom() {
                   <div className="flex items-center justify-between bg-zinc-900 border-l-2 border-white p-2 w-max max-w-full">
                     <div className="flex flex-col overflow-hidden text-xs px-2">
                       <span className="text-white font-black uppercase tracking-widest">{replyingTo.sender}</span>
-                      <span className="text-zinc-400 truncate">{parseMessageContent(replyingTo.text).text || 'Media'}</span>
+                      <span className="text-zinc-400 truncate">{parseMessageContent(replyingTo.text).text || t('coreUiMedia')}</span>
                     </div>
                     <button onClick={() => setReplyingTo(null)} className="p-1 text-zinc-500 hover:text-white"><X className="w-3 h-3" /></button>
                   </div>
@@ -1478,10 +1480,10 @@ export default function LiveRoom() {
 
                 {attachedMedia && (
                   <div className="flex items-center gap-4 bg-black border-2 border-zinc-700 p-2 w-max">
-                    <img src={attachedMedia} alt="preview" className="w-12 h-12 object-cover border-2 border-zinc-800" />
+                    <img src={attachedMedia} alt={t('coreUiPreview')} className="w-12 h-12 object-cover border-2 border-zinc-800" />
                     <div className="flex flex-col pr-2">
-                      <span className="text-[9px] font-black uppercase text-zinc-400">Attached File</span>
-                      <span className="text-[10px] font-bold text-white uppercase">Ready to send</span>
+                      <span className="text-[9px] font-black uppercase text-zinc-400">{t('coreUiAttachedFile')}</span>
+                      <span className="text-[10px] font-bold text-white uppercase">{t('coreUiReadyToSend')}</span>
                     </div>
                     <button onClick={() => setAttachedMedia(null)} className="p-1 bg-red-500 text-black hover:bg-red-600 transition-colors border-2 border-black">
                       <X className="w-3 h-3" />
@@ -1491,11 +1493,11 @@ export default function LiveRoom() {
 
                 <div className="flex gap-3">
                   <div className="flex items-center gap-0.5 md:gap-1 shrink-0 rounded-2xl bg-white/[0.04] border border-white/10 p-0.5 md:p-1">
-                    <button onClick={handleMediaClick} aria-label="Attach media" className={`p-1.5 md:p-2 transition-colors border-2 relative ${canSendMedia ? 'text-zinc-500 hover:text-white border-transparent hover:border-zinc-700 hover:bg-zinc-900' : 'text-zinc-800 border-transparent cursor-not-allowed'}`}>
+                    <button onClick={handleMediaClick} aria-label={t('coreUiAttachMedia')} className={`p-1.5 md:p-2 transition-colors border-2 relative ${canSendMedia ? 'text-zinc-500 hover:text-white border-transparent hover:border-zinc-700 hover:bg-zinc-900' : 'text-zinc-800 border-transparent cursor-not-allowed'}`}>
                       <ImageIcon className="w-4 h-4" />
                       {!canSendMedia && <Lock className="w-2.5 h-2.5 absolute top-1 right-1 text-zinc-600" />}
                     </button>
-                    <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} aria-label="Choose emoji" className="p-1.5 md:p-2 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors">
+                    <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} aria-label={t('coreUiChooseEmoji')} className="p-1.5 md:p-2 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors">
                       <Smile className="w-4 h-4" />
                     </button>
                   </div>
@@ -1504,7 +1506,7 @@ export default function LiveRoom() {
                     value={messageInput}
                     onChange={handleTyping}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                    placeholder="TYPE A MESSAGE..."
+                    placeholder={t('coreUiTypeMessage')}
                     className="flex-1 rounded-2xl bg-zinc-950 border border-zinc-800 p-3 text-white text-sm resize-none outline-none focus:border-zinc-500 transition-colors custom-scrollbar"
                     rows="2"
                   />
@@ -1515,7 +1517,7 @@ export default function LiveRoom() {
                     className="w-16 md:w-24 rounded-2xl bg-white border border-white text-black flex flex-col items-center justify-center gap-1 font-black uppercase tracking-widest hover:bg-zinc-200 disabled:opacity-50 transition-colors"
                   >
                     <Send className="w-5 h-5" />
-                    <span className="text-[10px]">SEND</span>
+                    <span className="text-[10px]">{t('send')}</span>
                   </button>
                 </div>
               </div>
@@ -1528,9 +1530,9 @@ export default function LiveRoom() {
             {!canUseVoiceChannel ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
                 <Crown className="w-16 h-16 text-yellow-500 mb-6 drop-shadow-[0_0_15px_rgba(var(--warning-rgb), 0.5)]" />
-                <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-4">PREMIUM REQUIRED</h3>
+                <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-4">{t('coreUiPremiumRequired')}</h3>
                 <p className="text-zinc-400 text-xs font-bold uppercase tracking-widest max-w-md leading-relaxed mb-8">
-                  Voice lounges are reserved for Premium members to maintain quality and privacy. Upgrade to join the conversation.
+                  {t('coreUiVoicePremiumDescription')}
                 </p>
               </div>
             ) : !voiceToken ? (
@@ -1541,7 +1543,7 @@ export default function LiveRoom() {
                   disabled={isConnectingVoice}
                   className="px-10 py-4 bg-white text-black border-2 border-white font-black uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] disabled:opacity-50"
                 >
-                  {isConnectingVoice ? 'CONNECTING...' : 'Connect to Audio'}
+                  {isConnectingVoice ? t('coreUiConnecting') : t('coreUiConnectToAudio')}
                 </button>
               </div>
             ) : (
@@ -1551,10 +1553,10 @@ export default function LiveRoom() {
                 connect={true}
                 audio={canPublishVoice}
                 options={{ adaptiveStream: true, dynacast: true }}
-                onConnected={() => toast.success('Connected to the voice space')}
+                onConnected={() => toast.success(t('coreUiVoiceConnected'))}
                 onError={(error) => {
                   console.error('[ROOM VOICE] LiveKit connection failed:', error);
-                  toast.error(error.message || 'Could not connect to room audio');
+                  toast.error(error.message || t('coreUiVoiceConnectFailed'));
                   setVoiceToken('');
                   setActiveMode('text');
                 }}
@@ -1604,23 +1606,23 @@ export default function LiveRoom() {
                {isEditingRoom ? (
                   <div className="space-y-4">
                      <div>
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Room Name</label>
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('coreUiRoomName')}</label>
                         <input type="text" value={editRoomForm.name} onChange={e => setEditRoomForm(p => ({...p, name: e.target.value}))} className="w-full bg-zinc-950 border-2 border-zinc-800 text-white p-3 text-xs outline-none focus:border-yellow-500" />
                      </div>
                      <div>
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Description</label>
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('coreUiDescription')}</label>
                         <textarea value={editRoomForm.description} onChange={e => setEditRoomForm(p => ({...p, description: e.target.value}))} className="w-full bg-zinc-950 border-2 border-zinc-800 text-white p-3 text-xs outline-none focus:border-yellow-500 resize-none h-24" />
                      </div>
                      <div>
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Room rules</label>
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('coreUiRoomRules')}</label>
                         <textarea value={editRoomForm.rules} onChange={e => setEditRoomForm(p => ({...p, rules: e.target.value}))} className="w-full bg-zinc-950 border-2 border-zinc-800 text-white p-3 text-xs outline-none focus:border-yellow-500 resize-none h-20" />
                      </div>
                      <div className="grid grid-cols-2 gap-3">
                         <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
                            Content mode
                            <select value={editRoomForm.content_mode} onChange={e => setEditRoomForm(p => ({...p, content_mode: e.target.value}))} className="mt-2 w-full bg-zinc-950 border-2 border-zinc-800 text-white p-3 text-xs">
-                              <option value="general">General</option>
-                              <option value="mature">Mature (18+)</option>
+                              <option value="general">{t('coreUiGeneral')}</option>
+                              <option value="mature">{t('coreUiMature18Plus')}</option>
                            </select>
                         </label>
                         <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
@@ -1630,8 +1632,8 @@ export default function LiveRoom() {
                      </div>
                      <div className="grid grid-cols-2 gap-3 text-[10px] font-black uppercase tracking-widest text-zinc-400">
                         {[
-                          ['allow_media', 'Allow media'],
-                          ['allow_links', 'Allow links'],
+                          ['allow_media', t('coreUiAllowMedia')],
+                          ['allow_links', t('coreUiAllowLinks')],
                           ['is_read_only', 'Moderator-only posting'],
                         ].map(([key, label]) => (
                           <label key={key} className="flex items-center gap-2 border-2 border-zinc-800 bg-zinc-950 p-3">
@@ -1647,7 +1649,7 @@ export default function LiveRoom() {
                ) : (
                   <>
                      <div className="bg-zinc-950 p-4 border-2 border-zinc-800">
-                        <h3 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">Shareable Invite Link</h3>
+                        <h3 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">{t('coreUiShareableInviteLink')}</h3>
                         <div className="flex items-center gap-2">
                            <input type="text" readOnly value={roomAdminData.inviteLink || 'Generating link...'} className="flex-1 bg-black border-2 border-zinc-800 px-3 py-2 text-xs text-white font-bold outline-none" />
                            <button onClick={copyInviteLink} className="px-4 py-2 bg-white text-black font-black uppercase text-[10px] border-2 border-white hover:bg-zinc-200">
@@ -1661,7 +1663,7 @@ export default function LiveRoom() {
                            <UserCheck className="w-4 h-4 text-blue-400" /> Pending Join Requests ({roomAdminData.pendingCount || 0})
                         </h3>
                         {!joinRequests.length ? (
-                           <p className="text-[10px] text-zinc-500 uppercase tracking-widest p-4 border-2 border-dashed border-zinc-800 text-center">No pending requests.</p>
+                           <p className="text-[10px] text-zinc-500 uppercase tracking-widest p-4 border-2 border-dashed border-zinc-800 text-center">{t('coreUiNoPendingRequests')}</p>
                         ) : (
                            <div className="space-y-2">
                               {joinRequests.map((request) => (
@@ -1671,8 +1673,8 @@ export default function LiveRoom() {
                                     <span className="truncate text-[10px] font-black uppercase tracking-widest text-white">{request.user_name}</span>
                                   </div>
                                   <div className="flex gap-2 shrink-0">
-                                    <button onClick={() => handleJoinRequest(request.user_id, true)} className="px-3 py-2 bg-yellow-500 text-black text-[9px] font-black uppercase">Approve</button>
-                                    <button onClick={() => handleJoinRequest(request.user_id, false)} className="px-3 py-2 border border-zinc-700 text-zinc-300 text-[9px] font-black uppercase">Decline</button>
+                                    <button onClick={() => handleJoinRequest(request.user_id, true)} className="px-3 py-2 bg-yellow-500 text-black text-[9px] font-black uppercase">{t('coreUiApprove')}</button>
+                                    <button onClick={() => handleJoinRequest(request.user_id, false)} className="px-3 py-2 border border-zinc-700 text-zinc-300 text-[9px] font-black uppercase">{t('coreUiDecline')}</button>
                                   </div>
                                 </div>
                               ))}
@@ -1690,8 +1692,8 @@ export default function LiveRoom() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowShareModal(false)} />
           <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col z-10 p-6 text-center">
-            <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">Invite Friends</h3>
-            <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-6">Share this room code or link with other members.</p>
+            <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">{t('coreUiInviteFriends')}</h3>
+            <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-6">{t('coreUiShareRoomInvite')}</p>
             
             <div className="bg-zinc-950 p-4 border-2 border-zinc-800 mb-6">
               <span className="text-2xl font-black text-white tracking-widest">{roomAdminData.roomCode || selectedRoom.roomCode || 'ROOM-CODE'}</span>
@@ -1712,12 +1714,12 @@ export default function LiveRoom() {
                 {(incomingCallData.fromName || 'C').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1">
-                <div className="text-sm font-black uppercase tracking-widest text-white">Incoming {incomingCallData.mode === 'video' ? 'Video' : 'Audio'} Call</div>
+                <div className="text-sm font-black uppercase tracking-widest text-white">{t('coreUiIncomingCall', { type: t(incomingCallData.mode === 'video' ? 'video' : 'audio') })}</div>
                 <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{incomingCallData.fromName}</div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => rejectPrivateCall()} className="px-4 py-2 border-2 border-red-500 text-red-500 font-black text-[10px] uppercase hover:bg-red-500 hover:text-black">Decline</button>
-                <button onClick={() => acceptPrivateCall()} className="px-4 py-2 border-2 border-green-500 bg-green-500 text-black font-black text-[10px] uppercase hover:bg-black hover:text-green-500">Answer</button>
+                <button onClick={() => rejectPrivateCall()} className="px-4 py-2 border-2 border-red-500 text-red-500 font-black text-[10px] uppercase hover:bg-red-500 hover:text-black">{t('coreUiDecline')}</button>
+                <button onClick={() => acceptPrivateCall()} className="px-4 py-2 border-2 border-green-500 bg-green-500 text-black font-black text-[10px] uppercase hover:bg-black hover:text-green-500">{t('coreUiAnswer')}</button>
               </div>
             </div>
           </div>
@@ -1777,11 +1779,11 @@ export default function LiveRoom() {
           )}
 
           <div>
-            <h4 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-3">ONLINE NOW</h4>
+            <h4 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-3">{t('coreUiOnlineNow')}</h4>
             {isLoadingParticipants && (
               <div className="mb-3 flex items-center gap-2 text-zinc-600">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span className="text-[9px] font-bold uppercase tracking-widest">Syncing participants...</span>
+                <span className="text-[9px] font-bold uppercase tracking-widest">{t('coreUiSyncingParticipants')}</span>
               </div>
             )}
             <div className="space-y-2">
@@ -1792,7 +1794,7 @@ export default function LiveRoom() {
                   className="w-full flex items-center gap-3 p-2 bg-black border-2 border-transparent hover:border-zinc-800 hover:bg-zinc-950 transition-colors text-left group relative overflow-hidden"
                 >
                   <div className="relative shrink-0">
-                    <img src={user.avatar} alt="avatar" className={`w-10 h-10 object-cover border-2 transition-colors ${canViewFullProfiles ? 'grayscale border-zinc-800 group-hover:border-zinc-600' : 'blur-[3px] border-zinc-900 opacity-50'}`} />
+                    <img src={user.avatar} alt={t('coreUiAvatar')} className={`w-10 h-10 object-cover border-2 transition-colors ${canViewFullProfiles ? 'grayscale border-zinc-800 group-hover:border-zinc-600' : 'blur-[3px] border-zinc-900 opacity-50'}`} />
                     <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-green-500 border border-black"></span>
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1826,7 +1828,7 @@ export default function LiveRoom() {
           <div className="relative flex h-[85dvh] w-full flex-col border-t-2 border-zinc-800 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in slide-in-from-bottom-full duration-300 md:h-full md:w-[clamp(22rem,36vw,30rem)] md:border-l-2 md:border-t-0 md:slide-in-from-right-full">
             
             <div className="relative aspect-[2/1] max-h-[35dvh] shrink-0 overflow-hidden border-b-2 border-zinc-800 bg-zinc-950">
-              <img src={selectedProfile.avatar} alt="cover" className={`w-full h-full object-cover opacity-60 transition-all ${canViewFullProfiles ? 'grayscale' : 'blur-xl scale-110'}`} />
+              <img src={selectedProfile.avatar} alt={t('coreUiCoverPhoto')} className={`w-full h-full object-cover opacity-60 transition-all ${canViewFullProfiles ? 'grayscale' : 'blur-xl scale-110'}`} />
               
               <button onClick={() => setSelectedProfile(null)} className="absolute top-4 right-4 p-2 bg-black border-2 border-zinc-800 hover:bg-zinc-900 text-white transition-colors z-10">
                 <X className="w-4 h-4" />
@@ -1835,7 +1837,7 @@ export default function LiveRoom() {
               <div className="absolute bottom-4 left-6 bg-black/80 p-2 border-2 border-zinc-800">
                 <h2 className="text-lg font-black text-white uppercase tracking-widest">{maskName(selectedProfile.name)}, {canViewFullProfiles ? selectedProfile.age || '24' : '??'}</h2>
                 <div className="flex items-center gap-1.5 text-[9px] font-black text-zinc-400 uppercase tracking-widest mt-1">
-                  <MapPin className="w-3 h-3 text-zinc-500" /> {canViewFullProfiles ? selectedProfile.location || 'Unknown' : '[LOCATION HIDDEN]'}
+                  <MapPin className="w-3 h-3 text-zinc-500" /> {canViewFullProfiles ? selectedProfile.location || t('coreUiUnknown') : t('coreUiLocationHidden')}
                 </div>
               </div>
             </div>
@@ -1844,7 +1846,7 @@ export default function LiveRoom() {
               {!canViewFullProfiles ? (
                 <div className="flex flex-col items-center justify-center p-8 bg-zinc-950 border-2 border-dashed border-zinc-800 text-center h-full">
                   <Lock className="w-12 h-12 text-zinc-700 mb-4" />
-                  <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-2">PREMIUM CONTENT</h3>
+                  <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-2">{t('coreUiPremiumContent')}</h3>
                   <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-relaxed mb-6">
                     Detailed profiles, bios, and match percentages are hidden for basic users.
                   </p>
@@ -1859,7 +1861,7 @@ export default function LiveRoom() {
                     <p className="text-[10px] font-black uppercase tracking-widest">YOU ARE A {selectedProfile.matchPct || 85}% MATCH.</p>
                   </div>
                   <div className="bg-zinc-950 p-4 border-2 border-zinc-800">
-                    <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-3">ABOUT</h3>
+                    <h3 className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-3">{t('coreUiAbout')}</h3>
                     <p className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest leading-relaxed">{selectedProfile.bio || 'No bio provided.'}</p>
                   </div>
                   <div className="pt-4 space-y-3">
@@ -1872,17 +1874,17 @@ export default function LiveRoom() {
                        <div className="flex gap-2 w-full pt-4 border-t-2 border-zinc-800">
                         {!['creator', 'admin', 'moderator'].includes(selectedProfile.role) && (
                           <button onClick={() => handleMuteMember(selectedProfile, !selectedProfile.is_muted)} className="flex-1 py-3 bg-black text-blue-400 hover:bg-zinc-900 border-2 border-transparent hover:border-blue-900 text-[10px] font-black uppercase tracking-widest transition-colors">
-                            {selectedProfile.is_muted ? 'Unmute' : 'Mute'}
+                            {t(selectedProfile.is_muted ? 'coreUiUnmute' : 'coreUiMute')}
                           </button>
                         )}
                         {roomAdminData?.userRole === 'creator' && !['creator', 'admin'].includes(selectedProfile.role) && (
                           <button onClick={() => handleSetMemberRole(selectedProfile, selectedProfile.role === 'moderator' ? 'member' : 'moderator')} className="flex-1 py-3 bg-black text-sky-300 hover:bg-zinc-900 border-2 border-transparent hover:border-sky-900 text-[10px] font-black uppercase tracking-widest transition-colors">
-                            {selectedProfile.role === 'moderator' ? 'Remove moderator' : 'Make moderator'}
+                            {t(selectedProfile.role === 'moderator' ? 'coreUiRemoveModerator' : 'coreUiMakeModerator')}
                           </button>
                         )}
                         {roomAdminData?.userRole === 'creator' && selectedProfile.role !== 'creator' && (
                           <button onClick={() => handleSetMemberRole(selectedProfile, selectedProfile.role === 'admin' ? 'member' : 'admin')} className="flex-1 py-3 bg-black text-white hover:bg-zinc-900 border-2 border-transparent hover:border-zinc-600 text-[10px] font-black uppercase tracking-widest transition-colors">
-                            {selectedProfile.role === 'admin' ? 'Remove admin' : 'Make admin'}
+                            {t(selectedProfile.role === 'admin' ? 'coreUiRemoveAdmin' : 'coreUiMakeAdmin')}
                           </button>
                         )}
                         <button onClick={() => handleModerateUser(selectedProfile.id, false)} className="flex-1 py-3 bg-black text-yellow-500 hover:bg-zinc-900 border-2 border-transparent hover:border-yellow-900 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center">
@@ -1895,7 +1897,7 @@ export default function LiveRoom() {
                     )}
                     
                     {!canModerateRoom && (
-                       <button onClick={() => { toast('SYS: RECORD REPORTED.'); setSelectedProfile(null); }} className="w-full py-3 bg-black text-red-500 hover:bg-zinc-900 border-2 border-transparent hover:border-red-900 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
+                       <button onClick={() => { toast(t('coreUiRecordReported')); setSelectedProfile(null); }} className="w-full py-3 bg-black text-red-500 hover:bg-zinc-900 border-2 border-transparent hover:border-red-900 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
                          <ShieldAlert className="w-4 h-4" /> REPORT USER
                        </button>
                     )}
@@ -1923,7 +1925,7 @@ export default function LiveRoom() {
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6">Select an image to attach to your message.</p>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6">{t('coreUiSelectImageToAttach')}</p>
               
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <input 
@@ -1938,7 +1940,7 @@ export default function LiveRoom() {
                   className="aspect-square bg-zinc-950 border-2 border-dashed border-zinc-700 flex flex-col items-center justify-center gap-2 hover:bg-zinc-900 hover:border-zinc-500 transition-colors text-zinc-500 hover:text-white group"
                 >
                   <Upload className="w-8 h-8 group-hover:scale-110 transition-transform" />
-                  <span className="text-[9px] font-black uppercase tracking-widest">UPLOAD NEW</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest">{t('coreUiUploadNew')}</span>
                 </button>
 
                 {isLoadingVault ? (
@@ -1951,9 +1953,9 @@ export default function LiveRoom() {
                     onClick={() => { setAttachedMedia(mediaObj.url); setShowMediaVault(false); }}
                     className="aspect-square bg-zinc-950 border-2 border-zinc-800 hover:border-white transition-all overflow-hidden group relative"
                   >
-                    <img src={mediaObj.url} alt="vault item" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                    <img src={mediaObj.url} alt={t('coreUiMediaVaultItem')} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <span className="text-[10px] font-black text-white uppercase tracking-widest border-2 border-white px-3 py-1">SELECT</span>
+                      <span className="text-[10px] font-black text-white uppercase tracking-widest border-2 border-white px-3 py-1">{t('coreUiSelect')}</span>
                     </div>
                   </button>
                 ))}

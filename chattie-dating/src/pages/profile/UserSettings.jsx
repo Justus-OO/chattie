@@ -136,21 +136,21 @@ export default function UserSettings() {
 
         if (normalized.privacy) setPrivacy(normalized.privacy);
       } catch (error) {
-        toast.error('Failed to load settings data.');
+        toast.error(t('coreUiSettingsLoadFailed'));
       } finally {
         setIsLoading(false);
       }
     };
     loadSettings();
-  }, [setIdentityVerificationStatus]);
+  }, [setIdentityVerificationStatus, t]);
 
   useEffect(() => {
     if (showBlockedModal) {
       settingsService.getBlockedUsers()
         .then(res => setBlockedUsers(res || []))
-        .catch(() => toast.error('Failed to load blocked users'));
+        .catch(() => toast.error(t('coreUiBlockedUsersLoadFailed')));
     }
-  }, [showBlockedModal]);
+  }, [showBlockedModal, t]);
 
   useEffect(() => {
     let active = true;
@@ -170,15 +170,15 @@ export default function UserSettings() {
     let active = true;
     setIsLoadingSessions(true);
     settingsService.getActiveSessions().then((sessions) => {
-      if (!Array.isArray(sessions)) throw new Error('The active-session service returned invalid data.');
+      if (!Array.isArray(sessions)) throw new Error(t('coreUiActiveSessionsInvalid'));
       if (active) setActiveSessions(sessions);
     }).catch((error) => {
-      toast.error(error.response?.data?.error || 'Failed to load active sessions.');
+      toast.error(error.response?.data?.error || t('coreUiActiveSessionsLoadFailed'));
     }).finally(() => {
       if (active) setIsLoadingSessions(false);
     });
     return () => { active = false; };
-  }, [showSessionsModal]);
+  }, [showSessionsModal, t]);
 
   // ============================================================================
   // SETTINGS HANDLERS
@@ -200,9 +200,9 @@ export default function UserSettings() {
       };
       await settingsService.updateSettings(updatedPayload);
       setFullSettings(updatedPayload);
-      toast.success('Preferences saved successfully.');
+      toast.success(t('coreUiPreferencesSaved'));
     } catch (error) {
-      toast.error('Failed to save preferences.');
+      toast.error(t('coreUiPreferencesSaveFailed'));
     }
   };
 
@@ -211,9 +211,9 @@ export default function UserSettings() {
       const res = await settingsService.terminateOtherSessions();
       if (res.token && currentUser) updateSession(currentUser, res.token);
       setActiveSessions((sessions) => sessions.filter((session) => session.is_current));
-      toast.success(res.message || 'All other devices logged out securely.');
+      toast.success(res.message || t('coreUiOtherDevicesSignedOut'));
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to terminate sessions.');
+      toast.error(err.response?.data?.error || t('coreUiTerminateSessionsFailed'));
     }
   };
 
@@ -222,9 +222,9 @@ export default function UserSettings() {
     try {
       await settingsService.revokeSession(session.id);
       setActiveSessions((sessions) => sessions.filter((item) => item.id !== session.id));
-      toast.success('Session signed out.');
+      toast.success(t('coreUiSessionSignedOut'));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not sign out this session.');
+      toast.error(error.response?.data?.error || t('coreUiSessionSignOutFailed'));
     } finally {
       setRevokingSessionId('');
     }
@@ -235,7 +235,7 @@ export default function UserSettings() {
     setIsUpdatingPush(true);
     try {
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-        throw new Error('Background notifications are not supported by this browser.');
+        throw new Error(t('coreUiPushNotSupported'));
       }
 
       const registration = await navigator.serviceWorker.register('/service-worker.js');
@@ -244,26 +244,26 @@ export default function UserSettings() {
         await settingsService.deletePushSubscription(existingSubscription.endpoint);
         await existingSubscription.unsubscribe();
         setPushEnabled(false);
-        toast.success('Background notifications are turned off for this device.');
+        toast.success(t('coreUiPushDisabled'));
         return;
       }
 
       const permission = Notification.permission === 'granted'
         ? 'granted'
         : await Notification.requestPermission();
-      if (permission !== 'granted') throw new Error('Allow notifications in your browser to enable background alerts.');
+      if (permission !== 'granted') throw new Error(t('coreUiPushPermissionRequired'));
 
       const publicKey = await settingsService.getPushVapidPublicKey();
-      if (!publicKey) throw new Error('Background notifications are not configured on the server.');
+      if (!publicKey) throw new Error(t('coreUiPushNotConfigured'));
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: decodeVapidKey(publicKey),
       });
       await settingsService.savePushSubscription(subscription.toJSON());
       setPushEnabled(true);
-      toast.success('Background notifications are enabled on this device.');
+      toast.success(t('coreUiPushEnabled'));
     } catch (error) {
-      toast.error(error.response?.data?.error || error.message || 'Could not update background notifications.');
+      toast.error(error.response?.data?.error || error.message || t('coreUiPushUpdateFailed'));
     } finally {
       setIsUpdatingPush(false);
     }
@@ -275,9 +275,9 @@ export default function UserSettings() {
       const challenge = await settingsService.requestTwoFactorChange(enabled, enabled ? twoFactorChannel : twoFactor.channel);
       setTwoFactorChallenge(challenge);
       setTwoFactorCode('');
-      toast.success(`Verification code sent by ${challenge.channel}.`);
+      toast.success(t('coreUiVerificationSentBy', { channel: challenge.channel }));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not send a security code.');
+      toast.error(error.response?.data?.error || t('coreUiSecurityCodeSendFailed'));
     } finally {
       setIsUpdatingTwoFactor(false);
     }
@@ -296,9 +296,9 @@ export default function UserSettings() {
       setTwoFactor((previous) => ({ ...previous, enabled: updated.enabled, channel: updated.channel }));
       setTwoFactorChallenge(null);
       setTwoFactorCode('');
-      toast.success(updated.enabled ? 'Two-factor sign-in is enabled.' : 'Two-factor sign-in is disabled.');
+      toast.success(t(updated.enabled ? 'coreUiTwoFactorEnabled' : 'coreUiTwoFactorDisabled'));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'The verification code is invalid or expired.');
+      toast.error(error.response?.data?.error || t('coreUiVerificationCodeInvalid'));
     } finally {
       setIsUpdatingTwoFactor(false);
     }
@@ -307,10 +307,10 @@ export default function UserSettings() {
   const handleRequestData = async () => {
     try {
       const res = await settingsService.requestDataDownload();
-      toast.success(res.message || 'Data request initiated. Check your email.');
+      toast.success(res.message || t('coreUiDataRequestInitiated'));
       setShowDataModal(false);
     } catch (err) {
-      toast.error('Failed to request data dossier.');
+      toast.error(t('coreUiDataRequestFailed'));
     }
   };
 
@@ -318,14 +318,14 @@ export default function UserSettings() {
     try {
       await settingsService.unblockUser(id);
       setBlockedUsers(prev => prev.filter(u => u.id !== id));
-      toast.success(`${name} unblocked.`);
+      toast.success(t('coreUiUserUnblocked', { name }));
     } catch (err) {
-      toast.error(`Failed to unblock ${name}.`);
+      toast.error(t('coreUiUnblockUserFailed', { name }));
     }
   };
 
   const handleLogout = () => {
-    toast('Logging out...');
+    toast(t('coreUiLoggingOut'));
     localStorage.removeItem('jwt_token');
     setTimeout(() => navigate('/login'), 1000);
   };
@@ -334,10 +334,10 @@ export default function UserSettings() {
     try {
       await settingsService.deleteAccount();
       localStorage.removeItem('jwt_token');
-      toast.error('Account permanently deleted.');
+      toast.error(t('coreUiAccountDeleted'));
       setTimeout(() => navigate('/login'), 1500);
     } catch (error) {
-      toast.error('Failed to delete account.');
+      toast.error(t('coreUiAccountDeleteFailed'));
     }
   };
 
@@ -351,7 +351,7 @@ export default function UserSettings() {
       const media = await settingsService.getMediaVault();
       setVaultImages(Array.isArray(media) ? media : []);
     } catch (e) {
-      toast.error('Failed to load media vault');
+      toast.error(t('coreUiMediaVaultLoadFailed'));
     } finally {
       setIsLoadingVault(false);
     }
@@ -362,9 +362,9 @@ export default function UserSettings() {
       setIsLoadingVault(true);
       const uploaded = await settingsService.uploadMedia(file);
       setVaultImages(prev => [uploaded, ...prev]);
-      toast.success('Uploaded to media vault');
+      toast.success(t('coreUiMediaVaultUploadSucceeded'));
     } catch (e) {
-      toast.error('Upload failed');
+      toast.error(t('coreUiUploadFailed'));
     } finally {
       setIsLoadingVault(false);
     }
@@ -372,14 +372,14 @@ export default function UserSettings() {
 
   const handleSelectVaultImage = async (_url, media) => {
     try {
-      if (!media?.id) throw new Error('The selected media has no saved media ID.');
+      if (!media?.id) throw new Error(t('coreUiSelectedMediaMissingId'));
       await settingsService.setPrimaryMedia(media.id);
       const updated = await settingsService.getSettings();
       setFullSettings(prev => ({ ...prev, ...updated }));
-      toast.success('Profile avatar updated.');
+      toast.success(t('coreUiProfileAvatarUpdated'));
       setShowMediaVault(false);
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Failed to update avatar'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('coreUiAvatarUpdateFailed')));
     }
   };
 
@@ -450,10 +450,10 @@ export default function UserSettings() {
               <div className="flex items-center justify-between p-4 border-b-2 border-zinc-800 bg-zinc-950">
                 <div className="flex items-center gap-3">
                   <BadgeCheck className={`w-4 h-4 ${isVerified ? 'text-blue-500' : 'text-zinc-500'}`} />
-                  <span className="text-sm font-bold uppercase tracking-widest text-white">Profile Verification</span>
+                  <span className="text-sm font-bold uppercase tracking-widest text-white">{t('coreUiProfileVerification')}</span>
                 </div>
                 {isVerified ? (
-                  <span className="text-[10px] font-bold text-blue-500 bg-black px-2 py-1 border-2 border-blue-500 uppercase tracking-widest">Verified</span>
+                  <span className="text-[10px] font-bold text-blue-500 bg-black px-2 py-1 border-2 border-blue-500 uppercase tracking-widest">{t('coreUiVerified')}</span>
                 ) : (
                   <button onClick={() => setShowVerifyModal(true)} className="px-3 py-1.5 bg-white text-black border-2 border-white text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors">
                     Get Verified
@@ -464,7 +464,7 @@ export default function UserSettings() {
               <div className="flex items-center justify-between p-4 border-b-2 border-zinc-800 transition-colors">
                 <div className="flex items-center gap-3 shrink-0">
                   <Mail className="w-4 h-4 text-zinc-400" />
-                  <span className="text-sm font-bold uppercase tracking-widest text-white">Email</span>
+                  <span className="text-sm font-bold uppercase tracking-widest text-white">{t('coreUiEmail')}</span>
                 </div>
                 <div className="ml-4 max-w-[clamp(10rem,24vw,20rem)] flex-1">
                   <input
@@ -479,7 +479,7 @@ export default function UserSettings() {
               <div className="flex items-center justify-between p-4 transition-colors">
                 <div className="flex items-center gap-3 shrink-0">
                   <Smartphone className="w-4 h-4 text-zinc-400" />
-                  <span className="text-sm font-bold uppercase tracking-widest text-white">Phone</span>
+                  <span className="text-sm font-bold uppercase tracking-widest text-white">{t('coreUiPhone')}</span>
                 </div>
                 <div className="ml-4 max-w-[clamp(10rem,24vw,20rem)] flex-1">
                   <input
@@ -501,21 +501,21 @@ export default function UserSettings() {
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-none overflow-hidden border-2 border-zinc-700">
                   {fullSettings.avatar ? (
-                    <img src={fullSettings.avatar} alt="Profile" className="w-full h-full object-cover" />
+                    <img src={fullSettings.avatar} alt={t('profile')} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-600" aria-label="No profile photo">
+                    <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-600" aria-label={t('coreUiNoProfilePhoto')}>
                       <Camera className="h-6 w-6" />
                     </div>
                   )}
                 </div>
                 <div>
-                  <div className="text-sm font-bold uppercase tracking-widest text-white">Primary Photo</div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">Used for verification</div>
+                  <div className="text-sm font-bold uppercase tracking-widest text-white">{t('coreUiPrimaryPhoto')}</div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">{t('coreUiUsedForVerification')}</div>
                 </div>
               </div>
               <div className="flex flex-col md:flex-row items-end md:items-center gap-2">
                 {(!fullSettings.avatar) && (
-                  <span className="text-[9px] font-bold text-yellow-300 border-2 border-yellow-400 px-2 py-1 uppercase tracking-widest">No image uploaded</span>
+                  <span className="text-[9px] font-bold text-yellow-300 border-2 border-yellow-400 px-2 py-1 uppercase tracking-widest">{t('coreUiNoImageUploaded')}</span>
                 )}
                 <button onClick={openMediaVault} className="px-3 py-2 bg-white text-black border-2 border-white text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors">
                   Change
@@ -529,44 +529,44 @@ export default function UserSettings() {
             <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('profileDetails')}</h2>
             <div className="bg-black border-2 border-zinc-800 p-4 space-y-4">
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Display Name</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">{t('coreUiDisplayName')}</label>
                 <input
                   type="text"
                   value={fullSettings.name}
                   onChange={(e) => setFullSettings(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Your display name"
+                  placeholder={t('coreUiDisplayNamePlaceholder')}
                   className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm text-white focus:outline-none focus:border-white transition-colors"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Profession / Role</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">{t('coreUiProfessionRole')}</label>
                 <input
                   type="text"
                   value={fullSettings.job}
                   onChange={(e) => setFullSettings(prev => ({ ...prev, job: e.target.value }))}
-                  placeholder="e.g. Product Designer"
+                  placeholder={t('coreUiProfessionPlaceholder')}
                   className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm text-white focus:outline-none focus:border-white transition-colors"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Location</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">{t('coreUiLocation')}</label>
                 <input
                   type="text"
                   value={fullSettings.location}
                   onChange={(e) => setFullSettings(prev => ({ ...prev, location: e.target.value }))}
-                  placeholder="City, State or region"
+                  placeholder={t('coreUiLocationPlaceholder')}
                   className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm text-white focus:outline-none focus:border-white transition-colors"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Bio</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">{t('coreUiBio')}</label>
                 <textarea
                   value={fullSettings.bio}
                   onChange={(e) => setFullSettings(prev => ({ ...prev, bio: e.target.value }))}
-                  placeholder="Tell people a little about yourself"
+                  placeholder={t('coreUiBioPlaceholder')}
                   className="min-h-[clamp(6rem,15vh,9rem)] w-full border-2 border-zinc-800 bg-black px-4 py-3 text-sm text-white transition-colors focus:outline-none focus:border-white rounded-none"
                 />
               </div>
@@ -582,7 +582,7 @@ export default function UserSettings() {
                 <div className="flex items-center justify-between mb-4 pb-4 border-b-2 border-zinc-800">
                   <div className="flex items-center gap-3">
                     <MapPin className="w-4 h-4 text-white" />
-                    <span className="text-sm font-bold uppercase tracking-widest text-white">Current Location</span>
+                    <span className="text-sm font-bold uppercase tracking-widest text-white">{t('coreUiCurrentLocation')}</span>
                   </div>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{fullSettings.location || 'Unknown'}</span>
                 </div>
@@ -592,13 +592,13 @@ export default function UserSettings() {
                     <span className="text-sm font-bold uppercase tracking-widest text-white flex items-center gap-2">
                       <Globe className="w-4 h-4 text-zinc-400" /> Global Mode
                     </span>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">Show people from around the world.</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">{t('coreUiGlobalModeDescription')}</span>
                   </div>
                   <ToggleSwitch 
                     enabled={isGlobal} 
                     onChange={() => {
                       setIsGlobal(!isGlobal);
-                      toast(isGlobal ? 'Global mode disabled' : 'Global mode enabled');
+                      toast(t(isGlobal ? 'coreUiGlobalModeDisabled' : 'coreUiGlobalModeEnabled'));
                     }} 
                   />
                 </div>
@@ -606,7 +606,7 @@ export default function UserSettings() {
 
               <div className={isGlobal ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
                 <div className="flex justify-between items-end mb-4">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Maximum Distance</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t('coreUiMaximumDistance')}</label>
                   <span className="text-sm font-bold text-white">{distance} km</span>
                 </div>
                 <input 
@@ -619,12 +619,12 @@ export default function UserSettings() {
 
               <div>
                 <div className="flex justify-between items-end mb-4">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Age Range</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{t('coreUiAgeRange')}</label>
                   <span className="text-sm font-bold text-white">{ageMin} - {ageMax}</span>
                 </div>
                 <div className="space-y-5">
                   <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 w-8">Min</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 w-8">{t('coreUiMin')}</span>
                     <input 
                       type="range" min="18" max="65" 
                       value={ageMin} 
@@ -633,7 +633,7 @@ export default function UserSettings() {
                     />
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 w-8">Max</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 w-8">{t('coreUiMax')}</span>
                     <input 
                       type="range" min="18" max="65" 
                       value={ageMax} 
@@ -645,7 +645,7 @@ export default function UserSettings() {
               </div>
 
               <div className="pt-6 border-t-2 border-zinc-800">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-3 block">Show Me</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-3 block">{t('coreUiShowMe')}</label>
                 <div className="flex border-2 border-zinc-800 bg-black">
                   {['Men', 'Women', 'Other', 'Everyone'].map(opt => (
                     <button
@@ -657,7 +657,7 @@ export default function UserSettings() {
                           : 'text-zinc-500 hover:text-white hover:bg-zinc-950'
                         }`}
                     >
-                      {opt}
+                      {t(`coreUiShowMe${opt}`)}
                     </button>
                   ))}
                 </div>
@@ -668,22 +668,22 @@ export default function UserSettings() {
 
           {/* NOTIFICATION DELIVERY */}
           <section className="space-y-3">
-            <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Notifications & delivery</h2>
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiNotificationsDelivery')}</h2>
             <div className="bg-black border-2 border-zinc-800">
               <div className="flex items-center justify-between gap-4 border-b-2 border-zinc-800 p-4">
                 <div className="pr-4">
-                  <span className="text-sm font-bold uppercase tracking-widest text-white">Background push</span>
+                  <span className="text-sm font-bold uppercase tracking-widest text-white">{t('coreUiBackgroundPush')}</span>
                   <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                    Receive alerts when Chattie is not open. Requires HTTPS and browser permission.
+                    {t('coreUiBackgroundPushDescription')}
                   </p>
                 </div>
                 <ToggleSwitch enabled={pushEnabled} disabled={isUpdatingPush} onChange={handlePushToggle} />
               </div>
               {[
-                ['newMatches', 'New matches'],
-                ['messages', 'Messages'],
-                ['superLikes', 'Super likes'],
-                ['promotions', 'Product updates'],
+                ['newMatches', t('coreUiNewMatches')],
+                ['messages', t('coreUiMessages')],
+                ['superLikes', t('coreUiSuperLikes')],
+                ['promotions', t('coreUiProductUpdates')],
               ].map(([key, label], index, items) => (
                 <div key={key} className={`flex items-center justify-between gap-4 p-4 ${index < items.length - 1 ? 'border-b-2 border-zinc-800' : ''}`}>
                   <span className="text-xs font-bold uppercase tracking-widest text-zinc-300">{label}</span>
@@ -707,15 +707,15 @@ export default function UserSettings() {
               <div className="flex items-center justify-between p-4 border-b-2 border-zinc-800 bg-zinc-950">
                 <div className="flex flex-col pr-4">
                   <span className="text-sm font-bold uppercase tracking-widest text-yellow-400 flex items-center gap-2">
-                    <EyeOff className="w-4 h-4" /> Incognito Mode
+                    <EyeOff className="w-4 h-4" /> {t('coreUiIncognitoMode')}
                   </span>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">Hide your profile. Only people you like see you.</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">{t('coreUiIncognitoDescription')}</span>
                 </div>
                 <ToggleSwitch 
                   enabled={privacy.incognito} 
                   onChange={() => {
                     if (!hasPremium) {
-                      toast.error('An active Premium membership is required for Incognito Mode.');
+                      toast.error(t('coreUiIncognitoPremiumRequired'));
                       navigate('/upgrade');
                       return;
                     }
@@ -726,8 +726,8 @@ export default function UserSettings() {
 
               <div className="flex items-center justify-between p-4 border-b-2 border-zinc-800 hover:bg-zinc-950 transition-colors">
                 <div className="flex flex-col pr-4">
-                  <span className="text-sm font-bold uppercase tracking-widest text-white">Read Receipts</span>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">Let others know when you read their messages.</span>
+                  <span className="text-sm font-bold uppercase tracking-widest text-white">{t('coreUiReadReceipts')}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">{t('coreUiReadReceiptsDescription')}</span>
                 </div>
                 <ToggleSwitch 
                   enabled={privacy.readReceipts} 
@@ -742,7 +742,7 @@ export default function UserSettings() {
                       <Shield className="h-4 w-4 text-zinc-400" /> Two-factor sign-in
                     </span>
                     <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                      {twoFactor.enabled ? `Enabled by ${twoFactor.channel}.` : 'Add a verification code to protect sign-in.'}
+                      {twoFactor.enabled ? t('coreUiTwoFactorEnabledBy', { channel: twoFactor.channel }) : t('coreUiTwoFactorDescription')}
                     </span>
                   </div>
                   <ToggleSwitch
@@ -764,14 +764,14 @@ export default function UserSettings() {
                       </button>
                     ))}
                     {twoFactorChannel === 'sms' && !twoFactor.sms_available && (
-                      <span className="text-[9px] font-bold uppercase text-amber-500">Add a phone number first.</span>
+                      <span className="text-[9px] font-bold uppercase text-amber-500">{t('coreUiAddPhoneFirst')}</span>
                     )}
                   </div>
                 )}
                 {twoFactorChallenge && (
                   <form onSubmit={handleVerifyTwoFactorChange} className="mt-4 space-y-3">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-                      Code sent by {twoFactorChallenge.channel}{twoFactorChallenge.destination ? ` to ${twoFactorChallenge.destination}` : ''}.
+                      {t('coreUiCodeSentTo', { channel: twoFactorChallenge.channel, destination: twoFactorChallenge.destination ? ` ${t('coreUiTo')} ${twoFactorChallenge.destination}` : '' })}
                     </p>
                     <input
                       autoComplete="one-time-code"
@@ -780,15 +780,15 @@ export default function UserSettings() {
                       onChange={(event) => setTwoFactorCode(event.target.value)}
                       maxLength={8}
                       required
-                      aria-label="Two-factor verification code"
+                      aria-label={t('coreUiTwoFactorCodeLabel')}
                       className="w-full border-2 border-zinc-800 bg-black px-3 py-2 text-sm font-bold tracking-[0.4em] text-white outline-none focus:border-white"
                     />
                     <div className="flex gap-2">
                       <button type="submit" disabled={isUpdatingTwoFactor || twoFactorCode.length < 6} className="border-2 border-white bg-white px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-black disabled:opacity-50">
-                        {isUpdatingTwoFactor ? 'Verifying...' : 'Confirm'}
+                        {isUpdatingTwoFactor ? t('coreUiVerifying') : t('coreUiConfirm')}
                       </button>
                       <button type="button" onClick={() => setTwoFactorChallenge(null)} className="border-2 border-zinc-800 px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-zinc-400">
-                        Cancel
+                        {t('cancel')}
                       </button>
                     </div>
                   </form>
@@ -798,7 +798,7 @@ export default function UserSettings() {
               <div onClick={() => setShowSessionsModal(true)} className="flex items-center justify-between p-4 border-b-2 border-zinc-800 hover:bg-zinc-950 cursor-pointer transition-colors">
                 <div className="flex items-center gap-3 text-white">
                   <MonitorSmartphone className="w-4 h-4 text-zinc-400" />
-                  <span className="text-sm font-bold uppercase tracking-widest">Active Sessions</span>
+                  <span className="text-sm font-bold uppercase tracking-widest">{t('coreUiActiveSessions')}</span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-zinc-600" />
               </div>
@@ -806,7 +806,7 @@ export default function UserSettings() {
               <div onClick={() => setShowDataModal(true)} className="flex items-center justify-between p-4 border-b-2 border-zinc-800 hover:bg-zinc-950 cursor-pointer transition-colors">
                 <div className="flex items-center gap-3 text-white">
                   <Download className="w-4 h-4 text-zinc-400" />
-                  <span className="text-sm font-bold uppercase tracking-widest">Download My Data</span>
+                  <span className="text-sm font-bold uppercase tracking-widest">{t('coreUiDownloadMyData')}</span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-zinc-600" />
               </div>
@@ -814,7 +814,7 @@ export default function UserSettings() {
               <div onClick={() => setShowBlockedModal(true)} className="flex items-center justify-between p-4 hover:bg-zinc-950 cursor-pointer transition-colors">
                 <div className="flex items-center gap-3 text-white">
                   <Shield className="w-4 h-4 text-zinc-400" />
-                  <span className="text-sm font-bold uppercase tracking-widest">Manage Blocked Users</span>
+                  <span className="text-sm font-bold uppercase tracking-widest">{t('coreUiManageBlockedUsers')}</span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-zinc-600" />
               </div>
@@ -837,7 +837,7 @@ export default function UserSettings() {
             >
               <Trash2 className="w-4 h-4" /> Delete Account
             </button>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 text-center mt-4">App Version 2.4.1 (Build 890)</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 text-center mt-4">{t('coreUiAppVersion', { version: '2.4.1', build: '890' })}</p>
           </section>
 
         </div>
@@ -879,9 +879,9 @@ export default function UserSettings() {
             </div>
             <div className="max-h-[65dvh] overflow-y-auto p-4 bg-black space-y-3">
               {isLoadingSessions ? (
-                <div className="py-8 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-500">Loading active sessions…</div>
+                <div className="py-8 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiLoadingActiveSessions')}</div>
               ) : activeSessions.length === 0 ? (
-                <div className="py-8 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-500">No active device sessions were found.</div>
+                <div className="py-8 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiNoActiveSessions')}</div>
               ) : activeSessions.map((session) => (
                 <article key={session.id} className="border-2 border-zinc-800 bg-zinc-950 p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -897,7 +897,7 @@ export default function UserSettings() {
                       </p>
                     </div>
                     {session.is_current ? (
-                      <span className="shrink-0 border border-green-800 px-2 py-1 text-[8px] font-bold uppercase text-green-400">Current</span>
+                      <span className="shrink-0 border border-green-800 px-2 py-1 text-[8px] font-bold uppercase text-green-400">{t('coreUiCurrent')}</span>
                     ) : (
                       <button
                         type="button"
@@ -944,7 +944,7 @@ export default function UserSettings() {
             </div>
             <div className="p-6 bg-black text-center">
               <Download className="w-8 h-8 text-zinc-600 mx-auto mb-4" />
-              <h3 className="text-base font-bold uppercase tracking-widest text-white mb-2">Request Your Data</h3>
+              <h3 className="text-base font-bold uppercase tracking-widest text-white mb-2">{t('coreUiRequestYourData')}</h3>
               <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-6 leading-relaxed">
                 Our backend will instantly compile your messages, matches, and logs into a secure PDF and email it directly to you.
               </p>
@@ -978,13 +978,13 @@ export default function UserSettings() {
               {blockedUsers.length === 0 ? (
                 <div className="text-center py-10 border-2 border-dashed border-zinc-800">
                   <Shield className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">You haven't blocked anyone.</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiNoBlockedUsers')}</p>
                 </div>
               ) : (
                 blockedUsers.map(user => (
                   <div key={user.id} className="flex items-center justify-between p-3 bg-black border-2 border-zinc-800 rounded-none">
                     <div className="flex items-center gap-3">
-                      <img src={user.avatar || 'https://via.placeholder.com/150'} alt="Avatar" className="w-10 h-10 object-cover grayscale opacity-60 rounded-none border-2 border-zinc-700" />
+                      <img src={user.avatar || 'https://via.placeholder.com/150'} alt={t('coreUiAvatar')} className="w-10 h-10 object-cover grayscale opacity-60 rounded-none border-2 border-zinc-700" />
                       <div>
                         <h4 className="text-xs font-bold uppercase tracking-widest text-white mb-1">{user.username || 'Unknown'}</h4>
                         <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">ID: {user.id.substring(0,8)}</p>
@@ -1011,7 +1011,7 @@ export default function UserSettings() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowLogoutModal(false)} />
           <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 p-6 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in zoom-in-95 duration-200 rounded-none">
-            <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-2">Log out of Account?</h3>
+            <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-2">{t('coreUiLogoutAccountConfirm')}</h3>
             <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-6 leading-relaxed">
               You will continue to be seen by other users unless you enable Incognito Mode or delete your account.
             </p>
@@ -1043,13 +1043,13 @@ export default function UserSettings() {
             <div className="w-12 h-12 bg-black border-2 border-red-500 flex items-center justify-center mb-4">
               <AlertTriangle className="w-5 h-5 text-red-500" />
             </div>
-            <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-2">Delete Account?</h3>
+            <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-2">{t('coreUiDeleteAccountConfirm')}</h3>
             <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-6 leading-relaxed">
               This action is permanent and cannot be undone. All your matches, messages, and photos will be wiped.
             </p>
             <div className="mb-6">
               <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 block mb-2">
-                Type <span className="text-red-500">DELETE</span> to confirm
+                {t('coreUiTypeToConfirm')} <span className="text-red-500">DELETE</span>
               </label>
               <input 
                 type="text"

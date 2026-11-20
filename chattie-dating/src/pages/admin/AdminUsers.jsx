@@ -8,8 +8,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminService } from '../../api/admin.service';
+import { useI18n } from '../../i18n';
 
-const displayRecordedValue = (value, fallback = 'Not recorded') => {
+const displayRecordedValue = (value, fallback) => {
   const text = String(value || '').trim();
   return !text || text.toLowerCase() === 'unknown' ? fallback : text;
 };
@@ -18,6 +19,17 @@ const displayRecordedValue = (value, fallback = 'Not recorded') => {
 // MAIN COMPONENT
 // ============================================================================
 export default function AdminUsers() {
+  const { t } = useI18n();
+  const getTierLabel = (tier) => {
+    const keyByTier = {
+      ALL: 'commonUiTierAll',
+      VIP: 'commonUiTierVip',
+      PREMIUM: 'commonUiTierPremium',
+      STANDARD: 'commonUiTierStandard',
+    };
+    const key = keyByTier[tier];
+    return key ? t(key) : tier;
+  };
   const [activeTab, setActiveTab] = useState('DIRECTORY'); // DIRECTORY, TIERS
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,7 +63,7 @@ export default function AdminUsers() {
       ]);
 
       if (!Array.isArray(directoryData) || !telemetryData || typeof telemetryData !== 'object') {
-        throw new Error('The server returned invalid client directory data.');
+        throw new Error(t('adminUiInvalidClientDirectoryData'));
       }
       setUsers(directoryData.map(user => ({
         ...user,
@@ -64,10 +76,10 @@ export default function AdminUsers() {
         premiumCount: Number(telemetryData.premiumCount) || 0,
         dailyActive: Number(telemetryData.dailyActive) || 0,
       });
-      if (showSuccess) toast.success('Client directory synced.');
+      if (showSuccess) toast.success(t('adminUiClientDirectorySynced'));
     } catch (error) {
       console.error("Failed to fetch client directory data", error);
-      const message = error.response?.data?.error || error.message || "Failed to sync with client directory.";
+      const message = error.response?.data?.error || error.message || t('adminUiSyncClientDirectoryError');
       setLoadError(message);
       toast.error(message);
     } finally {
@@ -98,9 +110,9 @@ export default function AdminUsers() {
         setSelectedUser(prev => ({ ...prev, status: nextStatus }));
       }
 
-      toast.success(isBanned ? 'User access restored.' : 'User permanently banned.');
+      toast.success(isBanned ? t('adminUiUserAccessRestored') : t('adminUiUserPermanentlyBanned'));
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to update user ban status");
+      toast.error(error.response?.data?.error || t('adminUiUpdateUserBanError'));
     }
   };
 
@@ -109,13 +121,13 @@ export default function AdminUsers() {
       await adminService.revokeClientTier(id);
       
       setUsers(prev => prev.map(u => u.id === id ? { ...u, tier: 'STANDARD' } : u));
-      toast('Premium/VIP status revoked. Downgraded to Standard.');
+      toast(t('adminUiTierRevokedDowngraded'));
       
       if (selectedUser?.id === id) {
         setSelectedUser(prev => ({ ...prev, tier: 'STANDARD' }));
       }
     } catch (error) {
-      toast.error(error.response?.data?.error || "Failed to revoke subscription tier");
+      toast.error(error.response?.data?.error || t('adminUiRevokeSubscriptionTierError'));
     }
   };
 
@@ -137,25 +149,25 @@ export default function AdminUsers() {
       <div className="border-b-2 border-zinc-800 bg-zinc-950 p-4 flex flex-wrap justify-between items-center text-[10px] uppercase font-black tracking-widest shrink-0 gap-4 z-10 relative">
         <div className="flex items-center gap-6">
           <span className={`flex items-center gap-2 ${loadError ? 'text-red-500' : isLoading ? 'text-yellow-500' : 'text-green-500'}`}>
-            <UserCheck className={`w-4 h-4 ${isLoading ? 'animate-pulse' : ''}`} /> {loadError ? 'CLIENT NETWORK ERROR' : isLoading ? 'SYNCING CLIENT NETWORK' : 'CLIENT NETWORK ONLINE'}
+            <UserCheck className={`w-4 h-4 ${isLoading ? 'animate-pulse' : ''}`} /> {loadError ? t('adminUiClientNetworkError') : isLoading ? t('adminUiSyncingClientNetwork') : t('adminUiClientNetworkOnline')}
           </span>
           <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500 hidden sm:inline-block">
-            TOTAL REGISTERED: <span className="text-white">{telemetry.totalUsers.toLocaleString()}</span>
+            {t('adminUiTotalRegistered')}: <span className="text-white">{telemetry.totalUsers.toLocaleString()}</span>
           </span>
           <span className="border-l-2 border-zinc-800 pl-4 text-zinc-500 hidden md:inline-block">
-            DAILY ACTIVE: <span className="text-blue-400">{telemetry.dailyActive.toLocaleString()}</span>
+            {t('adminUiDailyActive')}: <span className="text-blue-400">{telemetry.dailyActive.toLocaleString()}</span>
           </span>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-zinc-500 hidden sm:inline-block">
-            VIP CONVERSION: <span className="text-yellow-400">{telemetry.totalUsers > 0 ? ((telemetry.vipCount / telemetry.totalUsers) * 100).toFixed(1) : '0.0'}%</span>
+            {t('adminUiVipConversion')}: <span className="text-yellow-400">{telemetry.totalUsers > 0 ? ((telemetry.vipCount / telemetry.totalUsers) * 100).toFixed(1) : '0.0'}%</span>
           </span>
           <button 
             onClick={() => fetchClientData(true)}
             disabled={isLoading}
             className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors bg-black border-2 border-zinc-800 px-3 py-1"
           >
-            <RefreshCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">SYNC</span>
+            <RefreshCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">{t('adminUiSync')}</span>
           </button>
         </div>
       </div>
@@ -167,10 +179,10 @@ export default function AdminUsers() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-3">
-              <Users className="w-8 h-8 text-blue-500" /> Client Directory
+              <Users className="w-8 h-8 text-blue-500" /> {t('adminUiClientDirectory')}
             </h1>
             <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-              MANAGE CONSUMER ACCOUNTS, SUBSCRIPTION TIERS, AND SPEND HISTORIES
+              {t('adminUiClientDirectoryDescription')}
             </p>
           </div>
         </div>
@@ -178,8 +190,8 @@ export default function AdminUsers() {
         {/* Tab Navigation */}
         <div className="flex flex-wrap gap-2 border-b-2 border-zinc-800">
           {[
-            { id: 'DIRECTORY', label: `USER DIRECTORY (${users.length})`, icon: Search },
-            { id: 'TIERS', label: 'SUBSCRIPTION TIERS', icon: Crown },
+            { id: 'DIRECTORY', label: t('adminUiUserDirectory', { count: users.length }), icon: Search },
+            { id: 'TIERS', label: t('adminUiSubscriptionTiers'), icon: Crown },
           ].map(tab => (
             <button
               key={tab.id}
@@ -207,7 +219,7 @@ export default function AdminUsers() {
               onClick={() => fetchClientData()}
               className="border-2 border-red-800 px-3 py-2 text-[9px] font-black uppercase text-red-300 hover:bg-red-950"
             >
-              Retry
+              {t('adminUiRetry')}
             </button>
           </div>
         )}
@@ -230,7 +242,7 @@ export default function AdminUsers() {
                     <Search className="w-4 h-4 text-zinc-500" />
                     <input 
                       type="text" 
-                      placeholder="SEARCH USERNAME, EMAIL, OR ID..."
+                      placeholder={t('adminUiSearchUsers')}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full border-none bg-transparent text-xs font-bold uppercase tracking-widest text-white outline-none placeholder:text-zinc-600 md:w-[clamp(16rem,26vw,20rem)]"
@@ -239,7 +251,7 @@ export default function AdminUsers() {
 
                   <div className="flex flex-col md:flex-row gap-4 w-full xl:w-auto overflow-x-auto custom-scrollbar">
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest hidden md:inline">TIER:</span>
+                      <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest hidden md:inline">{t('adminUiTier')}:</span>
                       {['ALL', 'VIP', 'PREMIUM', 'STANDARD'].map(tier => (
                         <button
                           key={tier}
@@ -248,12 +260,12 @@ export default function AdminUsers() {
                             filterTier === tier ? 'bg-white text-black border-white' : 'bg-black text-zinc-500 border-zinc-800 hover:border-zinc-600'
                           }`}
                         >
-                          {tier}
+                          {getTierLabel(tier)}
                         </button>
                       ))}
                     </div>
                     <div className="flex items-center gap-2 shrink-0 md:border-l-2 border-zinc-800 md:pl-4">
-                      <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest hidden md:inline">STATUS:</span>
+                      <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest hidden md:inline">{t('adminUiStatus')}:</span>
                       {['ALL', 'ACTIVE', 'FLAGGED', 'BANNED'].map(status => (
                         <button
                           key={status}
@@ -274,12 +286,12 @@ export default function AdminUsers() {
                   <table className="w-full text-left text-xs font-mono whitespace-nowrap">
                     <thead className="bg-black border-b-2 border-zinc-800 text-[10px] text-zinc-500 uppercase tracking-widest">
                       <tr>
-                        <th className="p-4">User Details</th>
-                        <th className="p-4">Tier</th>
-                        <th className="p-4">Status / Risk</th>
-                        <th className="p-4">Lifetime Value</th>
-                        <th className="p-4">Last Active</th>
-                        <th className="p-4 text-right">Inspect</th>
+                        <th className="p-4">{t('adminUiUserDetails')}</th>
+                        <th className="p-4">{t('adminUiTier')}</th>
+                        <th className="p-4">{t('adminUiStatusRisk')}</th>
+                        <th className="p-4">{t('adminUiLifetimeValue')}</th>
+                        <th className="p-4">{t('adminUiLastActive')}</th>
+                        <th className="p-4 text-right">{t('adminUiInspect')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y-2 divide-zinc-900 text-zinc-300 font-bold uppercase tracking-wide">
@@ -287,7 +299,7 @@ export default function AdminUsers() {
                         <tr>
                           <td colSpan="6" className="p-12 text-center text-zinc-500">
                             <Users className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                            NO CLIENTS MATCHING CRITERIA
+                            {t('adminUiNoClientsMatchCriteria')}
                           </td>
                         </tr>
                       ) : (
@@ -308,7 +320,7 @@ export default function AdminUsers() {
                                 'bg-zinc-800 text-zinc-400 border-zinc-600'
                               }`}>
                                 {user.tier === 'VIP' && <Crown className="w-3 h-3" />}
-                                {user.tier}
+                                {getTierLabel(user.tier)}
                               </span>
                             </td>
                             <td className="p-4">
@@ -322,7 +334,7 @@ export default function AdminUsers() {
                                 </span>
                                 {user.behavior?.riskScore > 50 && (
                                   <span className="text-[8px] text-red-500 font-bold flex items-center gap-1">
-                                    <AlertTriangle className="w-2.5 h-2.5" /> HIGH RISK ({user.behavior.riskScore})
+                                    <AlertTriangle className="w-2.5 h-2.5" /> {t('adminUiHighRisk', { score: user.behavior.riskScore })}
                                   </span>
                                 )}
                               </div>
@@ -357,10 +369,10 @@ export default function AdminUsers() {
               <div className="p-2 sm:p-3 lg:p-4 space-y-4">
                 <div className="mb-6">
                   <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2 flex items-center gap-2">
-                    <Crown className="w-5 h-5 text-yellow-400" /> Subscription Ecosystem
+                    <Crown className="w-5 h-5 text-yellow-400" /> {t('adminUiSubscriptionEcosystem')}
                   </h2>
                   <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
-                    DISTRIBUTION AND REVENUE METRICS ACROSS ALL CONSUMER TIERS
+                    {t('adminUiSubscriptionEcosystemDescription')}
                   </p>
                 </div>
 
@@ -373,23 +385,23 @@ export default function AdminUsers() {
                         <Crown className="w-6 h-6 text-yellow-400" />
                       </div>
                       <span className="px-2 py-1 bg-yellow-500 text-black text-[9px] font-black uppercase tracking-widest">
-                        Top Tier
+                        {t('adminUiTopTier')}
                       </span>
                     </div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-1">VIP ACCESS</h3>
-                    <p className="text-xs text-zinc-400 font-mono mb-6">$49.99 / month</p>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-1">{t('commonUiVipAccess')}</h3>
+                    <p className="text-xs text-zinc-400 font-mono mb-6">$49.99 / {t('adminUiMonth')}</p>
 
                     <div className="space-y-4 flex-1">
                       <div className="flex justify-between items-center border-b-2 border-zinc-800 pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Active Subs</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiActiveSubscriptionsShort')}</span>
                         <span className="text-sm font-black text-white">{telemetry.vipCount.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between items-center border-b-2 border-zinc-800 pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">MRR (Est)</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiEstimatedMrr')}</span>
                         <span className="text-sm font-black text-green-400">${(telemetry.vipCount * 49.99).toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
                       </div>
                       <div className="flex justify-between items-center pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Growth (30d)</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiGrowth30Days')}</span>
                         <span className="text-[10px] font-black text-green-400 flex items-center gap-1"><ArrowUpRight className="w-3 h-3" /> +14.2%</span>
                       </div>
                     </div>
@@ -402,23 +414,23 @@ export default function AdminUsers() {
                         <ShieldCheck className="w-6 h-6 text-blue-400" />
                       </div>
                       <span className="px-2 py-1 bg-zinc-800 text-zinc-300 border border-zinc-600 text-[9px] font-black uppercase tracking-widest">
-                        Mid Tier
+                        {t('adminUiMidTier')}
                       </span>
                     </div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-1">PREMIUM</h3>
-                    <p className="text-xs text-zinc-400 font-mono mb-6">$14.99 / month</p>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-1">{t('commonUiTierPremium')}</h3>
+                    <p className="text-xs text-zinc-400 font-mono mb-6">$14.99 / {t('adminUiMonth')}</p>
 
                     <div className="space-y-4 flex-1">
                       <div className="flex justify-between items-center border-b-2 border-zinc-800 pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Active Subs</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiActiveSubscriptionsShort')}</span>
                         <span className="text-sm font-black text-white">{telemetry.premiumCount.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between items-center border-b-2 border-zinc-800 pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">MRR (Est)</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiEstimatedMrr')}</span>
                         <span className="text-sm font-black text-green-400">${(telemetry.premiumCount * 14.99).toLocaleString('en-US', {maximumFractionDigits: 0})}</span>
                       </div>
                       <div className="flex justify-between items-center pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Growth (30d)</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiGrowth30Days')}</span>
                         <span className="text-[10px] font-black text-green-400 flex items-center gap-1"><ArrowUpRight className="w-3 h-3" /> +5.8%</span>
                       </div>
                     </div>
@@ -431,23 +443,23 @@ export default function AdminUsers() {
                         <Users className="w-6 h-6 text-zinc-400" />
                       </div>
                       <span className="px-2 py-1 bg-zinc-800 text-zinc-400 border border-zinc-700 text-[9px] font-black uppercase tracking-widest">
-                        Base Tier
+                        {t('adminUiBaseTier')}
                       </span>
                     </div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-1">STANDARD</h3>
-                    <p className="text-xs text-zinc-400 font-mono mb-6">$0.00 / month (Pay Per Action)</p>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-1">{t('commonUiTierStandard')}</h3>
+                    <p className="text-xs text-zinc-400 font-mono mb-6">$0.00 / {t('adminUiMonth')} ({t('adminUiPayPerAction')})</p>
 
                     <div className="space-y-4 flex-1">
                       <div className="flex justify-between items-center border-b-2 border-zinc-800 pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Active Accounts</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiActiveAccounts')}</span>
                         <span className="text-sm font-black text-white">{Math.max(0, telemetry.totalUsers - telemetry.vipCount - telemetry.premiumCount).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between items-center border-b-2 border-zinc-800 pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Tip Revenue (30d)</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiTipRevenue30Days')}</span>
                         <span className="text-sm font-black text-green-400">$18,450</span>
                       </div>
                       <div className="flex justify-between items-center pb-2">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Growth (30d)</span>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{t('adminUiGrowth30Days')}</span>
                         <span className="text-[10px] font-black text-red-400 flex items-center gap-1"><ArrowDownRight className="w-3 h-3" /> -1.2%</span>
                       </div>
                     </div>
@@ -485,7 +497,7 @@ export default function AdminUsers() {
                     selectedUser.tier === 'PREMIUM' ? 'bg-blue-500/10 text-blue-400 border-blue-500' : 
                     'bg-zinc-800 text-zinc-400 border-zinc-600'
                   }`}>
-                    {selectedUser.tier}
+                    {getTierLabel(selectedUser.tier)}
                   </span>
                   <span className="text-[10px] text-zinc-500 font-bold font-mono ml-2">ID: {selectedUser.id}</span>
                 </div>
@@ -510,7 +522,7 @@ export default function AdminUsers() {
                     drawerTab === tab ? 'border-white text-white' : 'border-transparent text-zinc-600 hover:text-zinc-400'
                   }`}
                 >
-                  {tab}
+                  {t(`adminUiUserDrawerTab${tab.charAt(0) + tab.slice(1).toLowerCase()}`)}
                 </button>
               ))}
             </div>
@@ -525,13 +537,13 @@ export default function AdminUsers() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-zinc-950 border-2 border-zinc-800 p-4">
                       <span className="block text-[9px] text-zinc-500 font-black uppercase tracking-widest mb-1 flex items-center gap-1">
-                        <DollarSign className="w-3 h-3 text-green-500" /> Total LTV
+                        <DollarSign className="w-3 h-3 text-green-500" /> {t('adminUiTotalLtv')}
                       </span>
                       <span className="text-2xl font-black text-green-400">${(selectedUser.totalSpend || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                     </div>
                     <div className="bg-zinc-950 border-2 border-zinc-800 p-4">
                       <span className="block text-[9px] text-zinc-500 font-black uppercase tracking-widest mb-1 flex items-center gap-1">
-                        <MessageSquare className="w-3 h-3 text-blue-500" /> Messages Sent
+                        <MessageSquare className="w-3 h-3 text-blue-500" /> {t('adminUiMessagesSent')}
                       </span>
                       <span className="text-2xl font-black text-white">{(selectedUser.behavior?.messagesSent || 0).toLocaleString()}</span>
                     </div>
@@ -539,28 +551,28 @@ export default function AdminUsers() {
 
                   <div className="bg-black border-2 border-zinc-800 p-6 space-y-4 font-mono">
                     <h4 className="text-[10px] font-black text-white uppercase tracking-widest border-b-2 border-zinc-800 pb-3 flex items-center gap-2">
-                      <Terminal className="w-3 h-3 text-zinc-400" /> Account Metadata
+                      <Terminal className="w-3 h-3 text-zinc-400" /> {t('adminUiAccountMetadata')}
                     </h4>
                     
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-500">Join Date</span>
+                      <span className="text-zinc-500">{t('adminUiJoinDate')}</span>
                       <span className="text-white bg-zinc-900 px-2 py-1">{selectedUser.joinDate}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-500">Last Active</span>
+                      <span className="text-zinc-500">{t('adminUiLastActive')}</span>
                       <span className="text-white bg-zinc-900 px-2 py-1">{selectedUser.lastActive}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-500">Known Location</span>
-                      <span className="text-white">{displayRecordedValue(selectedUser.security?.location, 'No location estimate')}</span>
+                      <span className="text-zinc-500">{t('adminUiKnownLocation')}</span>
+                      <span className="text-white">{displayRecordedValue(selectedUser.security?.location, t('adminUiNoLocationEstimate'))}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-500">Last IP Address</span>
-                      <span className="text-zinc-400">{displayRecordedValue(selectedUser.security?.lastIp)}</span>
+                      <span className="text-zinc-500">{t('adminUiLastIpAddress')}</span>
+                      <span className="text-zinc-400">{displayRecordedValue(selectedUser.security?.lastIp, t('adminUiNotRecorded'))}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold">
-                      <span className="text-zinc-500">Primary Device</span>
-                      <span className="text-zinc-400">{displayRecordedValue(selectedUser.security?.device, 'Device not reported')}</span>
+                      <span className="text-zinc-500">{t('adminUiPrimaryDevice')}</span>
+                      <span className="text-zinc-400">{displayRecordedValue(selectedUser.security?.device, t('adminUiDeviceNotReported'))}</span>
                     </div>
                   </div>
                 </div>
@@ -572,22 +584,22 @@ export default function AdminUsers() {
                   
                   <div className="bg-zinc-950 border-2 border-zinc-800 p-6">
                     <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <CreditCard className="w-4 h-4 text-blue-400" /> Payment Info
+                      <CreditCard className="w-4 h-4 text-blue-400" /> {t('adminUiPaymentInfo')}
                     </h4>
                     <div className="space-y-3 font-mono text-xs">
                       <div className="flex justify-between items-center border-b border-zinc-900 pb-2">
-                        <span className="text-zinc-500 font-bold uppercase">Method</span>
-                        <span className="text-white font-bold">{selectedUser.billing?.paymentMethod || 'None'}</span>
+                        <span className="text-zinc-500 font-bold uppercase">{t('adminUiMethod')}</span>
+                        <span className="text-white font-bold">{selectedUser.billing?.paymentMethod || t('adminUiNone')}</span>
                       </div>
                       <div className="flex justify-between items-center border-b border-zinc-900 pb-2">
-                        <span className="text-zinc-500 font-bold uppercase">Auto-Renew</span>
+                        <span className="text-zinc-500 font-bold uppercase">{t('adminUiAutoRenew')}</span>
                         <span className={`font-black ${selectedUser.billing?.recurring ? 'text-green-400' : 'text-zinc-500'}`}>
-                          {selectedUser.billing?.recurring ? 'ENABLED' : 'DISABLED'}
+                          {selectedUser.billing?.recurring ? t('adminUiEnabled') : t('adminUiDisabled')}
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-500 font-bold uppercase">Next Billing</span>
-                        <span className="text-white font-bold">{selectedUser.billing?.nextBilling || 'N/A'}</span>
+                        <span className="text-zinc-500 font-bold uppercase">{t('adminUiNextBilling')}</span>
+                        <span className="text-white font-bold">{selectedUser.billing?.nextBilling || t('adminUiNotAvailable')}</span>
                       </div>
                     </div>
                   </div>
@@ -598,9 +610,9 @@ export default function AdminUsers() {
                         onClick={() => handleRevokeTier(selectedUser.id)}
                         className="w-full py-3 bg-black border-2 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 text-xs font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
                       >
-                        <UserCheck className="w-4 h-4" /> Revoke {selectedUser.tier} Status
+                        <UserCheck className="w-4 h-4" /> {t('adminUiRevokeTierStatus', { tier: getTierLabel(selectedUser.tier) })}
                       </button>
-                      <p className="text-[8px] text-center text-zinc-600 font-bold uppercase mt-2">Downgrades user to Standard. Does not process a refund.</p>
+                      <p className="text-[8px] text-center text-zinc-600 font-bold uppercase mt-2">{t('adminUiDowngradeNoRefund')}</p>
                     </div>
                   )}
 
@@ -614,7 +626,7 @@ export default function AdminUsers() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-zinc-950 border-2 border-zinc-800 p-4 text-center">
                       <span className="block text-[9px] text-zinc-500 font-black uppercase tracking-widest mb-1 flex items-center justify-center gap-1">
-                        <Activity className="w-3 h-3" /> Risk Score
+                        <Activity className="w-3 h-3" /> {t('adminUiRiskScore')}
                       </span>
                       <span className={`text-3xl font-black ${(selectedUser.behavior?.riskScore || 0) > 80 ? 'text-red-500' : (selectedUser.behavior?.riskScore || 0) > 40 ? 'text-yellow-500' : 'text-green-500'}`}>
                         {selectedUser.behavior?.riskScore || 0}
@@ -623,7 +635,7 @@ export default function AdminUsers() {
                     </div>
                     <div className="bg-zinc-950 border-2 border-zinc-800 p-4 text-center">
                       <span className="block text-[9px] text-zinc-500 font-black uppercase tracking-widest mb-1 flex items-center justify-center gap-1">
-                        <Flag className="w-3 h-3 text-orange-500" /> Active Flags
+                        <Flag className="w-3 h-3 text-orange-500" /> {t('adminUiActiveFlags')}
                       </span>
                       <span className={`text-3xl font-black ${(selectedUser.behavior?.flags || 0) > 0 ? 'text-orange-500' : 'text-zinc-600'}`}>
                         {selectedUser.behavior?.flags || 0}
@@ -633,10 +645,10 @@ export default function AdminUsers() {
 
                   <div className="bg-zinc-950 border-2 border-red-900/50 p-6 space-y-4">
                     <h4 className="text-[10px] font-black text-red-500 uppercase tracking-widest flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" /> Enforcement Action
+                      <AlertTriangle className="w-4 h-4" /> {t('adminUiEnforcementAction')}
                     </h4>
                     <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest leading-relaxed">
-                      Banning a user immediately terminates all active web socket connections, nullifies their auth tokens, and blocks their IP address from future registration.
+                      {t('adminUiBanUserDescription')}
                     </p>
                     
                     <button 
@@ -648,9 +660,9 @@ export default function AdminUsers() {
                       }`}
                     >
                       {selectedUser.status === 'BANNED' ? (
-                        <><ShieldCheck className="w-4 h-4" /> Remove Ban & Restore Access</>
+                        <><ShieldCheck className="w-4 h-4" /> {t('adminUiRemoveBanRestoreAccess')}</>
                       ) : (
-                        <><Ban className="w-4 h-4" /> Terminate Account (Ban)</>
+                        <><Ban className="w-4 h-4" /> {t('adminUiTerminateAccountBan')}</>
                       )}
                     </button>
                   </div>

@@ -123,7 +123,7 @@ export default function Sidebar() {
               <h1 className="font-bold text-xl leading-none text-white tracking-widest uppercase">
                 Chattie
               </h1>
-              <span className="text-[10px] tracking-widest text-zinc-500 uppercase">{role} workspace</span>
+              <span className="text-[10px] tracking-widest text-zinc-500 uppercase">{role} {t('workspace')}</span>
             </div>
           </Link>
           <div className="flex items-center gap-2">
@@ -164,7 +164,7 @@ export default function Sidebar() {
           </NavLink>
           <NavLink to="/support" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <LifeBuoy className="w-5 h-5" />
-            <span className="text-[9px] font-bold uppercase">Support</span>
+            <span className="text-[9px] font-bold uppercase">{t('coreUiSupport')}</span>
           </NavLink>
         </div>
 
@@ -211,7 +211,7 @@ export default function Sidebar() {
                 className="p-6 text-center text-xs uppercase border-2 border-dashed w-full"
                 style={{ color: 'var(--warning)', borderColor: 'var(--border)' }}
               >
-                {t('unableFetchGroups')} · Retry
+                {t('unableFetchGroups')} · {t('coreUiRetry')}
               </button>
             ) : rooms.length === 0 ? (
               <div className="p-6 text-center text-xs uppercase border-2 border-dashed" style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}>
@@ -310,9 +310,9 @@ export default function Sidebar() {
           )}
           <div>
             <p className="max-w-[clamp(5rem,10vw,8rem)] truncate text-xs font-bold uppercase flex items-center gap-1" style={{ color: 'var(--text-primary)' }}>
-              {user.name || 'My Account'} <ShieldCheck className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
+              {user.name || t('myAccount')} <ShieldCheck className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
             </p>
-            <p className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--success)' }}>Online</p>
+            <p className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: 'var(--success)' }}>{t('online')}</p>
           </div>
         </Link>
         <Link to="/settings" className="p-2 transition-colors" style={{ color: 'var(--text-secondary)' }}>

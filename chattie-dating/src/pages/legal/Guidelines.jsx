@@ -14,49 +14,49 @@ const GUIDELINES_DATA = [
   {
     id: 'rule-1',
     icon: HeartHandshake,
-    title: 'Respect the Vibe',
-    short: 'Keep the factory safe, fun, and respectful.',
-    details: 'We are a community built on mutual respect. Harassment, hate speech, bullying, and unsolicited explicit content will result in an immediate and permanent ban.',
+    titleKey: 'coreUiGuidelineRespectTitle',
+    shortKey: 'coreUiGuidelineRespectShort',
+    detailsKey: 'coreUiGuidelineRespectDetails',
     bullets: [
-      'No hate speech, racism, or bigotry of any kind.',
-      'Unsolicited explicit images (NSFW) are strictly prohibited.',
-      'Do not harass or continually message users who have asked to be left alone.'
+      'coreUiGuidelineRespectBullet1',
+      'coreUiGuidelineRespectBullet2',
+      'coreUiGuidelineRespectBullet3'
     ]
   },
   {
     id: 'rule-2',
     icon: UserCheck,
-    title: 'Be Genuine',
-    short: 'No catfishing, impersonation, or fake accounts.',
-    details: 'Your profile pictures must be of you. We reserve the right to request photo verification if your account is flagged. Authenticity is the core of our platform.',
+    titleKey: 'coreUiGuidelineGenuineTitle',
+    shortKey: 'coreUiGuidelineGenuineShort',
+    detailsKey: 'coreUiGuidelineGenuineDetails',
     bullets: [
-      'Use accurate, recent photos of yourself.',
-      'Do not impersonate public figures or other users.',
-      'Do not lie about your age (you must be 18+ to use this app).'
+      'coreUiGuidelineGenuineBullet1',
+      'coreUiGuidelineGenuineBullet2',
+      'coreUiGuidelineGenuineBullet3'
     ]
   },
   {
     id: 'rule-3',
     icon: ShieldBan,
-    title: 'No Spam or Solicitation',
-    short: 'TextFactory is for making connections, not selling.',
-    details: 'This platform is for meeting people, not promoting your business, social media accounts, or directing users to third-party sites.',
+    titleKey: 'coreUiGuidelineSpamTitle',
+    shortKey: 'coreUiGuidelineSpamShort',
+    detailsKey: 'coreUiGuidelineSpamDetails',
     bullets: [
-      'No selling premium content or redirecting to adult platforms.',
-      'Do not use the app to recruit for jobs or businesses.',
-      'Copy-pasting identical messages to dozens of users is flagged as spam.'
+      'coreUiGuidelineSpamBullet1',
+      'coreUiGuidelineSpamBullet2',
+      'coreUiGuidelineSpamBullet3'
     ]
   },
   {
     id: 'rule-4',
     icon: MessageSquareOff,
-    title: 'Private Info Stays Private',
-    short: 'Do not share personal info publicly.',
-    details: 'Protect yourself and others. Never post phone numbers, addresses, financial information, or private passwords in public rooms.',
+    titleKey: 'coreUiGuidelinePrivacyTitle',
+    shortKey: 'coreUiGuidelinePrivacyShort',
+    detailsKey: 'coreUiGuidelinePrivacyDetails',
     bullets: [
-      'Do not share other users\' private information (Doxxing).',
-      'Keep financial details entirely off the platform.',
-      'Use direct messages for sharing contact info, only when you feel safe.'
+      'coreUiGuidelinePrivacyBullet1',
+      'coreUiGuidelinePrivacyBullet2',
+      'coreUiGuidelinePrivacyBullet3'
     ]
   }
 ];
@@ -71,15 +71,21 @@ export default function Guidelines() {
   const [expandedId, setExpandedId] = useState('rule-1');
   const [hasAgreed, setHasAgreed] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
-
   // --- FILTERING ---
   const filteredGuidelines = useMemo(() => {
-    if (!searchQuery.trim()) return GUIDELINES_DATA;
+    const localizedGuidelines = GUIDELINES_DATA.map((rule) => ({
+      ...rule,
+      title: t(rule.titleKey),
+      short: t(rule.shortKey),
+      details: t(rule.detailsKey),
+      bullets: rule.bullets.map((key) => t(key)),
+    }));
+    if (!searchQuery.trim()) return localizedGuidelines;
     const q = searchQuery.toLowerCase();
-    return GUIDELINES_DATA.filter(
+    return localizedGuidelines.filter(
       rule => rule.title.toLowerCase().includes(q) || rule.details.toLowerCase().includes(q)
     );
-  }, [searchQuery]);
+  }, [searchQuery, t]);
 
   // --- HANDLERS ---
   const toggleExpand = (id) => {
@@ -121,7 +127,7 @@ export default function Guidelines() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input 
               type="text" 
-              placeholder="SEARCH POLICIES..."
+              placeholder={t('coreUiSearchPolicies')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-black border-2 border-zinc-800 rounded-none pl-9 pr-4 py-2.5 text-[10px] font-bold text-white uppercase tracking-widest focus:outline-none focus:border-white transition-colors placeholder:text-zinc-700"
@@ -143,7 +149,7 @@ export default function Guidelines() {
               <div className="bg-zinc-950 border-2 border-zinc-800 p-4">
                 <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">{t('quickLinks')}</h3>
                 <nav className="space-y-2">
-                  {GUIDELINES_DATA.map(rule => (
+                  {localizedGuidelines.map(rule => (
                     <button
                       key={`link-${rule.id}`}
                       onClick={() => {
@@ -165,13 +171,13 @@ export default function Guidelines() {
                 <AlertOctagon className="w-8 h-8 text-red-500 mx-auto mb-3" />
                   <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-2">{t('seeViolation')}</h3>
                 <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4 leading-relaxed font-bold">
-                  Help us keep the community safe. Report bad behavior immediately.
+                  {t('coreUiGuidelinesReportDescription')}
                 </p>
                 <button 
                   onClick={() => setShowReportModal(true)}
                   className="w-full py-2.5 bg-red-600 border-2 border-red-600 hover:bg-red-700 text-white text-[10px] font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
                 >
-                  <Flag className="w-3.5 h-3.5" /> Report User
+                  <Flag className="w-3.5 h-3.5" /> {t('coreUiReportUser')}
                 </button>
               </div>
             </div>
@@ -186,7 +192,7 @@ export default function Guidelines() {
               <div>
                 <h3 className="text-red-500 font-bold mb-1 text-xs uppercase tracking-widest">{t('zeroTolerance')}</h3>
                 <p className="text-[10px] text-zinc-400 uppercase tracking-widest leading-relaxed font-bold">
-                  Users caught violating these terms in public rooms or direct messages will have their accounts immediately terminated without a refund. We cooperate fully with law enforcement when required.
+                  {t('coreUiGuidelinesZeroTolerance')}
                 </p>
               </div>
             </div>
@@ -245,7 +251,7 @@ export default function Guidelines() {
                               {rule.details}
                             </p>
                             <div className="bg-black border-2 border-zinc-800 p-4">
-                              <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">SPECIFIC VIOLATIONS INCLUDE:</h4>
+                              <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">{t('coreUiSpecificViolations')}</h4>
                               <ul className="space-y-3">
                                 {rule.bullets.map((bullet, i) => (
                                   <li key={i} className="flex items-start gap-3 text-[10px] text-zinc-300 font-bold uppercase tracking-widest">
@@ -292,7 +298,7 @@ export default function Guidelines() {
               }
             `}
           >
-            {hasAgreed ? 'AGREED' : 'I AGREE'}
+            {hasAgreed ? t('coreUiAgreed') : t('coreUiIAgree')}
           </button>
         </div>
       </div>
@@ -308,7 +314,7 @@ export default function Guidelines() {
             
             <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
               <h2 className="font-bold text-xs text-white uppercase tracking-widest flex items-center gap-2">
-                <Flag className="w-4 h-4 text-zinc-400" /> Report a Violation
+                <Flag className="w-4 h-4 text-zinc-400" /> {t('coreUiReportViolation')}
               </h2>
               <button onClick={() => setShowReportModal(false)} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors">
                 <X className="w-4 h-4" />
@@ -317,37 +323,37 @@ export default function Guidelines() {
 
             <form onSubmit={handleReportSubmit} className="p-6 overflow-y-auto custom-scrollbar">
               <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6 leading-relaxed">
-                YOUR REPORT IS ANONYMOUS. PLEASE PROVIDE AS MUCH DETAIL AS POSSIBLE SO OUR MODERATION TEAM CAN INVESTIGATE SWIFTLY.
+                {t('coreUiAnonymousReportNotice')}
               </p>
               
               <div className="space-y-4 mb-8">
                 <div>
-                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">TYPE OF VIOLATION</label>
+                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">{t('coreUiViolationType')}</label>
                   <select required className="w-full h-10 bg-black border-2 border-zinc-800 px-3 text-[10px] font-bold uppercase tracking-widest text-white focus:border-white outline-none appearance-none cursor-pointer rounded-none">
-                    <option value="" disabled selected>SELECT AN OPTION...</option>
-                    <option value="harassment">HARASSMENT OR BULLYING</option>
-                    <option value="fake">FAKE PROFILE / IMPERSONATION</option>
-                    <option value="spam">SPAM OR SOLICITATION</option>
-                    <option value="explicit">UNSOLICITED EXPLICIT CONTENT</option>
-                    <option value="other">OTHER</option>
+                    <option value="" disabled selected>{t('coreUiSelectAnOption')}</option>
+                    <option value="harassment">{t('coreUiHarassmentBullying')}</option>
+                    <option value="fake">{t('coreUiFakeProfileImpersonation')}</option>
+                    <option value="spam">{t('coreUiSpamSolicitation')}</option>
+                    <option value="explicit">{t('coreUiUnsolicitedExplicitContent')}</option>
+                    <option value="other">{t('coreUiOther')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">OFFENDER'S USERNAME (OPTIONAL)</label>
+                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">{t('coreUiOffenderUsernameOptional')}</label>
                   <input 
                     type="text" 
-                    placeholder="E.G. USER123"
+                    placeholder={t('coreUiUsernameExample')}
                     className="w-full h-10 bg-black border-2 border-zinc-800 px-3 text-[10px] font-bold uppercase tracking-widest text-white focus:border-white outline-none placeholder:text-zinc-700 rounded-none"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">DESCRIPTION</label>
+                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">{t('coreUiDescription')}</label>
                   <textarea 
                     required
                     rows="4"
-                    placeholder="PLEASE DESCRIBE WHAT HAPPENED..."
+                    placeholder={t('coreUiDescribeWhatHappened')}
                     className="w-full bg-black border-2 border-zinc-800 p-3 text-[10px] font-bold uppercase tracking-widest text-white focus:border-white outline-none resize-none custom-scrollbar placeholder:text-zinc-700 rounded-none"
                   ></textarea>
                 </div>
@@ -359,13 +365,13 @@ export default function Guidelines() {
                   onClick={() => setShowReportModal(false)}
                   className="flex-1 py-3 text-[10px] font-bold uppercase tracking-widest text-zinc-500 border-2 border-zinc-800 hover:text-white bg-black hover:border-zinc-500 transition-colors"
                 >
-                  CANCEL
+                  {t('cancel')}
                 </button>
                 <button 
                   type="submit"
                   className="flex-1 py-3 text-[10px] font-bold uppercase tracking-widest text-black bg-white border-2 border-white hover:bg-zinc-200 transition-colors"
                 >
-                  SUBMIT REPORT
+                  {t('coreUiSubmitReport')}
                 </button>
               </div>
             </form>

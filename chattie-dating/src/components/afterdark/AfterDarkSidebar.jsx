@@ -17,7 +17,7 @@ export default function AfterDarkSidebar() {
   const location = useLocation();
   const { t } = useI18n();
   const currentUser = useAppStore(state => state.user) || { 
-    name: 'Guest User', 
+    name: t('afterDarkUiGuestUser'),
     avatar: '', 
     tier: 'STANDARD',
     isCreator: false,
@@ -51,11 +51,11 @@ export default function AfterDarkSidebar() {
       })
       .catch((error) => {
         if (active) {
-          toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not verify creator access.'));
+          toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCreatorAccessCheckFailed')));
         }
       });
     return () => { active = false; };
-  }, [setCreatorApplicationStatus, setCreatorStatus]);
+  }, [setCreatorApplicationStatus, setCreatorStatus, t]);
 
   // Navigation structure
   const MAIN_LINKS = [
@@ -101,17 +101,17 @@ export default function AfterDarkSidebar() {
       } else if (['approved', 'active'].includes(status)) {
         setCreatorStatus(false);
         setCreatorApplicationStatus(status);
-        toast.info('Your application is approved, but your creator profile is not active. Check creator settings or contact support.');
+        toast.info(t('afterDarkUiApprovedProfileInactive'));
       } else {
         setCreatorStatus(false);
         setCreatorApplicationStatus(status || creatorApplicationStatus || 'pending');
-        toast.info('Creator tools and uploads are available after your application is approved.');
+        toast.info(t('afterDarkUiToolsAfterApproval'));
       }
     } catch (error) {
       if (creatorApplicationStatus === 'pending') {
-        toast.info('Your creator application is pending review. Uploading is unavailable until approval.');
+        toast.info(t('afterDarkUiApplicationPendingUpload'));
       } else {
-        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not verify creator approval.'));
+        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCreatorApprovalCheckFailed')));
       }
     } finally {
       setIsCheckingCreator(false);
@@ -256,7 +256,7 @@ export default function AfterDarkSidebar() {
           <div className="relative">
             <img 
               src={currentUser.avatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&q=80'} 
-              alt="Profile" 
+              alt={t('afterDarkUiProfile')}
               className="w-9 h-9 object-cover border border-zinc-700 grayscale group-hover:grayscale-0 transition-all"
             />
             {creatorMode && (
@@ -298,7 +298,7 @@ export default function AfterDarkSidebar() {
           } else {
             setCreatorStatus(false);
             setCreatorApplicationStatus(status || 'pending');
-            toast.success('Your creator application was submitted. Creator tools will be available after approval.');
+            toast.success(t('afterDarkUiApplicationSubmitted'));
           }
           setShowOptIn(false);
         }}

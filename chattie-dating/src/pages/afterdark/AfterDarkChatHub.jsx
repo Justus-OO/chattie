@@ -12,6 +12,7 @@ import MpesaPaystackModal from '../../components/afterdark/MpesaPaystackModal';
 import { useAppDialogs } from '../../components/modals/useAppDialogs';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
+import { useI18n } from '../../i18n';
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
 const CALL_REACTIONS = ['❤️', '👍', '😂', '🔥', '😮', '🙏'];
@@ -76,6 +77,7 @@ const mergeMessages = (currentMessages, incomingMessages) => {
 };
 
 function MessageBubble({ message, isMine, revealExplicitByDefault, fontSize, theme, replyPreview, onReply, onPin, onReact, pinning }) {
+  const { t } = useI18n();
   const [revealed, setRevealed] = useState(!message.isExplicit || revealExplicitByDefault);
   const hasMedia = Boolean(message.media?.url || message.media?.dataUrl);
 
@@ -87,14 +89,14 @@ function MessageBubble({ message, isMine, revealExplicitByDefault, fontSize, the
       >
         {message.replyToMessageId && (
           <div className="mb-2 border-l-2 border-yellow-400 bg-black/30 px-2 py-1 text-[10px] text-zinc-400">
-            <span className="block font-bold text-yellow-400">{replyPreview?.isMine ? 'You' : replyPreview?.senderName || 'Reply'}</span>
-            <span className="block max-w-[clamp(10rem,45vw,18rem)] truncate">{replyPreview?.text || 'Replied to a message'}</span>
+            <span className="block font-bold text-yellow-400">{replyPreview?.isMine ? t('afterDarkUiYou') : replyPreview?.senderName || t('afterDarkUiReply')}</span>
+            <span className="block max-w-[clamp(10rem,45vw,18rem)] truncate">{replyPreview?.text || t('afterDarkUiRepliedToMessage')}</span>
           </div>
         )}
         {message.isExplicit && !revealed && (
           <button type="button" onClick={() => setRevealed(true)} className="mb-2 flex w-full items-center gap-2 border-2 border-zinc-700 bg-black p-3 text-left text-[10px] font-bold text-zinc-300">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            Explicit media hidden. Tap to reveal.
+            {t('afterDarkUiExplicitMediaHiddenTapReveal')}
           </button>
         )}
         {hasMedia && (
@@ -102,16 +104,16 @@ function MessageBubble({ message, isMine, revealExplicitByDefault, fontSize, the
             {message.media.type === 'video' || message.media.type?.startsWith('video/') ? (
               <video src={message.media.url || message.media.dataUrl} controls={revealed} className={`max-h-[65dvh] max-w-full ${!revealed ? 'blur-xl' : ''}`} />
             ) : (
-              <img src={message.media.url || message.media.dataUrl} alt={message.media.name || 'Shared media'} className={`max-h-[65dvh] max-w-full object-contain ${!revealed ? 'blur-xl' : ''}`} />
+              <img src={message.media.url || message.media.dataUrl} alt={message.media.name || t('afterDarkUiSharedMedia')} className={`max-h-[65dvh] max-w-full object-contain ${!revealed ? 'blur-xl' : ''}`} />
             )}
-            {!revealed && <button type="button" onClick={() => setRevealed(true)} className="absolute inset-0" aria-label="Reveal explicit media" />}
+            {!revealed && <button type="button" onClick={() => setRevealed(true)} className="absolute inset-0" aria-label={t('afterDarkUiRevealExplicitMedia')} />}
           </div>
         )}
         {message.text && <p className={`whitespace-pre-wrap break-words ${fontSize} ${message.isExplicit && !revealed ? 'select-none blur-sm' : ''}`}>{message.text}</p>}
-        {message.isExplicit && revealed && <p className="mt-1 text-[8px] font-bold uppercase tracking-widest text-zinc-500">18+ content</p>}
+        {message.isExplicit && revealed && <p className="mt-1 text-[8px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUi18PlusContent')}</p>}
         {message.messageKind === 'call_event' && (
           <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-yellow-400">
-            {message.callMode === 'video' ? 'Video call' : 'Voice call'}
+            {t(message.callMode === 'video' ? 'afterDarkUiVideoCall' : 'afterDarkUiVoiceCall')}
           </p>
         )}
         <div className="mt-1 flex items-center justify-end gap-1 text-[8px] text-zinc-500">
@@ -122,14 +124,14 @@ function MessageBubble({ message, isMine, revealExplicitByDefault, fontSize, the
           {CALL_REACTIONS.map(emoji => {
             const reaction = message.reactions.find(item => item.emoji === emoji);
             return (
-              <button key={emoji} type="button" onClick={() => onReact(message.id, emoji)} aria-label={`React ${emoji}`} className={`px-1.5 py-0.5 text-[10px] transition-colors ${reaction?.reacted ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:bg-zinc-800 hover:text-white'}`}>
+              <button key={emoji} type="button" onClick={() => onReact(message.id, emoji)} aria-label={t('afterDarkUiReactToEmoji', { emoji })} className={`px-1.5 py-0.5 text-[10px] transition-colors ${reaction?.reacted ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:bg-zinc-800 hover:text-white'}`}>
                 {emoji}{reaction?.count > 0 ? ` ${reaction.count}` : ''}
               </button>
             );
           })}
           <span className="flex-1" />
-          <button type="button" onClick={() => onReply(message)} title="Reply" aria-label="Reply" className="p-1 text-zinc-500 hover:text-white"><Reply className="h-3.5 w-3.5" /></button>
-          <button type="button" disabled={pinning} onClick={() => onPin(message)} title={message.isPinned ? 'Unpin message' : 'Pin message'} aria-label={message.isPinned ? 'Unpin message' : 'Pin message'} className={`p-1 disabled:opacity-50 ${message.isPinned ? 'text-yellow-400' : 'text-zinc-500 hover:text-white'}`}>
+          <button type="button" onClick={() => onReply(message)} title={t('afterDarkUiReply')} aria-label={t('afterDarkUiReply')} className="p-1 text-zinc-500 hover:text-white"><Reply className="h-3.5 w-3.5" /></button>
+          <button type="button" disabled={pinning} onClick={() => onPin(message)} title={t(message.isPinned ? 'afterDarkUiUnpinMessage' : 'afterDarkUiPinMessage')} aria-label={t(message.isPinned ? 'afterDarkUiUnpinMessage' : 'afterDarkUiPinMessage')} className={`p-1 disabled:opacity-50 ${message.isPinned ? 'text-yellow-400' : 'text-zinc-500 hover:text-white'}`}>
             {pinning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : message.isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
           </button>
         </div>
@@ -139,6 +141,7 @@ function MessageBubble({ message, isMine, revealExplicitByDefault, fontSize, the
 }
 
 function AfterDarkCallStage({ peerName, mode }) {
+  const { t } = useI18n();
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const cameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
@@ -156,21 +159,22 @@ function AfterDarkCallStage({ peerName, mode }) {
         </div>
       )}
       <span className="absolute bottom-3 left-3 bg-black/75 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-white">
-        {local ? 'You' : participant?.name || name}
+        {local ? t('afterDarkUiYou') : participant?.name || name}
       </span>
-      {!local && !participant && <span className="absolute top-3 right-3 text-[9px] uppercase tracking-widest text-yellow-400">Connecting…</span>}
+      {!local && !participant && <span className="absolute top-3 right-3 text-[9px] uppercase tracking-widest text-yellow-400">{t('afterDarkUiConnecting')}</span>}
     </div>
   );
 
   return (
     <div className={`grid w-full min-w-0 flex-1 gap-2 p-2 sm:gap-3 sm:p-3 ${mode === 'video' ? 'md:grid-cols-2' : 'md:grid-cols-2'}`}>
-      {tile(localParticipant, localCamera, 'You', true)}
+      {tile(localParticipant, localCamera, t('afterDarkUiYou'), true)}
       {tile(remote, remoteCamera, peerName)}
     </div>
   );
 }
 
 export default function AfterDarkChatHub() {
+  const { t } = useI18n();
   const { confirm, prompt } = useAppDialogs();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -265,10 +269,10 @@ export default function AfterDarkChatHub() {
         ? { conversation_id: contact.conversationId }
         : await afterDarkService.initConversation(contact.id);
       const id = thread?.conversation_id || thread?.id;
-      if (!id) throw new Error('The conversation service did not return a conversation ID.');
+      if (!id) throw new Error(t('afterDarkUiConversationIdMissing'));
       const response = await afterDarkService.getMessages(id);
       const records = Array.isArray(response) ? response : response?.messages || response?.items || [];
-      if (!Array.isArray(records)) throw new Error('The message service returned invalid history.');
+      if (!Array.isArray(records)) throw new Error(t('afterDarkUiInvalidMessagesResponse'));
       setConversationId(id);
       setMessages(records.map(message => normalizeMessage(message, currentUserId)).reverse());
       setContacts(current => current.map(item => item.id === contact.id ? {
@@ -280,11 +284,11 @@ export default function AfterDarkChatHub() {
       } : item));
       await afterDarkService.markConversationRead(id);
     } catch (error) {
-      setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load this conversation.'));
+      setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiConversationLoadFailed')));
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [currentUserId]);
+  }, [currentUserId, t]);
 
   useEffect(() => {
     let active = true;
@@ -296,7 +300,7 @@ export default function AfterDarkChatHub() {
       const records = Array.isArray(conversationResponse)
         ? conversationResponse
         : conversationResponse?.conversations || conversationResponse?.items || [];
-      if (!Array.isArray(records)) throw new Error('The conversation list returned invalid data.');
+      if (!Array.isArray(records)) throw new Error(t('afterDarkUiConversationListInvalid'));
       const normalized = records.map(normalizeConversation);
       const routeId = searchParams.get('creator');
       if (routeId && routeCreator && !normalized.some(contact => contact.id === routeId)) {
@@ -306,12 +310,12 @@ export default function AfterDarkChatHub() {
       const settings = settingsResponse?.settings || settingsResponse || {};
       setRevealExplicitByDefault(Boolean(settings.show_explicit_content ?? settings.showExplicitContent));
     }).catch(error => {
-      if (active) setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load conversations.'));
+      if (active) setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiConversationsLoadFailed')));
     }).finally(() => {
       if (active) setIsLoadingContacts(false);
     });
     return () => { active = false; };
-  }, [routeCreator, searchParams]);
+  }, [routeCreator, searchParams, t]);
 
   useEffect(() => {
     const preferenceKey = `afterdark-chat-preferences:${currentUserId || 'guest'}`;
@@ -350,7 +354,7 @@ export default function AfterDarkChatHub() {
           await afterDarkService.markConversationRead(conversationId);
         }
       } catch (error) {
-        if (active) setLoadError(error?.response?.data?.error || 'Could not refresh this conversation.');
+        if (active) setLoadError(error?.response?.data?.error || t('afterDarkUiConversationLoadFailed'));
       }
     };
     const connect = () => {
@@ -412,7 +416,7 @@ export default function AfterDarkChatHub() {
       socket?.close();
       if (socketRef.current === socket) socketRef.current = null;
     };
-  }, [conversationId, appToken, currentUserId]);
+  }, [conversationId, appToken, currentUserId, t]);
 
   useEffect(() => {
     const creatorId = searchParams.get('creator');
@@ -462,11 +466,11 @@ export default function AfterDarkChatHub() {
     event.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-      toast.error('Please choose an image or video file.');
+      toast.error(t('afterDarkUiChooseImageOrVideo'));
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
-      toast.error('Attachments must be 20 MB or smaller.');
+      toast.error(t('afterDarkUiAttachmentMax20Mb'));
       return;
     }
     setAttachment({
@@ -487,7 +491,7 @@ export default function AfterDarkChatHub() {
       if (attachment) {
         const upload = await afterDarkService.uploadMessageAttachment(conversationId, attachment.file);
         mediaAssetId = upload?.media_asset_id || upload?.asset_id || upload?.id;
-        if (!mediaAssetId) throw new Error('The media service did not return an attachment ID.');
+        if (!mediaAssetId) throw new Error(t('afterDarkUiMediaAttachmentIdMissing'));
       }
       const message = await afterDarkService.sendMessage(conversationId, {
         content: draft.trim(),
@@ -503,7 +507,7 @@ export default function AfterDarkChatHub() {
       setIsExplicit(false);
       setReplyingTo(null);
     } catch (error) {
-      setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not send this message.'));
+      setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiSendMessageFailed')));
     } finally {
       setIsSending(false);
     }
@@ -526,7 +530,7 @@ export default function AfterDarkChatHub() {
       await afterDarkService.pinMessage(conversationId, message.id, pinned);
       setMessages(current => current.map(item => item.id === message.id ? { ...item, isPinned: pinned } : item));
     } catch (error) {
-      setLoadError(error?.response?.data?.error || 'Could not update the pinned message.');
+      setLoadError(error?.response?.data?.error || t('afterDarkUiPinnedMessageUpdateFailed'));
     } finally {
       setPinningMessageId('');
     }
@@ -540,7 +544,7 @@ export default function AfterDarkChatHub() {
         ? { ...message, reactions: result.reactions || [] }
         : message));
     } catch (error) {
-      setLoadError(error?.response?.data?.error || 'Could not update this reaction.');
+      setLoadError(error?.response?.data?.error || t('afterDarkUiReactionUpdateFailed'));
     }
   };
 
@@ -573,7 +577,7 @@ export default function AfterDarkChatHub() {
         resolve(currentSocket);
       } else if (Date.now() - startedAt > 8000) {
         window.clearInterval(timer);
-        reject(new Error('Call signaling is not connected. Please retry.'));
+        reject(new Error(t('afterDarkUiCallSignalingUnavailable')));
       }
     }, 100);
   });
@@ -735,7 +739,7 @@ export default function AfterDarkChatHub() {
       const response = await afterDarkService.getConversationCallToken(conversationId, currentUserName || 'After Dark member');
       const targetId = response?.target_user_id || selectedContact.id;
       if (!response?.token || response.room_id !== getAfterDarkCallRoomId(currentUserId, targetId)) {
-        throw new Error('The secure call token did not match this conversation.');
+        throw new Error(t('afterDarkUiCallTokenMismatch'));
       }
       const pending = {
         roomId: response.room_id,
@@ -769,7 +773,7 @@ export default function AfterDarkChatHub() {
       }
     } catch (error) {
       resetCallState();
-      setLoadError(error?.response?.data?.error || error.message || 'Could not start this call.');
+      setLoadError(error?.response?.data?.error || error.message || t('afterDarkUiStartCallFailed'));
     } finally {
       setIsConnectingCall(false);
     }
@@ -782,7 +786,7 @@ export default function AfterDarkChatHub() {
     try {
       const response = await afterDarkService.getConversationCallToken(call.conversationId, currentUserName || 'After Dark member');
       if (!response?.token || response.room_id !== call.roomId) {
-        throw new Error('The secure call token did not match the incoming call.');
+        throw new Error(t('afterDarkUiIncomingCallTokenMismatch'));
       }
       await sendCallSignal('call_answered', call.fromId, { room_id: call.roomId });
       setCallMode(call.mode);
@@ -794,7 +798,7 @@ export default function AfterDarkChatHub() {
       incomingCallRef.current = null;
       setIncomingCall(null);
     } catch (error) {
-      setLoadError(error?.response?.data?.error || error.message || 'Could not answer this call.');
+      setLoadError(error?.response?.data?.error || error.message || t('afterDarkUiAnswerCallFailed'));
     } finally {
       setIsConnectingCall(false);
     }
@@ -827,9 +831,9 @@ export default function AfterDarkChatHub() {
   const handleBlock = async () => {
     if (!conversationId || !selectedContact || selectedContact.blockedMe) return;
     const shouldBlock = !selectedContact.blockedByMe;
-    if (shouldBlock && !await confirm(`Block ${selectedContact.name}? They will no longer be able to message you.`, {
-      title: 'Block contact',
-      confirmLabel: 'Block',
+    if (shouldBlock && !await confirm(t('afterDarkUiBlockPersonConfirm', { name: selectedContact.name }), {
+      title: t('afterDarkUiBlockContactTitle'),
+      confirmLabel: t('afterDarkUiBlock'),
       tone: 'danger',
     })) return;
     try {
@@ -838,23 +842,23 @@ export default function AfterDarkChatHub() {
         ? { ...contact, blockedByMe: shouldBlock }
         : contact));
     } catch (error) {
-      setLoadError(error?.response?.data?.error || 'Could not update the block setting.');
+      setLoadError(error?.response?.data?.error || t('afterDarkUiBlockSettingUpdateFailed'));
     }
   };
 
   const handleReport = async () => {
     if (!selectedContact) return;
-    const reason = await prompt(`Why are you reporting ${selectedContact.name}?`, {
-      title: 'Report contact',
-      inputLabel: 'Reason',
-      placeholder: 'Enter the reason for this report',
-      defaultValue: 'Harassment',
+    const reason = await prompt(t('afterDarkUiReportPersonPrompt', { name: selectedContact.name }), {
+      title: t('afterDarkUiReportContactTitle'),
+      inputLabel: t('afterDarkUiReason'),
+      placeholder: t('afterDarkUiReportReasonPlaceholder'),
+      defaultValue: t('afterDarkUiHarassment'),
     });
     if (!reason?.trim()) return;
-    const details = (await prompt('Add any helpful details (optional).', {
-      title: 'Report details',
-      inputLabel: 'Details',
-      placeholder: 'Optional',
+    const details = (await prompt(t('afterDarkUiHelpfulDetailsOptional'), {
+      title: t('afterDarkUiReportDetails'),
+      inputLabel: t('afterDarkUiDetails'),
+      placeholder: t('afterDarkUiOptional'),
     })) || '';
     try {
       await afterDarkService.submitReport({
@@ -863,7 +867,7 @@ export default function AfterDarkChatHub() {
         reason: reason.trim(),
         details: details.trim(),
       });
-      toast.success('Your report has been sent to Trust & Safety.');
+      toast.success(t('afterDarkUiReportSentTrustSafety'));
     } catch (error) {
       setLoadError(error?.response?.data?.error || 'Could not submit your report.');
     }
@@ -875,12 +879,12 @@ export default function AfterDarkChatHub() {
         <div className="flex min-w-0 items-center gap-3">
           <div className="border-2 border-zinc-600 bg-black p-2.5"><MessageCircle className="h-5 w-5 text-white" /></div>
           <div>
-            <h1 className="text-lg font-black uppercase tracking-widest text-white">{isCreator ? 'Customer messages' : 'After Dark chats'}</h1>
-            <p className="mt-0.5 text-[10px] uppercase tracking-widest text-zinc-500">{isCreator ? 'Private conversations with your subscribers' : 'Conversations with creators'}</p>
+            <h1 className="text-lg font-black uppercase tracking-widest text-white">{t(isCreator ? 'afterDarkUiCustomerMessages' : 'afterDarkUiAfterDarkChats')}</h1>
+            <p className="mt-0.5 text-[10px] uppercase tracking-widest text-zinc-500">{t(isCreator ? 'afterDarkUiPrivateSubscriberConversations' : 'afterDarkUiConversationsWithCreators')}</p>
           </div>
         </div>
         <button type="button" onClick={() => navigate('/afterdark/feed')} className="flex shrink-0 items-center gap-2 border-2 border-zinc-800 px-3 py-2 text-xs font-bold uppercase tracking-widest text-zinc-400 transition-colors hover:border-white hover:text-white">
-          <ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back to feed</span>
+          <ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">{t('afterDarkUiBackToFeed')}</span>
         </button>
       </header>
 
@@ -889,16 +893,16 @@ export default function AfterDarkChatHub() {
           <div className="p-4">
             <label className="relative block">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-              <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search conversations..." className="w-full border-2 border-zinc-800 bg-black py-3 pl-10 pr-3 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-white" />
+              <input value={search} onChange={event => setSearch(event.target.value)} placeholder={t('afterDarkUiSearchConversations')} className="w-full border-2 border-zinc-800 bg-black py-3 pl-10 pr-3 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-white" />
             </label>
           </div>
           <div className="flex gap-5 border-b-2 border-zinc-800 px-5 text-[10px] font-bold uppercase tracking-widest">
-            <span className="border-b-2 border-white pb-3 text-white">All chats</span>
-            <span className="pb-3 text-zinc-500">{isCreator ? 'Customers' : 'Creators'}</span>
+            <span className="border-b-2 border-white pb-3 text-white">{t('afterDarkUiAllChats')}</span>
+            <span className="pb-3 text-zinc-500">{t(isCreator ? 'afterDarkUiCustomers' : 'afterDarkUiCreators')}</span>
           </div>
           <div className="flex-1 overflow-y-auto">
             {isLoadingContacts ? (
-              <p role="status" className="p-6 text-center text-sm text-zinc-500">Loading conversations…</p>
+              <p role="status" className="p-6 text-center text-sm text-zinc-500">{t('afterDarkUiLoadingConversations')}</p>
             ) : filteredContacts.map(contact => {
               const last = latestMessage(contact);
               const isSelected = selectedId === contact.id;
@@ -913,57 +917,57 @@ export default function AfterDarkChatHub() {
                       <span className="truncate text-sm font-semibold text-white">{contact.name}</span>
                       <span className="shrink-0 text-[10px] text-zinc-600">{last?.created_at || last?.createdAt ? new Date(last.created_at || last.createdAt).toLocaleDateString() : ''}</span>
                     </span>
-                    <span className="mt-1 block truncate text-xs text-zinc-500">{last ? `${last.isMine || last.is_mine ? 'You: ' : ''}${last.text || last.content || 'Shared media'}` : 'Start a conversation'}</span>
+                    <span className="mt-1 block truncate text-xs text-zinc-500">{last ? `${last.isMine || last.is_mine ? `${t('afterDarkUiYou')}: ` : ''}${last.text || last.content || t('afterDarkUiSharedMedia')}` : t('afterDarkUiStartConversation')}</span>
                   </span>
                 </button>
               );
             })}
-            {!isLoadingContacts && filteredContacts.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">No conversations found.</p>}
+            {!isLoadingContacts && filteredContacts.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">{t('afterDarkUiNoConversationsFound')}</p>}
           </div>
-          <div className="flex items-center gap-2 border-t-2 border-zinc-800 p-3 text-[10px] uppercase tracking-widest text-zinc-500"><ShieldCheck className="h-4 w-4 text-zinc-400" /> Adult chat space · 18+</div>
+          <div className="flex items-center gap-2 border-t-2 border-zinc-800 p-3 text-[10px] uppercase tracking-widest text-zinc-500"><ShieldCheck className="h-4 w-4 text-zinc-400" /> {t('afterDarkUiAdultChatSpace')}</div>
         </aside>
 
         <section className={`${selectedId ? 'flex' : 'hidden md:flex'} min-h-0 min-w-0 flex-1 flex-col bg-black`}>
           {selectedName ? (
             <>
               <header className="flex shrink-0 items-center gap-3 border-b-2 border-zinc-800 px-4 py-3 md:px-6" style={{ backgroundColor: themeStyle.panel }}>
-                <button type="button" onClick={() => { setSelectedId(''); navigate('/afterdark/chats', { replace: true }); }} className="mr-1 border-2 border-zinc-800 p-2 text-zinc-400 transition-colors hover:border-white hover:text-white md:hidden" aria-label="Back to conversations"><ArrowLeft className="h-4 w-4" /></button>
+                <button type="button" onClick={() => { setSelectedId(''); navigate('/afterdark/chats', { replace: true }); }} className="mr-1 border-2 border-zinc-800 p-2 text-zinc-400 transition-colors hover:border-white hover:text-white md:hidden" aria-label={t('afterDarkUiBackToConversations')}><ArrowLeft className="h-4 w-4" /></button>
                 <img src={selectedAvatar} alt="" className="h-10 w-10 border-2 border-zinc-700 bg-black object-cover" />
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-sm font-semibold text-white">{selectedName}</h2>
-                  <p className="text-[10px] uppercase tracking-widest text-zinc-500">{isCreator ? 'Subscriber conversation' : selectedCreator?.online ? 'Online now' : 'Creator'}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-zinc-500">{t(isCreator ? 'afterDarkUiSubscriberConversation' : selectedCreator?.online ? 'afterDarkUiOnlineNow' : 'afterDarkUiCreator')}</p>
                 </div>
-                <button type="button" onClick={() => void startCall('audio')} disabled={!hasChatAccess || isBlocked || isConnectingCall || Boolean(outgoingCall)} aria-label="Start voice call" title="Voice call" className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-40"><Phone className="h-4 w-4" /></button>
-                <button type="button" onClick={() => void startCall('video')} disabled={!hasChatAccess || isBlocked || isConnectingCall || Boolean(outgoingCall)} aria-label="Start video call" title="Video call" className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-40"><Video className="h-4 w-4" /></button>
-                <button type="button" onClick={() => setShowChatSettings(value => !value)} aria-label="Chat preferences" title="Chat preferences" className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-white hover:text-white"><Settings2 className="h-4 w-4" /></button>
-                <button type="button" onClick={handleReport} aria-label="Report conversation partner" title="Report" className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-amber-500 hover:text-amber-400"><Flag className="h-4 w-4" /></button>
-                <button type="button" onClick={handleBlock} disabled={!conversationId || selectedContact?.blockedMe} aria-label={selectedContact?.blockedByMe ? 'Unblock conversation partner' : 'Block conversation partner'} title={selectedContact?.blockedByMe ? 'Unblock' : 'Block'} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"><Ban className="h-4 w-4" /></button>
+                <button type="button" onClick={() => void startCall('audio')} disabled={!hasChatAccess || isBlocked || isConnectingCall || Boolean(outgoingCall)} aria-label={t('afterDarkUiStartVoiceCall')} title={t('afterDarkUiVoiceCall')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-40"><Phone className="h-4 w-4" /></button>
+                <button type="button" onClick={() => void startCall('video')} disabled={!hasChatAccess || isBlocked || isConnectingCall || Boolean(outgoingCall)} aria-label={t('afterDarkUiStartVideoCall')} title={t('afterDarkUiVideoCall')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-40"><Video className="h-4 w-4" /></button>
+                <button type="button" onClick={() => setShowChatSettings(value => !value)} aria-label={t('afterDarkUiChatPreferences')} title={t('afterDarkUiChatPreferences')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-white hover:text-white"><Settings2 className="h-4 w-4" /></button>
+                <button type="button" onClick={handleReport} aria-label={t('afterDarkUiReportConversationPartner')} title={t('afterDarkUiReport')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-amber-500 hover:text-amber-400"><Flag className="h-4 w-4" /></button>
+                <button type="button" onClick={handleBlock} disabled={!conversationId || selectedContact?.blockedMe} aria-label={t(selectedContact?.blockedByMe ? 'afterDarkUiUnblockConversationPartner' : 'afterDarkUiBlockConversationPartner')} title={t(selectedContact?.blockedByMe ? 'afterDarkUiUnblock' : 'afterDarkUiBlock')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"><Ban className="h-4 w-4" /></button>
                 <span className="hidden shrink-0 border-2 border-zinc-700 bg-black px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-zinc-300 sm:inline">18+ chat</span>
               </header>
 
               {showChatSettings && (
                 <div className="flex flex-wrap items-center gap-4 border-b border-zinc-800 px-4 py-3 text-xs" style={{ backgroundColor: themeStyle.panel }}>
-                  <label className="flex items-center gap-2 text-zinc-400">Theme
+                  <label className="flex items-center gap-2 text-zinc-400">{t('afterDarkUiTheme')}
                     <select value={chatPreferences.theme} onChange={event => setChatPreferences(current => ({ ...current, theme: event.target.value }))} className="border border-zinc-700 bg-black px-2 py-1 text-white">
-                      <option value="midnight">Midnight</option><option value="plum">Plum</option><option value="light">Light</option>
+                      <option value="midnight">{t('afterDarkUiMidnight')}</option><option value="plum">{t('afterDarkUiPlum')}</option><option value="light">{t('afterDarkUiLight')}</option>
                     </select>
                   </label>
-                  <label className="flex items-center gap-2 text-zinc-400">Text size
+                  <label className="flex items-center gap-2 text-zinc-400">{t('afterDarkUiTextSize')}
                     <select value={chatPreferences.fontSize} onChange={event => setChatPreferences(current => ({ ...current, fontSize: event.target.value }))} className="border border-zinc-700 bg-black px-2 py-1 text-white">
-                      <option value="small">Small</option><option value="normal">Normal</option><option value="large">Large</option>
+                      <option value="small">{t('afterDarkUiSmall')}</option><option value="normal">{t('afterDarkUiNormal')}</option><option value="large">{t('afterDarkUiLarge')}</option>
                     </select>
                   </label>
-                  <label className="flex items-center gap-2 text-zinc-400"><input type="checkbox" checked={chatPreferences.enterToSend} onChange={event => setChatPreferences(current => ({ ...current, enterToSend: event.target.checked }))} /> Enter to send</label>
+                  <label className="flex items-center gap-2 text-zinc-400"><input type="checkbox" checked={chatPreferences.enterToSend} onChange={event => setChatPreferences(current => ({ ...current, enterToSend: event.target.checked }))} /> {t('afterDarkUiEnterToSend')}</label>
                 </div>
               )}
-              {selectedContact?.blockedByMe && <p role="status" className="border-b border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-200">You blocked this person. Unblock them to resume messaging.</p>}
-              {selectedContact?.blockedMe && <p role="status" className="border-b border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-200">This person has blocked messaging in this conversation.</p>}
+              {selectedContact?.blockedByMe && <p role="status" className="border-b border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-200">{t('afterDarkUiYouBlockedThisPerson')}</p>}
+              {selectedContact?.blockedMe && <p role="status" className="border-b border-amber-900 bg-amber-950/30 p-3 text-xs text-amber-200">{t('afterDarkUiPersonBlockedYou')}</p>}
               {loadError && <p role="alert" className="border-b-2 border-red-900 bg-black p-3 text-xs text-red-500">{loadError}</p>}
               {latestPinnedMessage && (
                 <button type="button" onClick={() => document.getElementById(`ad-message-${latestPinnedMessage.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-4 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-900">
                   <Pin className="h-3.5 w-3.5 text-yellow-400" />
-                  <span className="font-bold uppercase tracking-widest text-yellow-400">{pinnedMessages.length > 1 ? `${pinnedMessages.length} pinned` : 'Pinned'}</span>
-                  <span className="truncate">{latestPinnedMessage.text || 'Attachment'}</span>
+                  <span className="font-bold uppercase tracking-widest text-yellow-400">{pinnedMessages.length > 1 ? t('afterDarkUiPinnedCount', { count: pinnedMessages.length }) : t('afterDarkUiPinned')}</span>
+                  <span className="truncate">{latestPinnedMessage.text || t('afterDarkUiAttachment')}</span>
                 </button>
               )}
               {outgoingCall && (
@@ -975,17 +979,17 @@ export default function AfterDarkChatHub() {
                     void recordCallEvent(outgoingCall.conversationId, 'missed', outgoingCall.mode)
                       .catch(error => console.error('Could not save cancelled-call history:', error));
                     resetCallState();
-                  }} className="ml-auto border border-zinc-700 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-zinc-300 hover:border-red-500 hover:text-red-400">Cancel</button>
+                  }} className="ml-auto border border-zinc-700 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-zinc-300 hover:border-red-500 hover:text-red-400">{t('afterDarkUiCancel')}</button>
                 </div>
               )}
               <div ref={historyRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 md:px-8" style={{ backgroundColor: themeStyle.page }}>
                 {isLoadingMessages ? (
-                  <p role="status" className="text-center text-xs text-zinc-500">Loading messages…</p>
+                  <p role="status" className="text-center text-xs text-zinc-500">{t('afterDarkUiLoadingMessages')}</p>
                 ) : messages.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center text-center">
                     <MessageCircle className="mb-3 h-9 w-9 text-zinc-700" />
-                    <h3 className="text-sm font-semibold text-zinc-300">No messages yet</h3>
-                    <p className="mt-1 max-w-xs text-xs leading-relaxed text-zinc-500">{isCreator ? 'Say hello to your subscriber. Your conversation history will stay here.' : 'Unlock this private conversation to message this creator.'}</p>
+                    <h3 className="text-sm font-semibold text-zinc-300">{t('afterDarkUiNoMessagesYet')}</h3>
+                    <p className="mt-1 max-w-xs text-xs leading-relaxed text-zinc-500">{t(isCreator ? 'afterDarkUiSayHelloSubscriber' : 'afterDarkUiUnlockPrivateConversationToMessage')}</p>
                   </div>
                 ) : messages.map(message => (
                   <div key={message.id} id={`ad-message-${message.id}`}>
@@ -1010,46 +1014,46 @@ export default function AfterDarkChatHub() {
                   {replyingTo && (
                     <div className="mb-2 flex items-center gap-2 border-l-2 border-yellow-400 bg-zinc-950 px-3 py-2">
                       <Reply className="h-4 w-4 text-yellow-400" />
-                      <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">Replying to {replyingTo.isMine ? 'your message' : selectedName}: {replyingTo.text || 'Attachment'}</span>
-                      <button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancel reply" className="p-1 text-zinc-500 hover:text-white"><X className="h-4 w-4" /></button>
+                      <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{t('afterDarkUiReplyingTo', { name: replyingTo.isMine ? t('afterDarkUiYourMessage') : selectedName, text: replyingTo.text || t('afterDarkUiAttachment') })}</span>
+                      <button type="button" onClick={() => setReplyingTo(null)} aria-label={t('afterDarkUiCancelReply')} className="p-1 text-zinc-500 hover:text-white"><X className="h-4 w-4" /></button>
                     </div>
                   )}
                   {attachment && (
                     <div className="mb-3 flex items-center gap-3 border-2 border-zinc-800 bg-zinc-950 p-2">
-                      {attachment.type === 'video' ? <Video className="h-8 w-8 text-zinc-500" /> : <img src={attachment.previewUrl} alt="Attachment preview" className="h-12 w-12 object-cover" />}
-                      <div className="min-w-0 flex-1"><p className="truncate text-xs text-white">{attachment.name}</p><p className="text-[10px] text-zinc-500">Marked as explicit · recipient sees a reveal warning</p></div>
-                      <button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment" className="p-2 text-zinc-500 hover:text-white"><X className="h-4 w-4" /></button>
+                      {attachment.type === 'video' ? <Video className="h-8 w-8 text-zinc-500" /> : <img src={attachment.previewUrl} alt={t('afterDarkUiAttachmentPreview')} className="h-12 w-12 object-cover" />}
+                      <div className="min-w-0 flex-1"><p className="truncate text-xs text-white">{attachment.name}</p><p className="text-[10px] text-zinc-500">{t('afterDarkUiExplicitAttachmentWarning')}</p></div>
+                      <button type="button" onClick={() => setAttachment(null)} aria-label={t('afterDarkUiRemoveAttachment')} className="p-2 text-zinc-500 hover:text-white"><X className="h-4 w-4" /></button>
                     </div>
                   )}
                   <div className="flex items-end gap-2 border-2 border-zinc-800 bg-zinc-950 p-2">
-                    <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach image or video" className="border-2 border-transparent p-2 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-white"><Paperclip className="h-5 w-5" /></button>
+                    <button type="button" onClick={() => fileInputRef.current?.click()} title={t('afterDarkUiAttachImageVideo')} className="border-2 border-transparent p-2 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-white"><Paperclip className="h-5 w-5" /></button>
                     <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleAttachment} className="hidden" />
-                    <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (chatPreferences.enterToSend && event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form.requestSubmit(); } }} rows={1} placeholder="Write a message..." className={`max-h-[35dvh] min-h-[clamp(2.5rem,7vh,4rem)] flex-1 resize-y bg-transparent px-2 py-2 ${fontSizeClass} text-white outline-none placeholder:text-zinc-600`} />
-                    <button type="button" onClick={() => setIsExplicit(value => !value)} aria-pressed={isExplicit} title="Mark message as explicit" className={`border-2 border-transparent p-2.5 transition-colors ${isExplicit ? 'border-zinc-600 bg-zinc-900 text-white' : 'text-zinc-500 hover:border-zinc-700 hover:text-white'}`}><AlertTriangle className="h-5 w-5" /></button>
-                    <button type="submit" disabled={isSending || (!draft.trim() && !attachment)} aria-label="Send message" className="border-2 border-white bg-white p-2.5 text-black transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-800 disabled:text-zinc-500">{isSending ? '…' : <Send className="h-5 w-5" />}</button>
+                    <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (chatPreferences.enterToSend && event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form.requestSubmit(); } }} rows={1} placeholder={t('afterDarkUiWriteMessage')} className={`max-h-[35dvh] min-h-[clamp(2.5rem,7vh,4rem)] flex-1 resize-y bg-transparent px-2 py-2 ${fontSizeClass} text-white outline-none placeholder:text-zinc-600`} />
+                    <button type="button" onClick={() => setIsExplicit(value => !value)} aria-pressed={isExplicit} title={t('afterDarkUiMarkMessageExplicit')} className={`border-2 border-transparent p-2.5 transition-colors ${isExplicit ? 'border-zinc-600 bg-zinc-900 text-white' : 'text-zinc-500 hover:border-zinc-700 hover:text-white'}`}><AlertTriangle className="h-5 w-5" /></button>
+                    <button type="submit" disabled={isSending || (!draft.trim() && !attachment)} aria-label={t('afterDarkUiSendMessage')} className="border-2 border-white bg-white p-2.5 text-black transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-800 disabled:text-zinc-500">{isSending ? '…' : <Send className="h-5 w-5" />}</button>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-zinc-600">
-                    <span>{isExplicit ? 'Explicit content warning enabled' : 'Tap the warning icon to mark this message 18+'}</span>
-                    <span>Image/video attachment limit: 20 MB</span>
+                    <span>{t(isExplicit ? 'afterDarkUiExplicitWarningEnabled' : 'afterDarkUiTapWarningToMark18Plus')}</span>
+                    <span>{t('afterDarkUiAttachmentLimit20Mb')}</span>
                   </div>
                 </form>
               ) : isBlocked ? (
-                <div className="border-t border-zinc-800 p-4 text-center text-xs text-zinc-400">Messaging is unavailable while either person has blocked the other.</div>
+                <div className="border-t border-zinc-800 p-4 text-center text-xs text-zinc-400">{t('afterDarkUiMessagingBlockedNotice')}</div>
               ) : selectedContact?.dmControl === 'none' ? (
-                <div className="border-t border-zinc-800 p-4 text-center text-xs text-zinc-400">This creator is not accepting direct messages.</div>
+                <div className="border-t border-zinc-800 p-4 text-center text-xs text-zinc-400">{t('afterDarkUiCreatorNotAcceptingMessages')}</div>
               ) : (
                 <div className="border-t border-zinc-800 bg-black/80 p-4 text-center">
-                  <p className="mb-3 flex items-center justify-center gap-2 text-xs text-zinc-400"><Lock className="h-4 w-4 text-white" /> Subscribe or unlock chat for a one-time KES ${(selectedContact?.chatPriceCents || 1000) / 100}.</p>
-                  <button type="button" onClick={() => setShowPayment(true)} className="border-2 border-white bg-white px-5 py-3 text-xs font-bold uppercase tracking-widest text-black transition-colors hover:bg-zinc-200">Unlock private chat</button>
+                  <p className="mb-3 flex items-center justify-center gap-2 text-xs text-zinc-400"><Lock className="h-4 w-4 text-white" /> {t('afterDarkUiSubscribeOrUnlockChatForKes', { amount: (selectedContact?.chatPriceCents || 1000) / 100 })}</p>
+                  <button type="button" onClick={() => setShowPayment(true)} className="border-2 border-white bg-white px-5 py-3 text-xs font-bold uppercase tracking-widest text-black transition-colors hover:bg-zinc-200">{t('afterDarkUiUnlockPrivateChat')}</button>
                 </div>
               )}
             </>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
               <div className="mb-4 border-2 border-zinc-800 bg-black p-4"><MessageCircle className="h-8 w-8 text-white" /></div>
-              <h2 className="text-base font-black uppercase tracking-widest text-white">Your After Dark inbox</h2>
-              <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-500">{isCreator ? 'Choose a subscriber to see your message history or start a conversation.' : 'Choose a creator to view your history or unlock a private chat.'}</p>
-              <div className="mt-5 flex items-center gap-2 text-[10px] text-zinc-600"><ImagePlus className="h-4 w-4" /><Smile className="h-4 w-4" /> Text, images, and video supported</div>
+              <h2 className="text-base font-black uppercase tracking-widest text-white">{t('afterDarkUiYourAfterDarkInbox')}</h2>
+              <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-500">{t(isCreator ? 'afterDarkUiChooseSubscriberPrompt' : 'afterDarkUiChooseCreatorPrompt')}</p>
+              <div className="mt-5 flex items-center gap-2 text-[10px] text-zinc-600"><ImagePlus className="h-4 w-4" /><Smile className="h-4 w-4" /> {t('afterDarkUiTextImagesVideoSupported')}</div>
             </div>
           )}
         </section>
@@ -1058,10 +1062,10 @@ export default function AfterDarkChatHub() {
       {incomingCall && !callToken && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/85 p-4">
           <div className="w-full max-w-sm border-2 border-zinc-600 bg-zinc-950 p-6 shadow-2xl">
-            <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400">Incoming {incomingCall.mode} call</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400">{t('afterDarkUiIncomingCall', { mode: t(incomingCall.mode === 'video' ? 'afterDarkUiVideoCall' : 'afterDarkUiVoiceCall') })}</p>
             <h2 className="mt-2 text-lg font-black uppercase tracking-widest text-white">{incomingCall.fromName}</h2>
             <div className="mt-6 grid grid-cols-2 gap-3">
-              <button type="button" onClick={rejectCall} className="flex items-center justify-center gap-2 border-2 border-red-500 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-red-400 hover:bg-red-500 hover:text-black"><PhoneOff className="h-4 w-4" /> Decline</button>
+              <button type="button" onClick={rejectCall} className="flex items-center justify-center gap-2 border-2 border-red-500 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-red-400 hover:bg-red-500 hover:text-black"><PhoneOff className="h-4 w-4" /> {t('afterDarkUiDecline')}</button>
               <button type="button" onClick={() => void acceptCall()} disabled={isConnectingCall} className="flex items-center justify-center gap-2 border-2 border-green-500 bg-green-500 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-green-400 disabled:opacity-50">{isConnectingCall ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />} Answer</button>
             </div>
           </div>
@@ -1074,7 +1078,7 @@ export default function AfterDarkChatHub() {
               <p className="text-[9px] font-black uppercase tracking-widest text-green-400">Connected {callMode} call</p>
               <p className="text-sm font-bold text-white">{callPeerName}</p>
             </div>
-            <button type="button" onClick={endCall} className="flex items-center gap-2 border-2 border-red-500 bg-red-500 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-black hover:bg-red-400"><PhoneOff className="h-4 w-4" /> End call</button>
+            <button type="button" onClick={endCall} className="flex items-center gap-2 border-2 border-red-500 bg-red-500 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-black hover:bg-red-400"><PhoneOff className="h-4 w-4" /> {t('afterDarkUiEndCall')}</button>
           </div>
           <LiveKitRoom
             serverUrl={LIVEKIT_URL}
@@ -1084,7 +1088,7 @@ export default function AfterDarkChatHub() {
             video={callMode === 'video'}
             onError={error => {
               console.error('After Dark LiveKit call failed:', error);
-              setLoadError(error.message || 'The call connection failed.');
+              setLoadError(error.message || t('afterDarkUiCallConnectionFailed'));
               endCall();
             }}
             className="flex min-h-0 flex-1 flex-col items-center"
@@ -1092,14 +1096,14 @@ export default function AfterDarkChatHub() {
             <RoomAudioRenderer />
             <AfterDarkCallStage peerName={callPeerName} mode={callMode} />
             <div className="flex shrink-0 items-center justify-center gap-3 border-t-2 border-zinc-800 bg-black px-4 py-4">
-              <TrackToggle source={Track.Source.Microphone} aria-label="Toggle microphone" className="border-2 border-zinc-700 bg-zinc-950 px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-white hover:border-white" />
-              {callMode === 'video' && <TrackToggle source={Track.Source.Camera} aria-label="Toggle camera" className="border-2 border-zinc-700 bg-zinc-950 px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-white hover:border-white" />}
+              <TrackToggle source={Track.Source.Microphone} aria-label={t('afterDarkUiToggleMicrophone')} className="border-2 border-zinc-700 bg-zinc-950 px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-white hover:border-white" />
+              {callMode === 'video' && <TrackToggle source={Track.Source.Camera} aria-label={t('afterDarkUiToggleCamera')} className="border-2 border-zinc-700 bg-zinc-950 px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-white hover:border-white" />}
             </div>
           </LiveKitRoom>
         </div>
       )}
 
-      <div className="flex shrink-0 items-center justify-center gap-2 border-t-2 border-zinc-800 bg-black px-3 py-2 text-[9px] uppercase tracking-widest text-zinc-600"><ShieldCheck className="h-3.5 w-3.5" /> Messages and payments are handled by After Dark.</div>
+      <div className="flex shrink-0 items-center justify-center gap-2 border-t-2 border-zinc-800 bg-black px-3 py-2 text-[9px] uppercase tracking-widest text-zinc-600"><ShieldCheck className="h-3.5 w-3.5" /> {t('afterDarkUiAfterDarkMessagingPayments')}</div>
       {selectedCreator && (
         <MpesaPaystackModal
           isOpen={showPayment}

@@ -60,10 +60,10 @@ export default function ModelEarnings() {
     refreshEarningsData()
       .catch((error) => {
         console.error('Failed to load earnings data:', error);
-        toast.error('Failed to load financial data.');
+        toast.error(t('coreUiFinancialDataLoadFailed'));
       })
       .finally(() => setIsLoading(false));
-  }, [refreshEarningsData]);
+  }, [refreshEarningsData, t]);
 
   useEffect(() => {
     const method = payoutMethods.find((item) => item.asset_network === selectedNetwork);
@@ -151,7 +151,7 @@ export default function ModelEarnings() {
           console.error('Duplicate payout response received but history refresh failed:', refreshError);
           toast.error(t('financialDataFailed'));
         }
-        toast.info('This payout request already exists. Check its current status in payout history.');
+        toast.info(t('coreUiPayoutRequestExists'));
         return;
       }
       setPayoutSuccess(true);
@@ -229,7 +229,7 @@ export default function ModelEarnings() {
               onClick={() => setIsPayoutModalOpen(true)}
               className="flex items-center justify-center gap-2 px-8 py-4 bg-white border-2 border-white text-black text-xs font-black uppercase tracking-widest hover:bg-black hover:text-white transition-all rounded-none shadow-[8px_8px_0px_0px_rgba(var(--highlight-rgb), 0.1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1"
             >
-              Request USDT payout <ArrowRight className="w-4 h-4" />
+              {t('coreUiRequestUsdtPayout')} <ArrowRight className="w-4 h-4" />
             </button>
             <button 
               onClick={handleExport}
@@ -242,37 +242,37 @@ export default function ModelEarnings() {
 
         {/* Analytics Breakdown Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-          <StatCard title="Total Earned (30D)" value={analytics.totalEarned} color="text-white" />
-          <StatCard title="From Subscriptions" value={analytics.subs} color="text-blue-400" />
-          <StatCard title="From Private Chats" value={analytics.chats} color="text-yellow-400" />
-          <StatCard title="From Direct Tips" value={analytics.tips} color="text-green-400" />
+          <StatCard title={t('coreUiTotalEarned30d')} value={analytics.totalEarned} color="text-white" />
+          <StatCard title={t('coreUiFromSubscriptions')} value={analytics.subs} color="text-blue-400" />
+          <StatCard title={t('coreUiFromPrivateChats')} value={analytics.chats} color="text-yellow-400" />
+          <StatCard title={t('coreUiFromDirectTips')} value={analytics.tips} color="text-green-400" />
         </div>
 
         <section className="border-2 border-zinc-800 bg-zinc-950 mb-10">
           <div className="p-4 border-b-2 border-zinc-800 flex items-center justify-between">
             <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
-              <Coins className="w-4 h-4" /> Crypto payout requests
+              <Coins className="w-4 h-4" /> {t('coreUiCryptoPayoutRequests')}
             </h3>
             <button
               type="button"
               onClick={() => refreshEarningsData().catch(() => toast.error(t('financialDataFailed')))}
               className="text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white"
             >
-              Refresh
+              {t('refresh')}
             </button>
           </div>
           {payoutRequests.length === 0 ? (
-            <p className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">No crypto payout requests yet.</p>
+            <p className="p-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{t('coreUiNoCryptoPayouts')}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-zinc-800 text-[9px] text-zinc-500 uppercase tracking-widest">
-                    <th className="p-4">Requested</th>
-                    <th className="p-4">Network / Destination</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4 text-right">Amount</th>
-                    <th className="p-4">Review</th>
+                    <th className="p-4">{t('coreUiRequested')}</th>
+                    <th className="p-4">{t('coreUiNetworkDestination')}</th>
+                    <th className="p-4">{t('coreUiStatus')}</th>
+                    <th className="p-4 text-right">{t('coreUiAmount')}</th>
+                    <th className="p-4">{t('coreUiReview')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -288,7 +288,7 @@ export default function ModelEarnings() {
                       </td>
                       <td className="p-4 text-right text-xs font-black text-white">${(request.amount_cents / 100).toFixed(2)}</td>
                       <td className="p-4 text-[10px] text-zinc-400">
-                        {request.crypto_amount ? `${request.crypto_amount} USDT` : request.rejection_reason || 'Admin review pending'}
+                        {request.crypto_amount ? `${request.crypto_amount} USDT` : request.rejection_reason || t('coreUiAdminReviewPending')}
                         {request.transaction_hash && (
                           <div className="max-w-[clamp(10rem,20vw,14rem)] truncate font-mono text-zinc-600">{request.transaction_hash}</div>
                         )}
@@ -311,7 +311,7 @@ export default function ModelEarnings() {
           {/* Controls Bar */}
           <div className="p-4 border-b-2 border-zinc-800 flex flex-col md:flex-row justify-between items-center gap-4">
             <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 w-full md:w-auto">
-              <History className="w-4 h-4" /> Transaction History
+              <History className="w-4 h-4" /> {t('coreUiTransactionHistory')}
             </h3>
             
             <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
@@ -320,7 +320,7 @@ export default function ModelEarnings() {
                 <Search className="w-3 h-3 text-zinc-500 mr-2" />
                 <input 
                   type="text" 
-                  placeholder="SEARCH ID OR USER..." 
+                  placeholder={t('coreUiSearchIdOrUser')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="bg-transparent border-none outline-none text-[10px] text-white font-bold uppercase w-full placeholder:text-zinc-600"
@@ -335,11 +335,11 @@ export default function ModelEarnings() {
                   onChange={(e) => setActiveFilter(e.target.value)}
                   className="bg-transparent border-none outline-none text-[10px] text-white font-bold uppercase cursor-pointer"
                 >
-                  <option value="ALL">ALL TRANSACTIONS</option>
-                  <option value="EARNINGS">EARNINGS ONLY</option>
-                  <option value="PAYOUTS">PAYOUTS ONLY</option>
-                  <option value="SUBSCRIPTION">SUBSCRIPTIONS</option>
-                  <option value="DIRECT_TIP">DIRECT TIPS</option>
+                  <option value="ALL">{t('coreUiAllTransactions')}</option>
+                  <option value="EARNINGS">{t('coreUiEarningsOnly')}</option>
+                  <option value="PAYOUTS">{t('coreUiPayoutsOnly')}</option>
+                  <option value="SUBSCRIPTION">{t('coreUiSubscriptions')}</option>
+                  <option value="DIRECT_TIP">{t('coreUiDirectTips')}</option>
                 </select>
               </div>
             </div>
@@ -350,19 +350,19 @@ export default function ModelEarnings() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b-2 border-zinc-800 bg-black">
-                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">Status</th>
-                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">Date / Time</th>
+                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">{t('coreUiStatus')}</th>
+                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">{t('coreUiDateTime')}</th>
                   <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">TX_ID</th>
-                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">Type</th>
-                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">Source</th>
-                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap text-right">Amount</th>
+                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">{t('coreUiType')}</th>
+                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap">{t('coreUiSource')}</th>
+                  <th className="p-4 text-[10px] font-black text-zinc-500 uppercase tracking-widest whitespace-nowrap text-right">{t('coreUiAmount')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTransactions.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="p-12 text-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                      NO TRANSACTIONS MATCH YOUR CRITERIA.
+                      {t('coreUiNoTransactionsMatch')}
                     </td>
                   </tr>
                 ) : (
@@ -371,11 +371,11 @@ export default function ModelEarnings() {
                       <td className="p-4">
                         {tx.status === 'COMPLETED' ? (
                           <span className="flex items-center gap-1 text-[9px] font-black text-green-400 bg-green-400/10 px-2 py-1 w-fit border border-green-500/30 uppercase">
-                            <CheckCircle2 className="w-3 h-3" /> COMPLETE
+                            <CheckCircle2 className="w-3 h-3" /> {t('coreUiComplete')}
                           </span>
                         ) : (
                           <span className="flex items-center gap-1 text-[9px] font-black text-yellow-400 bg-yellow-400/10 px-2 py-1 w-fit border border-yellow-500/30 uppercase">
-                            <Clock className="w-3 h-3" /> PENDING
+                            <Clock className="w-3 h-3" /> {t('coreUiPending')}
                           </span>
                         )}
                       </td>
@@ -403,7 +403,7 @@ export default function ModelEarnings() {
                 onClick={() => setDisplayCount(prev => prev + 15)}
                 className="px-6 py-2 bg-zinc-900 border-2 border-zinc-700 text-[10px] font-black text-white hover:border-white hover:bg-white hover:text-black uppercase tracking-widest transition-colors"
               >
-                Load More History
+                {t('coreUiLoadMoreHistory')}
               </button>
             </div>
           )}
@@ -420,16 +420,16 @@ export default function ModelEarnings() {
             {payoutSuccess ? (
               <div className="p-12 flex flex-col items-center justify-center text-center">
                 <CheckCircle2 className="w-16 h-16 text-green-400 mb-4" />
-                <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2">Request submitted</h2>
+                <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2">{t('coreUiRequestSubmitted')}</h2>
                 <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-                  Funds are reserved and awaiting admin review.
+                  {t('coreUiFundsReservedAwaitingReview')}
                 </p>
               </div>
             ) : (
               <>
                 <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-white text-black">
                   <h2 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                    <Coins className="w-4 h-4" /> USDT crypto payout
+                    <Coins className="w-4 h-4" /> {t('coreUiUsdtCryptoPayout')}
                   </h2>
                   <button onClick={() => setIsPayoutModalOpen(false)} disabled={isProcessing} className="hover:text-red-500">
                     <X className="w-5 h-5" />
@@ -438,7 +438,7 @@ export default function ModelEarnings() {
                 
                 <div className="p-6 space-y-6">
                   <div>
-                    <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest block mb-2">USDT NETWORK</label>
+                    <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest block mb-2">{t('coreUiUsdtNetwork')}</label>
                     <select
                       value={selectedNetwork}
                       disabled={isProcessing || isSavingWallet}
@@ -454,7 +454,7 @@ export default function ModelEarnings() {
                   </div>
 
                   <div>
-                    <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest block mb-2">YOUR RECEIVING WALLET</label>
+                    <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest block mb-2">{t('coreUiReceivingWallet')}</label>
                     <input
                       type="text"
                       value={walletAddress}
@@ -462,7 +462,7 @@ export default function ModelEarnings() {
                       disabled={isProcessing || isSavingWallet}
                       autoComplete="off"
                       spellCheck="false"
-                      placeholder={selectedNetwork === 'USDT-TRC20' ? 'TRON wallet address (starts with T)' : 'Ethereum wallet address (starts with 0x)'}
+                      placeholder={t(selectedNetwork === 'USDT-TRC20' ? 'coreUiTronWalletPlaceholder' : 'coreUiEthereumWalletPlaceholder')}
                       className="w-full border-2 border-zinc-700 bg-black p-3 text-xs font-mono text-white outline-none focus:border-white"
                     />
                     <button
@@ -471,15 +471,15 @@ export default function ModelEarnings() {
                       disabled={isProcessing || isSavingWallet || !walletAddress.trim() || walletAddress.trim() === selectedPayoutMethod?.wallet_address}
                       className="mt-2 flex items-center gap-2 border border-zinc-700 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-white hover:text-white disabled:opacity-40"
                     >
-                      <Save className="w-3 h-3" /> {isSavingWallet ? 'Saving wallet…' : 'Save wallet'}
+                      <Save className="w-3 h-3" /> {isSavingWallet ? t('coreUiSavingWallet') : t('coreUiSaveWallet')}
                     </button>
                     <p className="mt-2 text-[9px] text-zinc-500">
-                      Verify the network and address carefully. A request uses a snapshot of this wallet.
+                      {t('coreUiVerifyWalletDetails')}
                     </p>
                   </div>
 
                   <div>
-                    <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest block mb-2">AMOUNT TO WITHDRAW (USD)</label>
+                    <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest block mb-2">{t('coreUiAmountToWithdraw')}</label>
                     <div className="flex items-center border-2 border-zinc-700 bg-black p-3 focus-within:border-white transition-colors">
                       <DollarSign className="w-5 h-5 text-zinc-500 mr-2" />
                       <input 
@@ -504,17 +504,17 @@ export default function ModelEarnings() {
                         disabled={isProcessing}
                         className="text-[9px] font-black uppercase text-zinc-400 hover:text-white px-2 border-l-2 border-zinc-800"
                       >
-                        MAX
+                        {t('coreUiMax')}
                       </button>
                     </div>
                     <div className="flex justify-between items-center mt-2">
-                      <span className="text-[9px] text-zinc-500 uppercase font-bold">MIN WITHDRAWAL: $50.00</span>
-                      <span className="text-[9px] text-zinc-500 uppercase font-bold">AVAILABLE: ${balance.toFixed(2)}</span>
+                      <span className="text-[9px] text-zinc-500 uppercase font-bold">{t('coreUiMinimumWithdrawal', { amount: '$50.00' })}</span>
+                      <span className="text-[9px] text-zinc-500 uppercase font-bold">{t('coreUiAvailableBalance', { amount: `$${balance.toFixed(2)}` })}</span>
                     </div>
                   </div>
 
                   <div className="bg-black border-2 border-zinc-800 p-4 text-[9px] leading-relaxed text-zinc-400">
-                    The requested USD amount is reserved immediately. An administrator reviews and sends USDT on the selected network; the final USDT amount and transaction hash will appear in your payout history. Rejected requests release the reserved balance.
+                    {t('coreUiPayoutRequestExplanation')}
                   </div>
 
                   <div className="flex gap-3 pt-4">
@@ -523,7 +523,7 @@ export default function ModelEarnings() {
                       disabled={isProcessing}
                       className="flex-1 py-4 border-2 border-zinc-700 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-white hover:text-white transition-colors"
                     >
-                      Cancel
+                      {t('cancel')}
                     </button>
                     <button 
                       onClick={executePayout}
@@ -531,9 +531,9 @@ export default function ModelEarnings() {
                       className="flex-1 py-4 bg-white border-2 border-white text-black text-xs font-black uppercase tracking-widest hover:bg-zinc-200 disabled:opacity-50 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:border-zinc-800 transition-colors flex justify-center items-center gap-2"
                     >
                       {isProcessing ? (
-                        <span className="animate-pulse">PROCESSING...</span>
+                        <span className="animate-pulse">{t('coreUiProcessing')}</span>
                       ) : (
-                        <>CONFIRM <ArrowRight className="w-4 h-4" /></>
+                        <>{t('coreUiConfirm')} <ArrowRight className="w-4 h-4" /></>
                       )}
                     </button>
                   </div>

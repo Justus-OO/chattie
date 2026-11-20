@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
 import MpesaPaystackModal from '../../components/afterdark/MpesaPaystackModal';
+import { useI18n } from '../../i18n';
 
 const normalizeTransaction = tx => ({
   ...tx,
@@ -64,6 +65,7 @@ const TransactionRow = ({ tx }) => {
 // MAIN COMPONENT: WALLET DASHBOARD
 // ============================================================================
 export default function AfterDarkWallet() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const currentUser = useAppStore(state => state.user);
   const isCreator = useAppStore(state => state.isCreator) || currentUser?.isCreator || false;
@@ -111,59 +113,59 @@ export default function AfterDarkWallet() {
     const records = Array.isArray(transactionResponse)
       ? transactionResponse
       : transactionResponse?.transactions || transactionResponse?.items || [];
-    if (!Array.isArray(records)) throw new Error('The wallet service returned invalid transaction history.');
+    if (!Array.isArray(records)) throw new Error(t('afterDarkUiWalletHistoryInvalid'));
     setTransactions(records.map(normalizeTransaction));
     const methods = Array.isArray(methodsResponse) ? methodsResponse : methodsResponse?.methods || methodsResponse?.items || [];
-    if (!Array.isArray(methods)) throw new Error('The payout service returned invalid payout methods.');
+    if (!Array.isArray(methods)) throw new Error(t('afterDarkUiPayoutMethodsInvalid'));
     setPayoutMethods(methods);
     setPayoutMethodId(current => current || methods[0]?.id || methods[0]?.payout_method_id || '');
     const payoutRecords = Array.isArray(withdrawalsResponse) ? withdrawalsResponse : withdrawalsResponse?.withdrawals || [];
-    if (!Array.isArray(payoutRecords)) throw new Error('The payout service returned invalid withdrawal history.');
+    if (!Array.isArray(payoutRecords)) throw new Error(t('afterDarkUiWithdrawalHistoryInvalid'));
     setWithdrawals(payoutRecords);
-  }, [activeFilter, isCreator, setWalletBalance, updateUser]);
+  }, [activeFilter, isCreator, setWalletBalance, t, updateUser]);
 
   useEffect(() => {
     let active = true;
     setLoadError('');
     setIsLoading(true);
     loadWallet().catch(error => {
-      if (active) setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load wallet data.'));
+      if (active) setLoadError(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiWalletDataLoadFailed')));
     }).finally(() => {
       if (active) setIsLoading(false);
     });
     return () => { active = false; };
-  }, [loadWallet]);
+  }, [loadWallet, t]);
 
   // Action Handlers
   const handleTransaction = async (type) => {
     const val = Number(amountInput);
     const minimum = type === 'withdraw' ? 1000 : 100;
     if (!Number.isFinite(val) || !val || val < minimum) {
-      toast.error(`Minimum ${type === 'withdraw' ? 'withdrawal' : 'deposit'} is KES ${minimum}.`);
+      toast.error(t(type === 'withdraw' ? 'afterDarkUiMinimumWithdrawal' : 'afterDarkUiMinimumDeposit', { amount: minimum }));
       return;
     }
     if (Math.abs(val * 100 - Math.round(val * 100)) > 1e-7) {
-      toast.error('Enter an amount with no more than two decimal places.');
+      toast.error(t('afterDarkUiMaxTwoDecimals'));
       return;
     }
 
     if (type === 'deposit' && paymentMethod === 'mpesa' && !/^(?:254|\+254|0)?[71]\d{8}$/.test(depositPhone.replace(/\s+/g, ''))) {
-      toast.error('Enter a valid Kenyan M-Pesa number.');
+      toast.error(t('afterDarkUiValidKenyanMpesaNumber'));
       return;
     }
 
     if (type === 'withdraw' && !payoutMethodId) {
-      toast.error('Add a payout method in After Dark settings before withdrawing.');
+      toast.error(t('afterDarkUiAddPayoutMethodBeforeWithdrawal'));
       return;
     }
 
     if (type === 'withdraw' && selectedPayoutMethod?.provider === 'mpesa' && !Number.isInteger(val)) {
-      toast.error('M-Pesa payouts must be a whole number of Kenyan shillings.');
+      toast.error(t('afterDarkUiMpesaWholeShillings'));
       return;
     }
 
     if (type === 'withdraw' && val > balance) {
-      toast.error('Insufficient cleared funds.');
+      toast.error(t('afterDarkUiInsufficientClearedFunds'));
       return;
     }
 
@@ -186,13 +188,13 @@ export default function AfterDarkWallet() {
         amount_cents: Math.round(val * 100),
         payout_method_id: payoutMethodId,
       });
-      toast.success('Payout submitted. Its status will update after the provider confirms delivery.');
+      toast.success(t('afterDarkUiPayoutSubmitted'));
       setShowWithdraw(false);
       await loadWallet();
       setAmountInput('');
       setDepositPhone('');
     } catch (error) {
-      toast.error(error?.response?.data?.error || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '') || (error instanceof Error ? error.message : `Could not ${type === 'deposit' ? 'deposit funds' : 'request withdrawal'}.`));
+      toast.error(error?.response?.data?.error || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '') || (error instanceof Error ? error.message : t(type === 'deposit' ? 'afterDarkUiDepositFailed' : 'afterDarkUiWithdrawalFailed')));
     } finally {
       setIsProcessing(false);
     }
@@ -200,7 +202,7 @@ export default function AfterDarkWallet() {
 
   const exportTransactions = () => {
     const rows = [
-      ['Date', 'Type', 'Amount (KES)', 'Status', 'Description', 'Reference'],
+      [t('afterDarkUiDate'), t('afterDarkUiType'), t('afterDarkUiAmountKes'), t('afterDarkUiStatus'), t('afterDarkUiDescription'), t('afterDarkUiReference')],
       ...filteredTransactions.map(tx => [tx.date, tx.type, tx.amount, tx.status, tx.desc, tx.ref]),
     ];
     const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\r\n');
@@ -225,8 +227,8 @@ export default function AfterDarkWallet() {
             <Wallet className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-black text-white uppercase tracking-widest leading-none">My Wallet</h1>
-            <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Manage funds and transactions</p>
+            <h1 className="text-lg font-black text-white uppercase tracking-widest leading-none">{t('afterDarkUiMyWallet')}</h1>
+            <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">{t('afterDarkUiManageFundsTransactions')}</p>
           </div>
         </div>
         
@@ -235,14 +237,14 @@ export default function AfterDarkWallet() {
             onClick={() => setShowDeposit(true)}
             className="flex flex-1 items-center justify-center gap-2 border-2 border-white bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest text-black transition-colors hover:bg-zinc-200 sm:flex-none sm:px-6"
           >
-            <Plus className="w-4 h-4" /> ADD FUNDS
+            <Plus className="w-4 h-4" /> {t('afterDarkUiAddFunds')}
           </button>
           {isCreator && (
             <button 
               onClick={() => setShowWithdraw(true)}
               className="flex flex-1 items-center justify-center gap-2 border-2 border-zinc-700 bg-black px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white transition-colors hover:border-white hover:bg-zinc-950 sm:flex-none sm:px-6"
             >
-              <Banknote className="w-4 h-4" /> WITHDRAW
+              <Banknote className="w-4 h-4" /> {t('afterDarkUiWithdraw')}
             </button>
           )}
         </div>
@@ -261,32 +263,32 @@ export default function AfterDarkWallet() {
               </div>
               <div className="relative z-10">
                 <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-white" /> AVAILABLE BALANCE
+                  <CheckCircle2 className="w-4 h-4 text-white" /> {t('afterDarkUiAvailableBalance').toUpperCase()}
                 </h4>
-                <div className="mb-2 break-words text-2xl font-black tracking-widest text-white sm:text-3xl">{isLoading ? 'Loading…' : `KES ${balance.toLocaleString()}`}</div>
-                <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Ready for use or withdrawal</p>
+                <div className="mb-2 break-words text-2xl font-black tracking-widest text-white sm:text-3xl">{isLoading ? t('afterDarkUiLoading') : `KES ${balance.toLocaleString()}`}</div>
+                <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">{t('afterDarkUiReadyForWithdrawal')}</p>
               </div>
             </div>
 
             {isCreator && (
               <div className="flex min-w-0 flex-col justify-center border-2 border-zinc-800 bg-black p-4 opacity-80 sm:p-6">
                 <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-zinc-400" /> PENDING CLEARANCE
+                  <Clock className="w-4 h-4 text-zinc-400" /> {t('afterDarkUiPendingClearance').toUpperCase()}
                 </h4>
                 <div className="text-2xl font-black text-zinc-300 tracking-widest mb-2">KES {pendingBalance.toLocaleString()}</div>
-                <p className="text-[8px] font-bold text-zinc-600 uppercase tracking-widest">Earnings become withdrawable after admin clearance.</p>
+                <p className="text-[8px] font-bold text-zinc-600 uppercase tracking-widest">{t('afterDarkUiEarningsClearanceNotice')}</p>
               </div>
             )}
 
             <div className="flex min-w-0 flex-col justify-center border-2 border-zinc-800 bg-black p-4 sm:p-6">
               <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-white" /> PAYOUT AUDIT TRAIL
+                <ShieldCheck className="w-4 h-4 text-white" /> {t('afterDarkUiPayoutAuditTrail').toUpperCase()}
               </h4>
               <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest leading-relaxed mb-4">
-                Payout requests are tracked here and updated when the selected provider confirms delivery.
+                {t('afterDarkUiPayoutRequestsTracked')}
               </p>
               <button type="button" onClick={() => navigate('/afterdark/settings?tab=monetization')} className="w-full border-2 border-zinc-800 bg-black py-2 text-[9px] font-black uppercase tracking-widest text-zinc-400 transition-colors hover:border-white hover:text-white">
-                VIEW PAYMENT METHODS
+                {t('afterDarkUiViewPaymentMethods')}
               </button>
             </div>
           </div>
@@ -295,11 +297,11 @@ export default function AfterDarkWallet() {
             <section aria-labelledby="payout-history-title">
               <div className="mb-4 border-b-2 border-zinc-800 pb-3">
                 <h3 id="payout-history-title" className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-white">
-                  <Banknote className="h-5 w-5 text-zinc-400" /> PAYOUT STATUS
+                  <Banknote className="h-5 w-5 text-zinc-400" /> {t('afterDarkUiPayoutStatus').toUpperCase()}
                 </h3>
               </div>
               {withdrawals.length === 0 ? (
-                <p className="border-2 border-dashed border-zinc-800 p-4 text-[9px] font-bold uppercase tracking-widest text-zinc-500">No creator payouts yet.</p>
+                <p className="border-2 border-dashed border-zinc-800 p-4 text-[9px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiNoCreatorPayouts')}</p>
               ) : (
                 <div className="space-y-2">
                   {withdrawals.map(withdrawal => (
@@ -323,21 +325,21 @@ export default function AfterDarkWallet() {
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-3 flex flex-col justify-between gap-3 border-b-2 border-zinc-800 pb-3 sm:flex-row sm:items-center">
               <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                <History className="w-5 h-5 text-zinc-400" /> TRANSACTION LEDGER
+                <History className="w-5 h-5 text-zinc-400" /> {t('afterDarkUiTransactionLedger').toUpperCase()}
               </h3>
               
               <div className="grid w-full grid-cols-3 gap-1 border-2 border-zinc-800 bg-black p-1 sm:w-auto">
                 {[
-                  { id: 'all', label: 'ALL' },
-                  { id: 'credit', label: 'IN (CREDIT)' },
-                  { id: 'debit', label: 'OUT (DEBIT)' }
+                  { id: 'all', labelKey: 'afterDarkUiAll' },
+                  { id: 'credit', labelKey: 'afterDarkUiInCredit' },
+                  { id: 'debit', labelKey: 'afterDarkUiOutDebit' }
                 ].map(filter => (
                   <button 
                     key={filter.id}
                     onClick={() => setActiveFilter(filter.id)}
                     className={`min-w-0 px-2 py-2 text-[8px] font-black uppercase tracking-widest transition-colors sm:px-4 sm:text-[9px] ${activeFilter === filter.id ? 'bg-white text-black' : 'text-zinc-500 hover:text-white'}`}
                   >
-                    {filter.label}
+                    {t(filter.labelKey).toUpperCase()}
                   </button>
                 ))}
               </div>
@@ -345,12 +347,12 @@ export default function AfterDarkWallet() {
 
             <div className="flex min-h-0 flex-1 flex-col gap-3">
               {isLoading ? (
-                <p role="status" className="flex min-h-32 flex-1 items-center justify-center text-center text-xs text-zinc-500">Loading transactions…</p>
+                <p role="status" className="flex min-h-32 flex-1 items-center justify-center text-center text-xs text-zinc-500">{t('afterDarkUiLoadingTransactions')}</p>
               ) : filteredTransactions.length === 0 ? (
                 <div className="flex min-h-[clamp(8rem,20vh,14rem)] flex-1 flex-col items-center justify-center border-2 border-dashed border-zinc-800 bg-black p-4 text-center">
                   <Filter className="w-8 h-8 text-zinc-600 mb-3" />
-                  <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-1">NO TRANSACTIONS FOUND</h3>
-                  <p className="text-[9px] font-bold text-zinc-500 uppercase">Try adjusting your filters.</p>
+                  <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-1">{t('afterDarkUiNoTransactions')}</h3>
+                  <p className="text-[9px] font-bold text-zinc-500 uppercase">{t('afterDarkUiAdjustFilters')}</p>
                 </div>
               ) : (
                 filteredTransactions.map(tx => <TransactionRow key={tx.id} tx={tx} />)
@@ -360,7 +362,7 @@ export default function AfterDarkWallet() {
             {filteredTransactions.length > 0 && (
               <div className="mt-6 flex justify-center">
                 <button onClick={exportTransactions} className="flex items-center gap-2 border-2 border-zinc-800 bg-black px-6 py-3 text-[9px] font-black uppercase tracking-widest text-zinc-400 transition-colors hover:border-white hover:text-white">
-                  <Download className="w-4 h-4" /> EXPORT CSV
+                  <Download className="w-4 h-4" /> {t('afterDarkUiExportCsv')}
                 </button>
               </div>
             )}
@@ -379,13 +381,13 @@ export default function AfterDarkWallet() {
           <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-y-auto border-2 border-zinc-700 bg-black animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b-2 border-zinc-800 bg-zinc-950 p-4">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                <Plus className="w-4 h-4 text-white" /> ADD FUNDS TO WALLET
+                <Plus className="w-4 h-4 text-white" /> {t('afterDarkUiAddFundsToWallet').toUpperCase()}
               </h2>
               <button onClick={() => setShowDeposit(false)} disabled={isProcessing} className="text-zinc-500 hover:text-white disabled:opacity-50"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-6 p-4 sm:p-6">
               <div>
-                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2">Deposit Amount</label>
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2">{t('afterDarkUiDepositAmount')}</label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-zinc-500 font-bold">KES</span>
                   <input 
@@ -397,29 +399,29 @@ export default function AfterDarkWallet() {
               </div>
 
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Select Payment Method</label>
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">{t('afterDarkUiSelectPaymentMethod')}</label>
                 <button type="button" onClick={() => setPaymentMethod('mpesa')} className={`flex w-full items-center gap-4 border-2 p-4 text-left transition-colors ${paymentMethod === 'mpesa' ? 'border-white bg-zinc-950' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}>
                   <div className={`flex h-4 w-4 items-center justify-center border-2 ${paymentMethod === 'mpesa' ? 'border-white' : 'border-zinc-600'}`}>{paymentMethod === 'mpesa' && <div className="h-2 w-2 bg-white" />}</div>
                   <Smartphone className="h-5 w-5 text-zinc-300" />
                   <div className="flex-1">
                     <span className="text-[10px] font-black text-white uppercase tracking-widest block">M-Pesa Express</span>
-                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mt-0.5">Instant • Zero Fees</span>
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mt-0.5">{t('afterDarkUiInstantZeroFees')}</span>
                   </div>
                 </button>
                 <button type="button" onClick={() => setPaymentMethod('card')} className={`flex w-full items-center gap-4 border-2 p-4 text-left transition-colors ${paymentMethod === 'card' ? 'border-white bg-zinc-950' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}>
                   <div className={`flex h-4 w-4 items-center justify-center border-2 ${paymentMethod === 'card' ? 'border-white' : 'border-zinc-600'}`}>{paymentMethod === 'card' && <div className="h-2 w-2 bg-white" />}</div>
                   <CreditCard className="h-5 w-5 text-zinc-300" />
                   <div className="flex-1">
-                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Card / Paystack</span>
-                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest block mt-0.5">Visa, Mastercard</span>
+                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">{t('afterDarkUiCardPaystack')}</span>
+                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest block mt-0.5">{t('afterDarkUiAcceptsVisaMastercard')}</span>
                   </div>
                 </button>
               </div>
 
               {paymentMethod === 'mpesa' ? (
-                <input type="tel" value={depositPhone} onChange={event => setDepositPhone(event.target.value)} placeholder="M-Pesa number (07XX XXX XXX)" className="w-full bg-black border-2 border-zinc-700 text-white p-3 text-xs" />
+                <input type="tel" value={depositPhone} onChange={event => setDepositPhone(event.target.value)} placeholder={t('afterDarkUiMpesaNumberPlaceholder')} className="w-full bg-black border-2 border-zinc-700 text-white p-3 text-xs" />
               ) : (
-                <p className="border-2 border-zinc-800 bg-zinc-950 p-3 text-[9px] font-bold uppercase text-zinc-400">Paystack opens securely here without leaving After Dark.</p>
+                <p className="border-2 border-zinc-800 bg-zinc-950 p-3 text-[9px] font-bold uppercase text-zinc-400">{t('afterDarkUiPaystackSecureRedirect')}</p>
               )}
 
               <button 
@@ -427,7 +429,7 @@ export default function AfterDarkWallet() {
                 disabled={isProcessing || !amountInput || (paymentMethod === 'mpesa' && !depositPhone)}
                 className="w-full py-4 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 disabled:opacity-50 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors flex items-center justify-center gap-2"
               >
-                {isProcessing ? <RefreshCcw className="w-4 h-4 animate-spin" /> : `DEPOSIT VIA ${paymentMethod === 'mpesa' ? 'M-PESA' : 'PAYSTACK'}`}
+                {isProcessing ? <RefreshCcw className="w-4 h-4 animate-spin" /> : t('afterDarkUiDepositViaProvider', { provider: paymentMethod === 'mpesa' ? 'M-Pesa' : 'Paystack' }).toUpperCase()}
               </button>
             </div>
           </div>
@@ -441,36 +443,36 @@ export default function AfterDarkWallet() {
           <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-y-auto border-2 border-zinc-700 bg-black animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b-2 border-zinc-800 bg-zinc-950 p-4">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                <Banknote className="w-4 h-4 text-white" /> WITHDRAW EARNINGS
+                <Banknote className="w-4 h-4 text-white" /> {t('afterDarkUiWithdrawEarnings').toUpperCase()}
               </h2>
               <button onClick={() => setShowWithdraw(false)} disabled={isProcessing} className="text-zinc-500 hover:text-white disabled:opacity-50"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-6 p-4 sm:p-6">
               
               <div className="flex flex-col justify-between gap-2 border-2 border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center">
-                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Available to Withdraw</span>
+                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">{t('afterDarkUiAvailableToWithdraw')}</span>
                 <span className="text-sm font-black tracking-widest text-white">KES {balance.toLocaleString()}</span>
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2">Payout method</label>
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2">{t('afterDarkUiPayoutMethod')}</label>
                 {payoutMethods.length ? (
                   <select value={payoutMethodId} onChange={event => setPayoutMethodId(event.target.value)} className="w-full border-2 border-zinc-700 bg-black p-3 text-xs text-white outline-none focus:border-white">
                     {payoutMethods.map(method => (
                       <option key={method.id || method.payout_method_id} value={method.id || method.payout_method_id}>
-                        {method.provider || method.type || 'Payout'} • {method.account_number || method.phone_number || method.name}
+                        {method.provider || method.type || t('afterDarkUiPayout')} • {method.account_number || method.phone_number || method.name}
                       </option>
                     ))}
                   </select>
                 ) : (
-                  <p className="border-2 border-zinc-800 bg-zinc-950 p-3 text-[9px] font-bold uppercase text-zinc-400">Add a payout method in creator settings before requesting a withdrawal.</p>
+                  <p className="border-2 border-zinc-800 bg-zinc-950 p-3 text-[9px] font-bold uppercase text-zinc-400">{t('afterDarkUiPayoutMethodBeforeRequest')}</p>
                 )}
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2 flex justify-between">
-                  <span>Withdrawal Amount</span>
-                  <button onClick={() => setAmountInput((isMpesaPayout ? Math.floor(balance) : balance).toFixed(isMpesaPayout ? 0 : 2))} className="text-white underline-offset-4 hover:underline">MAX</button>
+                  <span>{t('afterDarkUiWithdrawalAmount')}</span>
+                  <button onClick={() => setAmountInput((isMpesaPayout ? Math.floor(balance) : balance).toFixed(isMpesaPayout ? 0 : 2))} className="text-white underline-offset-4 hover:underline">{t('afterDarkUiMax')}</button>
                 </label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-zinc-500 font-bold">KES</span>
@@ -481,12 +483,12 @@ export default function AfterDarkWallet() {
                   />
                 </div>
                 <p className="mt-2 text-[8px] font-bold uppercase tracking-widest text-zinc-600">
-                  Minimum withdrawal: KES 1,000. Destination: {selectedPayoutMethod?.account_number || selectedPayoutMethod?.phone_number || 'select a saved method'}.
+                  {t('afterDarkUiMinimumWithdrawalDestination', { destination: selectedPayoutMethod?.account_number || selectedPayoutMethod?.phone_number || t('afterDarkUiSelectSavedMethod') })}
                 </p>
                 <p className="mt-2 border-2 border-zinc-800 bg-zinc-950 p-3 text-[9px] font-bold uppercase tracking-widest text-zinc-400">
                   {isMpesaPayout
-                    ? `KES 50 fee is deducted from the amount. Net payout: KES ${Math.max(0, Number(amountInput || 0) - 50).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
-                    : `No fixed payout fee is deducted by Chattie for this Paystack method. Net payout: KES ${Number(amountInput || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`}
+                    ? t('afterDarkUiMpesaNetPayout', { net: Math.max(0, Number(amountInput || 0) - 50).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })
+                    : t('afterDarkUiPaystackNetPayout', { net: Number(amountInput || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })}
                 </p>
               </div>
 
@@ -495,7 +497,7 @@ export default function AfterDarkWallet() {
                 disabled={isProcessing || !payoutMethodId || !amountInput || Number(amountInput) < 1000 || Number(amountInput) > balance}
                 className="flex w-full items-center justify-center gap-2 border-2 border-white bg-white py-4 text-xs font-black uppercase tracking-widest text-black transition-colors hover:bg-zinc-200 disabled:border-zinc-800 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:opacity-50"
               >
-                {isProcessing ? <RefreshCcw className="w-4 h-4 animate-spin" /> : `WITHDRAW KES ${Number(amountInput || 0).toLocaleString()}`}
+                {isProcessing ? <RefreshCcw className="w-4 h-4 animate-spin" /> : t('afterDarkUiWithdrawKes', { amount: Number(amountInput || 0).toLocaleString() }).toUpperCase()}
               </button>
             </div>
           </div>
@@ -510,11 +512,11 @@ export default function AfterDarkWallet() {
         onSuccess={async () => {
           setPaymentCheckout(null);
           setDepositPhone('');
-          toast.success('Wallet deposit confirmed.');
+          toast.success(t('afterDarkUiWalletDepositConfirmed'));
           try {
             await loadWallet();
           } catch (error) {
-            toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Wallet balance refresh failed.'));
+            toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiWalletBalanceRefreshFailed')));
           }
         }}
       />

@@ -11,6 +11,7 @@ import { PagePrivacyShield, usePageFocus } from '../../hooks/usePageFocus';
 import { useAppStore } from '../../store/useAppStore';
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
+import { useI18n } from '../../i18n';
 
 const PAYSTACK_SCRIPT_URL = 'https://js.paystack.co/v2/inline.js';
 
@@ -24,7 +25,7 @@ const loadPaystackScript = () => new Promise((resolve, reject) => {
   paystackScript.src = PAYSTACK_SCRIPT_URL;
   paystackScript.async = true;
   paystackScript.onload = () => resolve();
-  paystackScript.onerror = () => reject(new Error('Could not load Paystack checkout.'));
+  paystackScript.onerror = () => reject(new Error('afterDarkUiPaystackCheckoutCouldNotLoad'));
   if (!script) document.body.appendChild(paystackScript);
 });
 
@@ -36,6 +37,7 @@ export default function CheckoutModal({
   defaultProvider = 'mpesa',
   initialPhoneNumber = '',
 }) {
+  const { t } = useI18n();
   const navigate = useNavigate();
   // --- Core State ---
   const [activeTab, setActiveTab] = useState('mpesa'); // 'mpesa' | 'card' | 'wallet'
@@ -75,6 +77,8 @@ export default function CheckoutModal({
   const pollIntervalRef = useRef(null);
   const timerRef = useRef(null);
   const pollInFlightRef = useRef(false);
+  const translateRef = useRef(t);
+  translateRef.current = t;
 
   // --- Financial Calculation ---
   const listedPriceCents = Number(postItem?.amountCents ?? postItem?.price_cents ?? Math.round(Number(postItem?.price ?? 0) * 100));
@@ -112,9 +116,9 @@ export default function CheckoutModal({
   const copyToClipboard = async (text) => {
     try {
       await navigator.clipboard.writeText(text);
-      toast.success('Transaction reference copied.');
+      toast.success(t('afterDarkUiTransactionReferenceCopied'));
     } catch {
-      toast.error('Unable to copy the transaction reference from this browser.');
+      toast.error(t('afterDarkUiCopyTransactionReferenceFailed'));
     }
   };
 
@@ -166,14 +170,14 @@ export default function CheckoutModal({
         setUseWalletBalance(isPostPurchase && balance > 0);
       })
       .catch(error => {
-        if (active) setErrorMessage(error?.response?.data?.error || 'Could not load your wallet balance.');
+        if (active) setErrorMessage(error?.response?.data?.error || translateRef.current('afterDarkUiWalletBalanceLoadFailed'));
       })
       .finally(() => {
         if (active) setIsLoadingWallet(false);
       });
 
     return () => { active = false; };
-  }, [defaultProvider, initialPhoneNumber, isOpen, isPostPurchase, isWalletPurchase, postItem?.id, setGlobalWalletBalance, updateUser]);
+  }, [defaultProvider, initialPhoneNumber, isOpen, isPostPurchase, isWalletPurchase, postItem?.id, setGlobalWalletBalance, t, updateUser]);
 
   useEffect(() => {
     if (!isOpen || isWalletPurchase) {
@@ -186,7 +190,7 @@ export default function CheckoutModal({
       .then((config) => {
         if (!active) return;
         if (!config || !Array.isArray(config.supported_providers) || !config.default_provider) {
-          throw new Error('Regional checkout settings are unavailable.');
+          throw new Error(translateRef.current('afterDarkUiRegionalCheckoutUnavailable'));
         }
         setCheckoutConfig(config);
         setChargeCurrency(config.currency || 'KES');
@@ -195,10 +199,14 @@ export default function CheckoutModal({
           : defaultProvider === 'paystack' ? 'card' : 'mpesa');
       })
       .catch((error) => {
-        if (active) setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load regional checkout settings.'));
+        if (active) {
+          setErrorMessage(error?.response?.data?.error || (
+            error instanceof Error ? translateRef.current(error.message) : translateRef.current('afterDarkUiRegionalCheckoutLoadFailed')
+          ));
+        }
       });
     return () => { active = false; };
-  }, [defaultProvider, isOpen, isWalletPurchase]);
+  }, [defaultProvider, isOpen, isWalletPurchase, t]);
 
   const handleClose = () => {
     resetModal();
@@ -235,7 +243,7 @@ export default function CheckoutModal({
       return;
     }
     const intentId = checkout?.id;
-    if (!intentId) throw new Error('The checkout service did not return a valid payment reference.');
+    if (!intentId) throw new Error(t('afterDarkUiPaymentReferenceInvalid'));
     if (Number.isFinite(Number(checkout.settlement_amount_cents))) {
       setConfirmedAmountCents(Number(checkout.provider_settlement_amount_cents ?? checkout.settlement_amount_cents));
     }
@@ -261,18 +269,18 @@ export default function CheckoutModal({
     if (actualProvider === 'paystack') {
       await loadPaystackScript();
       if (typeof window.PaystackPop !== 'function' || !checkout.client_secret) {
-        throw new Error('Paystack checkout could not initialize.');
+        throw new Error(t('afterDarkUiPaystackCheckoutInitFailed'));
       }
       const popup = new window.PaystackPop();
       popup.resumeTransaction(checkout.client_secret);
     } else if (actualProvider === 'stripe') {
       if (!checkout.client_secret || !checkout.public_key) {
-        throw new Error('Stripe checkout could not initialize.');
+        throw new Error(t('afterDarkUiStripeCheckoutInitFailed'));
       }
       setStripePromise(loadStripe(checkout.public_key));
       setStripeCheckout(checkout);
     } else if (actualProvider !== 'mpesa') {
-      throw new Error('The server returned an unsupported payment provider.');
+      throw new Error(t('afterDarkUiUnsupportedPaymentProvider'));
     }
 
     pollIntervalRef.current = window.setInterval(async () => {
@@ -293,11 +301,11 @@ export default function CheckoutModal({
           clearInterval(pollIntervalRef.current);
           clearInterval(timerRef.current);
           setStep('failed');
-          setErrorMessage('The transaction was cancelled or failed.');
+          setErrorMessage(t('afterDarkUiTransactionCancelledOrFailed'));
           await refreshWalletBalance();
         }
       } catch (error) {
-        setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Payment status check failed. Retrying.'));
+        setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiPaymentStatusCheckFailed')));
       } finally {
         pollInFlightRef.current = false;
       }
@@ -316,7 +324,7 @@ export default function CheckoutModal({
       return balance;
     } catch (error) {
       console.error('Could not refresh the After Dark wallet balance.', error);
-      toast.error('Payment status updated, but your wallet balance could not refresh. Reload the wallet to verify it.');
+      toast.error(t('afterDarkUiPaymentStatusWalletRefreshFailed'));
       return null;
     }
   };
@@ -330,14 +338,14 @@ export default function CheckoutModal({
       try {
         const result = await afterDarkService.unlockChatWithWallet(conversationId);
         if (String(result?.status || '').toLowerCase() !== 'success' || result?.has_access !== true) {
-          throw new Error('The server did not confirm chat access.');
+          throw new Error(t('afterDarkUiChatAccessNotConfirmed'));
         }
         setStep('success');
         await refreshWalletBalance();
         onSuccess?.({ type: 'chat_unlock', conversationId });
       } catch (error) {
         setStep('failed');
-        setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not unlock this chat.'));
+        setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiChatUnlockFailed')));
         await refreshWalletBalance();
       }
       return;
@@ -357,7 +365,7 @@ export default function CheckoutModal({
         wallet_only: true,
       });
       if (String(result?.status || '').toLowerCase() !== 'completed') {
-        throw new Error('The server did not confirm the post unlock.');
+        throw new Error(t('afterDarkUiPostUnlockNotConfirmed'));
       }
       await refreshWalletBalance();
       setCheckoutWalletAmountCents(listedPriceCents);
@@ -367,7 +375,7 @@ export default function CheckoutModal({
       onSuccess?.(result);
     } catch (error) {
       setStep('failed');
-      setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not unlock this post.'));
+      setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiPostUnlockFailed')));
       await refreshWalletBalance();
     }
   };
@@ -383,7 +391,7 @@ export default function CheckoutModal({
             clearInterval(timerRef.current);
             clearInterval(pollIntervalRef.current);
             setStep('failed');
-            setErrorMessage('Payment is still pending. Check your provider, then retry or contact support if it does not complete.');
+            setErrorMessage(t('afterDarkUiPaymentStillPending'));
             return 0;
           }
           return prev - 1;
@@ -394,7 +402,7 @@ export default function CheckoutModal({
       clearInterval(timerRef.current);
       clearInterval(pollIntervalRef.current);
     };
-  }, [step]);
+  }, [step, t]);
 
   useEffect(() => {
     if (!isPageFocused) {
@@ -413,7 +421,7 @@ export default function CheckoutModal({
     
     const formattedPhone = validateKenyanPhone(phoneNumber);
     if (!formattedPhone) {
-      toast.error('Invalid phone number. Ensure it is a valid Kenyan number (e.g., 07XX XXX XXX).');
+      toast.error(t('afterDarkUiInvalidKenyanPhoneNumber'));
       return;
     }
 
@@ -428,7 +436,7 @@ export default function CheckoutModal({
       }
     } catch (err) {
       setStep('failed');
-      setErrorMessage(err?.response?.data?.error || (err instanceof Error ? err.message : 'Failed to reach Safaricom Daraja API.'));
+      setErrorMessage(err?.response?.data?.error || (err instanceof Error ? err.message : t('afterDarkUiMpesaGatewayUnavailable')));
       await refreshWalletBalance();
     }
   };
@@ -441,7 +449,7 @@ export default function CheckoutModal({
       await startCheckout(checkoutConfig?.default_provider === 'stripe' ? 'stripe' : 'paystack');
     } catch (err) {
       setStep('failed');
-      setErrorMessage(err?.response?.data?.error || (err instanceof Error ? err.message : 'Failed to reach Paystack secure gateway.'));
+      setErrorMessage(err?.response?.data?.error || (err instanceof Error ? err.message : t('afterDarkUiCardGatewayUnavailable')));
       await refreshWalletBalance();
     }
   };
@@ -462,7 +470,7 @@ export default function CheckoutModal({
         <div className="w-full md:w-[40%] bg-zinc-950 border-b-2 md:border-b-0 md:border-r-2 border-zinc-800 flex flex-col">
           <div className="p-6 border-b-2 border-zinc-800 flex justify-between items-center bg-black">
             <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-              <Receipt className="w-4 h-4 text-zinc-400" /> ORDER SUMMARY
+              <Receipt className="w-4 h-4 text-zinc-400" /> {t('afterDarkUiOrderSummary')}
             </h2>
             <button onClick={handleClose} disabled={step === 'processing' || step === 'polling'} className="md:hidden p-2 text-zinc-500 hover:text-white disabled:opacity-0">
               <X className="w-5 h-5" />
@@ -476,39 +484,39 @@ export default function CheckoutModal({
               <div className="absolute top-0 right-0 p-2 bg-yellow-500/10 border-b-2 border-l-2 border-yellow-500">
                 <Lock className="w-4 h-4 text-yellow-500" />
               </div>
-              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Item to Unlock</span>
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">{t('afterDarkUiItemToUnlock')}</span>
               <p className="text-sm font-bold text-white leading-relaxed pr-8 line-clamp-3">
-                {postItem.caption || (isLivePassPurchase ? 'Live Room Access Pass' : isLiveSubscriptionPurchase ? 'Creator VIP Subscription' : 'Exclusive Vault Media')}
+                {postItem.caption || (isLivePassPurchase ? t('afterDarkUiLiveRoomAccessPass') : isLiveSubscriptionPurchase ? t('afterDarkUiCreatorVipSubscription') : t('afterDarkUiExclusiveVaultMedia'))}
               </p>
               
               <div className="mt-5 flex items-center gap-2 pt-4 border-t-2 border-dashed border-zinc-900">
                 <ShieldCheck className="w-4 h-4 text-green-500" />
-                <span className="text-[9px] font-bold text-green-500 uppercase tracking-widest">End-to-End Encrypted Access</span>
+                <span className="text-[9px] font-bold text-green-500 uppercase tracking-widest">{t('afterDarkUiEndToEndEncryptedAccess')}</span>
               </div>
             </div>
 
             {/* Price Breakdown */}
             <div className="space-y-4 bg-black p-5 border-2 border-zinc-900">
               <div className="flex justify-between items-center text-xs font-bold text-zinc-400 uppercase tracking-widest">
-                <span>Subtotal</span>
+                <span>{t('afterDarkUiSubtotal')}</span>
                 <span className="text-white">KES {totalAmount.toFixed(2)}</span>
               </div>
               {walletAmountCents > 0 && (
                 <div className="flex justify-between items-center text-xs font-bold text-yellow-400 uppercase tracking-widest">
-                  <span>Wallet applied</span>
+                  <span>{t('afterDarkUiWalletApplied')}</span>
                   <span>- KES {(walletAmountCents / 100).toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between items-center text-xs font-bold text-zinc-400 uppercase tracking-widest">
-                <span>Pay with selected method</span>
+                <span>{t('afterDarkUiPayWithSelectedMethod')}</span>
                 <span className="text-white">KES {itemPrice.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-xs font-bold text-zinc-400 uppercase tracking-widest">
-                <span>Network Fee</span>
+                <span>{t('afterDarkUiNetworkFee')}</span>
                 <span className="text-white">KES {platformFee.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-[10px] font-bold text-zinc-600 uppercase tracking-widest pt-4 border-t border-zinc-900 border-dashed">
-                <span>Includes 16% VAT</span>
+                <span>{t('afterDarkUiIncludesVat')}</span>
                 <span>KES {vatAmount.toFixed(2)}</span>
               </div>
             </div>
@@ -517,13 +525,13 @@ export default function CheckoutModal({
           <div className="p-6 bg-zinc-900 border-t-2 border-zinc-800 shrink-0">
             <div className="flex justify-between items-end">
               <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest">
-                {walletAmountCents > 0 ? 'Remaining Due' : 'Total Due'}
+                {walletAmountCents > 0 ? t('afterDarkUiRemainingDue') : t('afterDarkUiTotalDue')}
               </span>
               <div className="text-right">
                 <span className="text-2xl font-black text-yellow-500 tracking-wider">
                   {paymentCurrency} {paymentAmount.toFixed(paymentCurrency === 'USD' ? 2 : 0)}
                 </span>
-                {paymentCurrency === 'USD' && <span className="mt-1 block text-[9px] text-zinc-500">KES {totalAmount.toFixed(2)} settlement · approx. USD {estimatedCharge.toFixed(2)}</span>}
+                {paymentCurrency === 'USD' && <span className="mt-1 block text-[9px] text-zinc-500">{t('afterDarkUiKesSettlementApproxUsd', { total: totalAmount.toFixed(2), amount: estimatedCharge.toFixed(2) })}</span>}
               </div>
             </div>
           </div>
@@ -546,8 +554,8 @@ export default function CheckoutModal({
             <div className="flex-1 flex flex-col h-full overflow-y-auto custom-scrollbar">
               
               <div className="px-8 pt-8 pb-4">
-                <h2 className="text-lg font-black text-white uppercase tracking-widest">Select Payment Method</h2>
-                <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-1">Secure & Encrypted Checkout</p>
+                <h2 className="text-lg font-black text-white uppercase tracking-widest">{t('afterDarkUiSelectPaymentMethod')}</h2>
+                <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-1">{t('afterDarkUiSecureEncryptedCheckout')}</p>
               </div>
 
               {/* Payment Tabs */}
@@ -565,7 +573,7 @@ export default function CheckoutModal({
                 >
                   <CreditCard className={`w-7 h-7 ${activeTab === 'card' ? 'text-blue-500' : 'text-zinc-500'}`} />
                   <span className={`text-[10px] font-black uppercase tracking-widest ${activeTab === 'card' ? 'text-blue-500' : 'text-zinc-500'}`}>
-                    {checkoutConfig.default_provider === 'stripe' ? 'Stripe card' : 'Paystack card'}
+                    {checkoutConfig.default_provider === 'stripe' ? t('afterDarkUiStripeCard') : t('afterDarkUiPaystackCard')}
                   </span>
                 </button>}
               </div>}
@@ -576,10 +584,10 @@ export default function CheckoutModal({
                   <div className="mx-auto mb-6 w-full max-w-md border-2 border-zinc-800 bg-zinc-950 p-5">
                     <div className="flex items-center justify-between gap-4">
                       <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white">
-                        <Wallet className="h-4 w-4 text-yellow-400" /> After Dark balance
+                        <Wallet className="h-4 w-4 text-yellow-400" /> {t('afterDarkUiAfterDarkBalance')}
                       </span>
                       <span className="text-xs font-bold tabular-nums text-zinc-300">
-                        {isLoadingWallet ? 'Loading…' : `KES ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        {isLoadingWallet ? t('afterDarkUiLoading') : `KES ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </span>
                     </div>
                     <label className="mt-4 flex cursor-pointer items-start gap-3 text-xs font-bold text-zinc-300">
@@ -591,27 +599,28 @@ export default function CheckoutModal({
                         className="mt-0.5 accent-yellow-400"
                       />
                       <span>
-                        Apply {selectedWalletAmountCents > 0
-                          ? `KES ${(selectedWalletAmountCents / 100).toFixed(2)}`
-                          : 'available balance'} to this post
+                        {selectedWalletAmountCents > 0
+                          ? t('afterDarkUiApplyWalletAmount', { amount: (selectedWalletAmountCents / 100).toFixed(2) })
+                          : t('afterDarkUiApplyAvailableBalance')}
+                        {' '}{t('afterDarkUiToThisPost')}
                         {selectedWalletAmountCents > 0 && selectedWalletAmountCents < listedPriceCents
-                          ? ` and pay the remaining KES ${itemPrice.toFixed(2)} with the selected method`
+                          ? ` ${t('afterDarkUiPayRemainingWithMethod', { amount: itemPrice.toFixed(2) })}`
                           : ''}
                       </span>
                     </label>
                     {selectedWalletAmountCents > 0 && selectedWalletAmountCents < listedPriceCents && (
                       <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
-                        The wallet portion is held during checkout and returned automatically if the provider payment fails.
+                        {t('afterDarkUiWalletHoldRefundNotice')}
                       </p>
                     )}
-                    {isLoadingWallet && <p role="status" className="mt-3 text-[10px] text-zinc-500">Loading wallet balance…</p>}
+                    {isLoadingWallet && <p role="status" className="mt-3 text-[10px] text-zinc-500">{t('afterDarkUiLoadingWalletBalance')}</p>}
                     {!isLoadingWallet && walletBalance >= totalAmount && (
                       <button
                         type="button"
                         onClick={handleWalletPostUnlock}
                         className="mt-4 flex w-full items-center justify-center gap-2 border-2 border-yellow-400 bg-yellow-400 py-3 text-xs font-black uppercase tracking-widest text-black hover:bg-yellow-300"
                       >
-                        <Wallet className="h-4 w-4" /> Unlock with balance
+                        <Wallet className="h-4 w-4" /> {t('afterDarkUiUnlockWithBalance')}
                       </button>
                     )}
                     {errorMessage && <p role="alert" className="mt-3 text-xs text-red-400">{errorMessage}</p>}
@@ -620,14 +629,14 @@ export default function CheckoutModal({
                 {isWalletPurchase ? (
                   <div className="mx-auto flex w-full max-w-md flex-col gap-5 border-2 border-zinc-800 bg-zinc-950 p-6">
                     <div className="flex items-center justify-between gap-4">
-                      <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white"><Wallet className="h-4 w-4 text-yellow-400" /> Chattie wallet</span>
+                      <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white"><Wallet className="h-4 w-4 text-yellow-400" /> {t('afterDarkUiChattieWallet')}</span>
                       <span className="text-xs font-bold tabular-nums text-zinc-300">KES {walletBalance.toLocaleString()}</span>
                     </div>
-                    <p className="text-[10px] leading-relaxed text-zinc-500">                    {'A one-time wallet payment unlocks ongoing access to this creator’s chat.'}</p>
+                    <p className="text-[10px] leading-relaxed text-zinc-500">{t('afterDarkUiOneTimeChatUnlock')}</p>
                     {errorMessage && <p role="alert" className="text-xs text-red-400">{errorMessage}</p>}
                     <button type="button" onClick={handleWalletPostUnlock} disabled={isLoadingWallet || walletBalance < totalAmount} className="flex w-full items-center justify-center gap-2 border-2 border-yellow-400 bg-yellow-400 py-4 text-xs font-black uppercase tracking-widest text-black hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-50">
                       {isLoadingWallet ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
-                      {walletBalance < totalAmount ? 'Insufficient balance' : `${isChatPurchase ? 'Unlock chat' : 'Unlock'} for KES ${totalAmount.toFixed(2)}`}
+                      {walletBalance < totalAmount ? t('afterDarkUiInsufficientBalance') : t(isChatPurchase ? 'afterDarkUiUnlockChatForKes' : 'afterDarkUiUnlockForKes', { amount: totalAmount.toFixed(2) })}
                     </button>
                     {walletBalance < totalAmount && (
                       <button
@@ -635,7 +644,7 @@ export default function CheckoutModal({
                         onClick={() => { handleClose(); navigate('/afterdark/wallet'); }}
                         className="w-full border-2 border-zinc-700 py-3 text-xs font-bold uppercase tracking-widest text-zinc-300 hover:border-white hover:text-white"
                       >
-                        Go to wallet
+                        {t('afterDarkUiGoToWallet')}
                       </button>
                     )}
                   </div>
@@ -645,7 +654,7 @@ export default function CheckoutModal({
                       ? <AlertTriangle className="h-8 w-8 text-red-400" />
                       : <Loader2 className="h-8 w-8 animate-spin text-blue-400" />}
                     <p role={errorMessage ? 'alert' : 'status'} className="text-xs font-bold uppercase tracking-widest text-zinc-400">
-                      {errorMessage || 'Loading regional payment options...'}
+                      {errorMessage || t('afterDarkUiLoadingRegionalPaymentOptions')}
                     </p>
                   </div>
                 ) : <>
@@ -655,16 +664,16 @@ export default function CheckoutModal({
                   <form onSubmit={handleMpesaSubmit} className="space-y-6 max-w-md mx-auto w-full animate-in fade-in duration-300">
                     <div className="relative">
                       <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-3 flex items-center justify-between">
-                        <span>Safaricom Number</span>
+                        <span>{t('afterDarkUiSafaricomNumber')}</span>
                         {savedNumbers.length > 0 && (
                           <button type="button" onClick={() => setShowSaved(!showSaved)} className="text-green-500 hover:text-green-400 flex items-center gap-1">
-                            <History className="w-3 h-3" /> Recent
+                            <History className="w-3 h-3" /> {t('afterDarkUiRecent')}
                           </button>
                         )}
                         <button
                           type="button"
                           onClick={() => setShowPhoneNumber(value => !value)}
-                          aria-label={showPhoneNumber ? 'Hide phone number' : 'Show phone number'}
+                          aria-label={t(showPhoneNumber ? 'afterDarkUiHidePhoneNumber' : 'afterDarkUiShowPhoneNumber')}
                           className="text-zinc-400 hover:text-white"
                         >
                           {showPhoneNumber ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -679,7 +688,7 @@ export default function CheckoutModal({
                           inputMode="numeric"
                           value={phoneNumber}
                           onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                          placeholder="7XX XXX XXX"
+                          placeholder={t('afterDarkUiPhoneNumberPlaceholder')}
                           maxLength={10}
                           autoFocus
                           className="w-full bg-zinc-950 border-2 border-zinc-800 text-white p-5 pl-[85px] text-base font-bold outline-none focus:border-green-500 transition-colors placeholder:text-zinc-700"
@@ -705,7 +714,7 @@ export default function CheckoutModal({
                     <div className="bg-zinc-900 border border-zinc-800 p-4 flex gap-3 items-start">
                       <Lock className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
                       <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest leading-relaxed">
-                        An STK push will be sent to your phone. Ensure it is unlocked to enter your M-Pesa PIN.
+                        {t('afterDarkUiMpesaStkPhoneInstruction')}
                       </p>
                     </div>
 
@@ -715,11 +724,11 @@ export default function CheckoutModal({
                         disabled={isLoadingWallet || !phoneNumber || phoneNumber.length < 9}
                         className="w-full py-5 bg-green-500 text-black border-2 border-green-500 font-black uppercase tracking-widest text-xs hover:bg-green-400 transition-all shadow-[4px_4px_0px_rgba(var(--success-rgb), 0.2)] hover:shadow-[6px_6px_0px_rgba(var(--success-rgb), 0.4)] disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2 mt-4"
                       >
-                        PAY KES {itemPrice.toFixed(2)}
+                        {t('afterDarkUiPayKesAmount', { amount: itemPrice.toFixed(2) })}
                       </button>
                     ) : (
                       <p role="status" className="text-center text-xs font-bold text-yellow-400">
-                        Your wallet covers the full price. Use the balance button above or uncheck wallet to pay with M-Pesa.
+                        {t('afterDarkUiWalletCoversFullPriceMpesa')}
                       </p>
                     )}
                   </form>
@@ -734,16 +743,16 @@ export default function CheckoutModal({
                         <div className="flex items-center gap-3">
                           <Shield className="w-6 h-6 text-blue-500" />
                           <div>
-                            <p className="text-xs font-black text-white uppercase tracking-widest">PCI-DSS COMPLIANT</p>
+                            <p className="text-xs font-black text-white uppercase tracking-widest">{t('afterDarkUiPciDssCompliant')}</p>
                             <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">
-                              Processed securely by {checkoutConfig.default_provider === 'stripe' ? 'Stripe' : 'Paystack'}
+                              {t('afterDarkUiProcessedSecurelyBy', { provider: checkoutConfig.default_provider === 'stripe' ? 'Stripe' : 'Paystack' })}
                             </p>
                           </div>
                         </div>
                       </div>
                       
                       <div className="flex items-center justify-between opacity-60">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Accepts</span>
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('afterDarkUiAccepts')}</span>
                         <div className="flex gap-2">
                           <div className="px-2 py-1 border border-zinc-700 text-[8px] font-black text-white">VISA</div>
                           <div className="px-2 py-1 border border-zinc-700 text-[8px] font-black text-white">MASTERCARD</div>
@@ -757,11 +766,11 @@ export default function CheckoutModal({
                         disabled={isLoadingWallet}
                         className="w-full py-5 bg-blue-500 text-black border-2 border-blue-500 font-black uppercase tracking-widest text-xs hover:bg-blue-400 transition-all shadow-[4px_4px_0px_rgba(var(--info-rgb), 0.2)] hover:shadow-[6px_6px_0px_rgba(var(--info-rgb), 0.4)] flex items-center justify-center gap-2"
                       >
-                        PROCEED TO {checkoutConfig.default_provider === 'stripe' ? 'STRIPE' : 'PAYSTACK'} CHECKOUT <ChevronRight className="w-4 h-4" />
+                        {t('afterDarkUiProceedToProviderCheckout', { provider: checkoutConfig.default_provider === 'stripe' ? 'Stripe' : 'Paystack' })} <ChevronRight className="w-4 h-4" />
                       </button>
                     ) : (
                       <p role="status" className="text-center text-xs font-bold text-yellow-400">
-                        Your wallet covers the full price. Use the balance button above or uncheck wallet to pay by card.
+                        {t('afterDarkUiWalletCoversFullPriceCard')}
                       </p>
                     )}
                   </form>
@@ -775,9 +784,9 @@ export default function CheckoutModal({
           {step === 'processing' && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in-95 duration-300">
               <Loader2 className={`w-16 h-16 animate-spin mb-8 ${activeTab === 'mpesa' ? 'text-green-500' : 'text-blue-500'}`} />
-              <h3 className="text-base font-black text-white uppercase tracking-widest mb-3">CONTACTING GATEWAY</h3>
+              <h3 className="text-base font-black text-white uppercase tracking-widest mb-3">{t('afterDarkUiContactingGateway')}</h3>
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest max-w-sm leading-relaxed">
-                Establishing a secure connection with {activeTab === 'mpesa' ? 'Safaricom Daraja API' : checkoutConfig?.default_provider === 'stripe' ? 'Stripe' : 'Paystack'}...
+                {t('afterDarkUiEstablishSecureConnection', { provider: activeTab === 'mpesa' ? 'Safaricom Daraja API' : checkoutConfig?.default_provider === 'stripe' ? 'Stripe' : 'Paystack' })}
               </p>
             </div>
           )}
@@ -787,9 +796,9 @@ export default function CheckoutModal({
             <div className={`flex-1 flex flex-col items-center ${checkoutProvider === 'stripe' ? 'justify-start overflow-y-auto' : 'justify-center'} p-8 text-center animate-in zoom-in-95 duration-300`}>
               {checkoutProvider === 'stripe' ? (
                 <div className="w-full max-w-lg space-y-4">
-                  <h3 className="text-base font-black text-white uppercase tracking-widest">Complete secure checkout</h3>
+                  <h3 className="text-base font-black text-white uppercase tracking-widest">{t('afterDarkUiCompleteSecureCheckout')}</h3>
                   <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest leading-relaxed">
-                    Pay USD {paymentAmount.toFixed(2)}. The creator receives KES {totalAmount.toFixed(2)}.
+                    {t('afterDarkUiStripePaymentCreatorReceives', { amount: paymentAmount.toFixed(2), total: totalAmount.toFixed(2) })}
                   </p>
                   {stripePromise && stripeCheckout?.client_secret ? (
                     <div className="min-h-[min(45dvh,28rem)] border-2 border-zinc-800 bg-white p-3 text-left">
@@ -799,7 +808,7 @@ export default function CheckoutModal({
                     </div>
                   ) : <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-400" />}
                   <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                    This page will confirm the payment automatically.
+                    {t('afterDarkUiPaymentAutoConfirmed')}
                   </p>
                 </div>
               ) : <>
@@ -816,20 +825,20 @@ export default function CheckoutModal({
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center flex-col">
                   <span className="text-3xl font-black text-white">{countdown}</span>
-                  <span className="text-[9px] font-bold text-green-500 uppercase tracking-widest mt-1">SECONDS</span>
+                  <span className="text-[9px] font-bold text-green-500 uppercase tracking-widest mt-1">{t('afterDarkUiSeconds')}</span>
                 </div>
               </div>
 
-              <h3 className="text-base font-black text-white uppercase tracking-widest mb-3 animate-pulse">{checkoutProvider === 'mpesa' ? 'CHECK YOUR PHONE' : 'AWAITING PAYMENT'}</h3>
+              <h3 className="text-base font-black text-white uppercase tracking-widest mb-3 animate-pulse">{t(checkoutProvider === 'mpesa' ? 'afterDarkUiCheckYourPhone' : 'afterDarkUiAwaitingPayment')}</h3>
               <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest max-w-xs leading-relaxed mb-8">
                 {checkoutProvider === 'mpesa'
-                  ? <>An STK Push has been sent to <span className="text-white font-black">+{phoneNumber}</span>. Enter your M-Pesa PIN to pay KES {itemPrice.toFixed(2)}.</>
-                  : <>Complete the payment in the Paystack checkout window for KES {itemPrice.toFixed(2)}. This page will confirm the result automatically.</>}
+                  ? <>{t('afterDarkUiMpesaStkPushSent', { phone: `+${phoneNumber}`, amount: itemPrice.toFixed(2) })}</>
+                  : <>{t('afterDarkUiPaystackCheckoutInstructions', { amount: itemPrice.toFixed(2) })}</>}
               </p>
 
               {errorMessage && <p role="status" className="mb-4 max-w-sm text-xs text-amber-400">{errorMessage}</p>}
               <div className="flex items-center gap-3 text-[10px] font-black text-zinc-500 uppercase tracking-widest bg-zinc-950 px-5 py-3 border-2 border-zinc-800">
-                <Loader2 className="w-4 h-4 animate-spin text-green-500" /> Awaiting {checkoutProvider === 'mpesa' ? 'Safaricom' : 'Paystack'} confirmation...
+                <Loader2 className="w-4 h-4 animate-spin text-green-500" /> {t('afterDarkUiAwaitingProviderConfirmation', { provider: checkoutProvider === 'mpesa' ? 'Safaricom' : 'Paystack' })}
               </div>
               </>}
             </div>
@@ -841,43 +850,43 @@ export default function CheckoutModal({
               <div className="size-[clamp(5rem,12vw,6rem)] bg-green-500/10 border-4 border-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(var(--success-rgb), 0.2)]">
                 <CheckCircle2 className="w-12 h-12 text-green-500" />
               </div>
-              <h3 className="text-xl font-black text-white uppercase tracking-widest mb-3">PAYMENT SUCCESSFUL</h3>
+              <h3 className="text-xl font-black text-white uppercase tracking-widest mb-3">{t('afterDarkUiPaymentSuccessful')}</h3>
               <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-8 text-center max-w-md leading-relaxed">
                 {isLivePassPurchase
-                  ? `Your payment was confirmed. Live access has been granted.`
+                  ? t('afterDarkUiPaymentLiveAccessGranted')
                   : isLiveSubscriptionPurchase
-                    ? `Your payment was confirmed. Your VIP subscription is active.`
+                    ? t('afterDarkUiPaymentVipSubscriptionActive')
                     : isChatPurchase
-                      ? `Your payment was confirmed. You can now message this creator.`
-                      : `Your payment was confirmed. The post is unlocked and added to your vault.`}
+                      ? t('afterDarkUiPaymentCreatorChatReady')
+                      : t('afterDarkUiPaymentPostUnlocked')}
               </p>
 
               <div className="w-full max-w-sm bg-black border-2 border-green-500/30 p-6 space-y-4">
                 <div className="flex justify-between items-center pb-4 border-b-2 border-dashed border-zinc-800">
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Transaction Ref</span>
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('afterDarkUiTransactionRef')}</span>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-white uppercase tracking-widest">{transactionRef}</span>
-                    <button onClick={() => copyToClipboard(transactionRef)} aria-label="Copy reference" className="text-zinc-500 hover:text-white"><Copy className="w-3 h-3" /></button>
+                    <button onClick={() => copyToClipboard(transactionRef)} aria-label={t('afterDarkUiCopyReference')} className="text-zinc-500 hover:text-white"><Copy className="w-3 h-3" /></button>
                   </div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Payment Method</span>
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('afterDarkUiPaymentMethod')}</span>
                   <span className="text-[10px] font-bold text-white uppercase tracking-widest">{activeTab === 'wallet' ? 'WALLET' : checkoutProvider === 'mpesa' ? 'M-PESA' : checkoutProvider === 'stripe' ? 'STRIPE' : 'PAYSTACK'}</span>
                 </div>
                 {checkoutProvider && (
                   <>
                     {walletAmountCents > 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Wallet contribution</span>
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('afterDarkUiWalletContribution')}</span>
                         <span className="text-xs font-bold text-yellow-300">KES {(walletAmountCents / 100).toFixed(2)}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Customer charge</span>
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('afterDarkUiCustomerCharge')}</span>
                       <span className="text-xs font-bold text-white">{chargeCurrency} {paymentAmount.toFixed(chargeCurrency === 'USD' ? 2 : 0)}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">KES settlement</span>
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('afterDarkUiKesSettlement')}</span>
                       <span className="text-xs font-bold text-white">KES {totalAmount.toFixed(2)}</span>
                     </div>
                   </>
@@ -888,7 +897,7 @@ export default function CheckoutModal({
                 onClick={handleClose} 
                 className="mt-8 px-10 py-5 bg-green-500 text-black font-black uppercase tracking-widest text-xs hover:bg-green-400 transition-all shadow-[4px_4px_0px_rgba(var(--success-rgb), 0.2)] hover:-translate-y-1"
               >
-                PROCEED
+                {t('afterDarkUiProceed')}
               </button>
             </div>
           )}
@@ -899,7 +908,7 @@ export default function CheckoutModal({
               <div className="size-[clamp(5rem,12vw,6rem)] bg-red-500/10 border-4 border-red-500 flex items-center justify-center mb-6">
                 <AlertTriangle className="w-12 h-12 text-red-500" />
               </div>
-              <h3 className="text-xl font-black text-white uppercase tracking-widest mb-3">TRANSACTION FAILED</h3>
+              <h3 className="text-xl font-black text-white uppercase tracking-widest mb-3">{t('afterDarkUiTransactionFailed')}</h3>
               <div className="border-2 border-red-900/50 bg-red-500/5 p-5 mb-8 max-w-md w-full">
                 <p className="text-[11px] font-bold text-red-400 uppercase tracking-widest leading-relaxed">
                   {errorMessage}
@@ -911,13 +920,13 @@ export default function CheckoutModal({
                   onClick={resetModal} 
                   className="flex-1 py-4 bg-white text-black font-black uppercase tracking-widest text-[10px] border-2 border-white hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)]"
                 >
-                  <RefreshCcw className="w-4 h-4" /> TRY AGAIN
+                  <RefreshCcw className="w-4 h-4" /> {t('afterDarkUiTryAgain')}
                 </button>
                 <button 
                   onClick={handleClose} 
                   className="flex-1 py-4 bg-black text-zinc-500 font-black uppercase tracking-widest text-[10px] border-2 border-zinc-800 hover:text-white hover:border-zinc-600 transition-colors"
                 >
-                  CANCEL
+                  {t('afterDarkUiCancel')}
                 </button>
               </div>
             </div>
@@ -927,18 +936,18 @@ export default function CheckoutModal({
           {(step === 'checkout' || step === 'polling') && (
             <div className="p-4 border-t-2 border-zinc-800 bg-zinc-950 shrink-0 flex items-center justify-center gap-6 opacity-60">
               <div className="flex items-center gap-2 text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-                <Lock className="w-3.5 h-3.5" /> 256-BIT ENCRYPTION
+                <Lock className="w-3.5 h-3.5" /> {t('afterDarkUi256BitEncryption')}
               </div>
               <div className="w-1 h-1 bg-zinc-700 rounded-full"></div>
               <div className="flex items-center gap-2 text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-                <ShieldCheck className="w-3.5 h-3.5" /> SECURE CHECKOUT
+                <ShieldCheck className="w-3.5 h-3.5" /> {t('afterDarkUiSecureCheckout')}
               </div>
             </div>
           )}
 
         </div>
       </div>
-      <PagePrivacyShield active={!isPageFocused} message="Checkout details are hidden while this window is inactive." />
+      <PagePrivacyShield active={!isPageFocused} message={t('afterDarkUiCheckoutDetailsHidden')} />
     </div>
   );
 }

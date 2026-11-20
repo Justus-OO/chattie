@@ -369,10 +369,10 @@ export default function RoomDirectory() {
             <input
               value={roomCode}
               onChange={(event) => setRoomCode(event.target.value.toUpperCase())}
-              placeholder="ROOM CODE"
+              placeholder={t('coreUiRoomCode')}
               maxLength={20}
               className="w-[clamp(7rem,16vw,9rem)] border-2 border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-black tracking-widest text-white outline-none focus:border-zinc-500"
-              aria-label="Room invite code"
+              aria-label={t('coreUiRoomInviteCode')}
             />
             <button disabled={isJoiningByCode || !roomCode.trim()} className="px-3 py-2 border-2 border-zinc-700 text-[9px] font-black uppercase tracking-widest text-white disabled:opacity-50">
               {isJoiningByCode ? 'Joining…' : 'Join code'}

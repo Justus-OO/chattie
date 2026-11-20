@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCcw, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminService } from '../../api/admin.service';
+import { useI18n } from '../../i18n';
 
 const formatKes = cents => `KES ${(Number(cents || 0) / 100).toLocaleString()}`;
 const getErrorMessage = (error, fallback) => error?.response?.data?.error
@@ -9,6 +10,7 @@ const getErrorMessage = (error, fallback) => error?.response?.data?.error
   || (error instanceof Error ? error.message : fallback);
 
 export default function AdminPayouts() {
+  const { t } = useI18n();
   const [creators, setCreators] = useState([]);
   const [amounts, setAmounts] = useState({});
   const [reasons, setReasons] = useState({});
@@ -22,14 +24,14 @@ export default function AdminPayouts() {
     try {
       const response = await adminService.getPendingAfterDarkEarnings();
       const rows = Array.isArray(response) ? response : response?.creators || response?.items || [];
-      if (!Array.isArray(rows)) throw new Error('The earnings-clearance service returned an invalid response.');
+      if (!Array.isArray(rows)) throw new Error(t('adminUiEarningsServiceInvalidResponse'));
       setCreators(rows);
     } catch (error) {
-      const message = getErrorMessage(error, 'Could not load creator earnings.');
+      const message = getErrorMessage(error, t('adminUiLoadCreatorEarningsError'));
       setLoadError(message);
       throw error;
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let active = true;
@@ -49,11 +51,11 @@ export default function AdminPayouts() {
     const source = getManualSource(creator);
     const availableCents = Number(creator.pending_by_source?.[source] || 0);
     if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) > availableCents) {
-      toast.error('Enter a positive amount no greater than the pending earnings.');
+      toast.error(t('adminUiPayoutAmountInvalid'));
       return;
     }
     if (!reason) {
-      toast.error('Enter an audit reason before clearing earnings.');
+      toast.error(t('adminUiAuditReasonRequired'));
       return;
     }
     setProcessingId(creator.user_id);
@@ -63,12 +65,12 @@ export default function AdminPayouts() {
         reason,
         source,
       });
-      toast.success('Creator earnings cleared to the withdrawable balance.');
+      toast.success(t('adminUiCreatorEarningsCleared'));
       await loadClearanceQueue();
       setAmounts(current => ({ ...current, [creator.user_id]: '' }));
       setReasons(current => ({ ...current, [creator.user_id]: '' }));
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Could not clear creator earnings.'));
+      toast.error(getErrorMessage(error, t('adminUiClearCreatorEarningsError')));
     } finally {
       setProcessingId('');
     }
@@ -88,10 +90,10 @@ export default function AdminPayouts() {
     setProcessingId(creator.user_id);
     try {
       const result = await adminService.autoClearAfterDarkPPEarnings(creator.user_id);
-      toast.success(`${formatKes(result.amount_cents)} in eligible PPV earnings moved to available balance. No payout was sent.`);
+      toast.success(t('adminUiPpvEarningsReleased', { amount: formatKes(result.amount_cents) }));
       await loadClearanceQueue();
     } catch (error) {
-      toast.error(getErrorMessage(error, 'Could not auto-clear eligible PPV earnings.'));
+      toast.error(getErrorMessage(error, t('adminUiAutoClearPpvError')));
     } finally {
       setProcessingId('');
     }
@@ -103,30 +105,30 @@ export default function AdminPayouts() {
         <header className="flex flex-col justify-between gap-4 border-b-2 border-zinc-800 pb-5 sm:flex-row sm:items-end">
           <div>
             <p className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-              <ShieldCheck className="h-4 w-4" /> Admin finance
+              <ShieldCheck className="h-4 w-4" /> {t('adminUiAdminFinance')}
             </p>
-            <h1 className="text-xl font-black uppercase tracking-widest text-white">Creator earnings clearance</h1>
+            <h1 className="text-xl font-black uppercase tracking-widest text-white">{t('adminUiCreatorEarningsClearance')}</h1>
             <p className="mt-2 max-w-2xl text-[10px] font-bold uppercase leading-relaxed tracking-widest text-zinc-500">
-              Clear eligible settled PPV to available balance after account, creator-profile, and unresolved-report checks. Tips remain manual. This never initiates an external payout.
+              {t('adminUiCreatorEarningsClearanceDescription')}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => loadClearanceQueue().catch(error => toast.error(error?.response?.data?.error || 'Could not refresh the clearance queue.'))}
+            onClick={() => loadClearanceQueue().catch(error => toast.error(error?.response?.data?.error || t('adminUiRefreshClearanceQueueError')))}
             disabled={isLoading}
             className="flex items-center justify-center gap-2 border-2 border-zinc-700 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-white hover:border-white disabled:opacity-50"
           >
-            <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+            <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> {t('adminUiRefresh')}
           </button>
         </header>
 
         {loadError && <p role="alert" className="border-2 border-red-900 p-4 text-xs text-red-400">{loadError}</p>}
 
         {isLoading ? (
-          <p role="status" className="border-2 border-zinc-800 p-6 text-center text-xs text-zinc-500">Loading creator earnings…</p>
+          <p role="status" className="border-2 border-zinc-800 p-6 text-center text-xs text-zinc-500">{t('adminUiLoadingCreatorEarnings')}</p>
         ) : creators.length === 0 ? (
           <p className="border-2 border-dashed border-zinc-800 p-8 text-center text-[10px] font-black uppercase tracking-widest text-zinc-500">
-            No creator earnings are waiting for clearance.
+            {t('adminUiNoCreatorEarningsToClear')}
           </p>
         ) : (
           <div className="space-y-4">
@@ -138,17 +140,17 @@ export default function AdminPayouts() {
                     <p className="mt-1 break-all text-[9px] font-bold text-zinc-600">{creator.user_id}</p>
                   </div>
                   <p className="text-sm font-black uppercase tracking-widest text-white">
-                    Held: {formatKes(creator.pending_cents)}
+                    {t('adminUiHeld')}: {formatKes(creator.pending_cents)}
                   </p>
                 </div>
                 {creator.hold_reason && (
                     <p role="status" className="border border-amber-900 bg-amber-950/20 p-3 text-[10px] font-bold uppercase tracking-widest text-amber-300">
-                      Clearance hold: {creator.hold_reason}
+                      {t('adminUiClearanceHold')}: {creator.hold_reason}
                     </p>
                 )}
                 <div className="flex flex-col justify-between gap-3 border border-zinc-800 bg-black p-3 sm:flex-row sm:items-center">
                     <div>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Eligible settled PPV</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{t('adminUiEligibleSettledPpv')}</p>
                       <p className="mt-1 text-sm font-black text-green-300">{formatKes(creator.eligible_ppv_cents)}</p>
                     </div>
                     <button
@@ -157,7 +159,7 @@ export default function AdminPayouts() {
                       disabled={processingId === creator.user_id || Number(creator.eligible_ppv_cents || 0) <= 0 || Boolean(creator.hold_reason)}
                       className="border-2 border-green-800 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-green-200 hover:border-green-400 disabled:opacity-40"
                     >
-                      {processingId === creator.user_id ? 'Processing…' : 'Auto-clear PPV'}
+                      {processingId === creator.user_id ? t('adminUiProcessing') : t('adminUiAutoClearPpv')}
                     </button>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -169,7 +171,7 @@ export default function AdminPayouts() {
                 </div>
                 <div className="grid gap-4 md:grid-cols-[1fr_2fr_auto]">
                     <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                      Manual source
+                      {t('adminUiManualSource')}
                       <select
                         value={getManualSource(creator)}
                         onChange={event => setSources(current => ({ ...current, [creator.user_id]: event.target.value }))}
@@ -181,7 +183,7 @@ export default function AdminPayouts() {
                       </select>
                     </label>
                   <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                    Amount (KES)
+                    {t('adminUiAmountKes')}
                     <input
                       type="number"
                       min="0.01"
@@ -193,13 +195,13 @@ export default function AdminPayouts() {
                     />
                   </label>
                   <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                    Audit reason
+                    {t('adminUiAuditReason')}
                     <input
                       type="text"
                       maxLength="500"
                       value={reasons[creator.user_id] || ''}
                       onChange={event => setReasons(current => ({ ...current, [creator.user_id]: event.target.value }))}
-                      placeholder="Required clearance reason"
+                      placeholder={t('adminUiClearanceReasonRequired')}
                       className="mt-2 w-full border-2 border-zinc-800 bg-black p-3 text-xs text-white outline-none focus:border-white"
                     />
                   </label>
@@ -209,7 +211,7 @@ export default function AdminPayouts() {
                     disabled={processingId === creator.user_id || Boolean(creator.hold_reason) || Object.entries(creator.pending_by_source || {}).every(([source, amount]) => source === 'ppv' || Number(amount) <= 0)}
                     className="self-end border-2 border-white bg-white px-4 py-3 text-[9px] font-black uppercase tracking-widest text-black hover:bg-zinc-200 disabled:opacity-50"
                   >
-                    {processingId === creator.user_id ? 'Clearing…' : 'Clear earnings'}
+                    {processingId === creator.user_id ? t('adminUiClearing') : t('adminUiClearEarnings')}
                   </button>
                 </div>
               </section>

@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, CalendarDays, Download, RefreshCcw, Wallet } from 'lucide-react';
 import { adminService } from '../../api/admin.service';
+import { useI18n } from '../../i18n';
 
 const periods = ['7D', '30D', '90D', 'YTD'];
 const usdStatuses = new Set(['PENDING', 'APPROVED']);
 const afterDarkPendingStatuses = new Set(['REQUESTED', 'SUBMITTING', 'SUBMISSION_UNKNOWN', 'PROCESSING']);
 
-const getErrorMessage = (error) => error?.response?.data?.error
+const getErrorMessage = (error, fallback) => error?.response?.data?.error
   || (typeof error?.response?.data === 'string' ? error.response.data.trim() : '')
-  || (error instanceof Error ? error.message : 'Could not load finance analytics.');
+  || (error instanceof Error ? error.message : fallback);
 
 const formatMoney = (currency, minorUnits) => {
   const amount = Number(minorUnits || 0) / 100;
@@ -36,6 +37,7 @@ const payoutTotals = (rows, pendingStatuses) => rows.reduce((totals, row) => {
 const escapeCsv = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 
 export default function AdminFinance() {
+  const { t } = useI18n();
   const [period, setPeriod] = useState('30D');
   const [refreshKey, setRefreshKey] = useState(0);
   const [finance, setFinance] = useState(null);
@@ -54,13 +56,13 @@ export default function AdminFinance() {
           || !Array.isArray(response.dailyRevenue)
           || !Array.isArray(response.creatorPayouts)
           || !Array.isArray(response.afterDarkWithdrawals)) {
-          throw new Error('The finance service returned an invalid response.');
+          throw new Error(t('adminUiInvalidFinanceResponse'));
         }
         if (active) setFinance(response);
       })
       .catch((error) => {
         if (!active) return;
-        setLoadError(getErrorMessage(error));
+        setLoadError(getErrorMessage(error, t('adminUiLoadFinanceError')));
         setFinance(null);
       })
       .finally(() => {
@@ -68,7 +70,7 @@ export default function AdminFinance() {
       });
 
     return () => { active = false; };
-  }, [period, refreshKey]);
+  }, [period, refreshKey, t]);
 
   const collectionTotals = useMemo(() => {
     const totals = new Map();
@@ -89,18 +91,18 @@ export default function AdminFinance() {
   const exportReport = () => {
     if (!finance) return;
     const rows = [
-      ['Section', 'Date', 'Source or status', 'Currency', 'Amount minor units', 'Count'],
+      [t('adminUiSection'), t('adminUiDate'), t('adminUiSourceOrStatus'), t('adminUiCurrency'), t('adminUiAmountMinorUnits'), t('adminUiCount')],
       ...finance.revenueBySource.map((item) => [
-        'Collected payments', '', item.source, item.currency, item.amountMinor, item.paymentCount,
+        t('adminUiCollectedPayments'), '', item.source, item.currency, item.amountMinor, item.paymentCount,
       ]),
       ...finance.dailyRevenue.map((item) => [
-        'Daily collections', item.date, item.source, item.currency, item.amountMinor, item.paymentCount,
+        t('adminUiDailyCollections'), item.date, item.source, item.currency, item.amountMinor, item.paymentCount,
       ]),
       ...finance.creatorPayouts.map((item) => [
-        'Creator crypto payouts', '', item.status, 'USD', item.amountMinor, item.requestCount,
+        t('adminUiCreatorCryptoPayouts'), '', item.status, 'USD', item.amountMinor, item.requestCount,
       ]),
       ...finance.afterDarkWithdrawals.map((item) => [
-        'After Dark withdrawals', '', item.status, 'KES', item.amountMinor, item.requestCount,
+        t('adminUiAfterDarkWithdrawals'), '', item.status, 'KES', item.amountMinor, item.requestCount,
       ]),
     ];
     const csv = rows.map((row) => row.map(escapeCsv).join(',')).join('\r\n');
@@ -142,15 +144,15 @@ export default function AdminFinance() {
         <header className="flex flex-col justify-between gap-5 border-b-2 border-zinc-800 pb-6 sm:flex-row sm:items-end">
           <div>
             <p className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-green-400">
-              <Activity className="h-4 w-4" /> Finance · Live ledger data
+              <Activity className="h-4 w-4" /> {t('adminUiFinanceLiveLedger')}
             </p>
-            <h1 className="text-2xl font-black uppercase tracking-widest text-white sm:text-3xl">Platform finance</h1>
+            <h1 className="text-2xl font-black uppercase tracking-widest text-white sm:text-3xl">{t('adminUiPlatformFinance')}</h1>
             <p className="mt-2 max-w-3xl text-[10px] font-bold uppercase leading-relaxed tracking-widest text-zinc-500">
-              Confirmed checkouts are reported by source currency. Creator payout liabilities and After Dark withdrawals remain separate to avoid mixing currencies.
+              {t('adminUiFinanceDescription')}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <div className="flex items-center border-2 border-zinc-800 bg-zinc-950 p-1" aria-label="Select reporting period">
+            <div className="flex items-center border-2 border-zinc-800 bg-zinc-950 p-1" aria-label={t('adminUiSelectReportingPeriod')}>
               {periods.map((option) => (
                 <button
                   type="button"
@@ -169,7 +171,7 @@ export default function AdminFinance() {
               disabled={isLoading}
               className="flex items-center gap-2 border-2 border-zinc-700 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white disabled:opacity-50"
             >
-              <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
+              <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> {t('adminUiRefresh')}
             </button>
             <button
               type="button"
@@ -177,7 +179,7 @@ export default function AdminFinance() {
               disabled={!finance || isLoading}
               className="flex items-center gap-2 border-2 border-white bg-white px-4 py-2 text-[9px] font-black uppercase tracking-widest text-black hover:bg-zinc-200 disabled:opacity-50"
             >
-              <Download className="h-4 w-4" /> Export CSV
+              <Download className="h-4 w-4" /> {t('adminUiExportCsv')}
             </button>
             <button
               type="button"
@@ -185,7 +187,7 @@ export default function AdminFinance() {
               disabled={isExportingPdf}
               className="flex items-center gap-2 border-2 border-emerald-700 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-emerald-200 hover:border-emerald-400 disabled:opacity-50"
             >
-              <Download className="h-4 w-4" /> {isExportingPdf ? 'Generating PDF…' : 'Export monthly PDF'}
+              <Download className="h-4 w-4" /> {isExportingPdf ? t('adminUiGeneratingPdf') : t('adminUiExportMonthlyPdf')}
             </button>
           </div>
         </header>
@@ -194,57 +196,57 @@ export default function AdminFinance() {
           <section role="alert" className="border-2 border-red-900 bg-red-950/30 p-4 text-xs text-red-300">
             <p>{loadError}</p>
             <button type="button" className="mt-3 text-[10px] font-black uppercase underline" onClick={() => setRefreshKey((key) => key + 1)}>
-              Retry
+              {t('adminUiRetry')}
             </button>
           </section>
         )}
 
         {isLoading && !finance ? (
-          <p role="status" className="border-2 border-zinc-800 p-8 text-center text-xs text-zinc-500">Loading finance records…</p>
+          <p role="status" className="border-2 border-zinc-800 p-8 text-center text-xs text-zinc-500">{t('adminUiLoadingFinanceRecords')}</p>
         ) : !finance ? (
-          <p className="border-2 border-dashed border-zinc-800 p-8 text-center text-xs text-zinc-500">Finance data is unavailable.</p>
+          <p className="border-2 border-dashed border-zinc-800 p-8 text-center text-xs text-zinc-500">{t('adminUiFinanceUnavailable')}</p>
         ) : (
           <>
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Confirmed checkouts · {finance.period}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{t('adminUiConfirmedCheckouts')} · {finance.period}</p>
                 <p className="mt-3 text-3xl font-black text-white">{paymentCount.toLocaleString()}</p>
-                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">Main app and After Dark payments</p>
+                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">{t('adminUiMainAndAfterDarkPayments')}</p>
               </article>
               <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Active subscriptions</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{t('adminUiActiveSubscriptions')}</p>
                 <p className="mt-3 text-3xl font-black text-white">{activeSubscriptions.toLocaleString()}</p>
                 <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">
-                  Main app {Number(finance.activeMainSubscriptions).toLocaleString()} · After Dark {Number(finance.activeAfterDarkSubscriptions).toLocaleString()}
+                  {t('adminUiMainApp')} {Number(finance.activeMainSubscriptions).toLocaleString()} · {t('adminUiAfterDark')} {Number(finance.activeAfterDarkSubscriptions).toLocaleString()}
                 </p>
               </article>
               <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Creator payouts reserved</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{t('adminUiCreatorPayoutsReserved')}</p>
                 <p className="mt-3 text-2xl font-black text-amber-300">{formatMoney('USD', cryptoPending.amountMinor)}</p>
-                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">{cryptoPending.count} pending or approved request(s)</p>
+                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">{t('adminUiPendingOrApprovedRequests', { count: cryptoPending.count })}</p>
               </article>
               <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
                 <p className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                  <Wallet className="h-3 w-3" /> After Dark withdrawals in progress
+                  <Wallet className="h-3 w-3" /> {t('adminUiAfterDarkWithdrawalsInProgress')}
                 </p>
                 <p className="mt-3 text-2xl font-black text-amber-300">{formatMoney('KES', afterDarkPending.amountMinor)}</p>
-                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">{afterDarkPending.count} active withdrawal request(s)</p>
+                <p className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600">{t('adminUiActiveWithdrawalRequests', { count: afterDarkPending.count })}</p>
               </article>
             </section>
 
             <section className="grid gap-6 xl:grid-cols-[1.1fr_1.9fr]">
               <div className="border-2 border-zinc-800 bg-zinc-950">
                 <header className="border-b-2 border-zinc-800 bg-black p-4">
-                  <h2 className="text-xs font-black uppercase tracking-widest text-white">Confirmed collections by source</h2>
-                  <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">No cross-currency totals</p>
+                  <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adminUiConfirmedCollectionsBySource')}</h2>
+                  <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">{t('adminUiNoCrossCurrencyTotals')}</p>
                 </header>
                 {finance.revenueBySource.length === 0 ? (
-                  <p className="p-6 text-center text-[10px] uppercase tracking-widest text-zinc-600">No confirmed payments in this period.</p>
+                  <p className="p-6 text-center text-[10px] uppercase tracking-widest text-zinc-600">{t('adminUiNoConfirmedPayments')}</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-full text-left text-[10px]">
                       <thead className="text-[9px] uppercase tracking-widest text-zinc-500">
-                        <tr><th className="p-3">Source</th><th className="p-3">Currency</th><th className="p-3 text-right">Collected</th><th className="p-3 text-right">Payments</th></tr>
+                        <tr><th className="p-3">{t('adminUiSource')}</th><th className="p-3">{t('adminUiCurrency')}</th><th className="p-3 text-right">{t('adminUiCollected')}</th><th className="p-3 text-right">{t('adminUiPayments')}</th></tr>
                       </thead>
                       <tbody>
                         {finance.revenueBySource.map((row) => (
@@ -261,7 +263,7 @@ export default function AdminFinance() {
                 )}
                 {collectionTotals.length > 1 && (
                   <p className="border-t border-zinc-800 p-3 text-[9px] uppercase tracking-widest text-zinc-600">
-                    Collections are split across {collectionTotals.map(([currency]) => currency).join(', ')}; totals are intentionally not combined.
+                    {t('adminUiCollectionsSplit', { currencies: collectionTotals.map(([currency]) => currency).join(', ') })}
                   </p>
                 )}
               </div>
@@ -269,18 +271,18 @@ export default function AdminFinance() {
               <div className="border-2 border-zinc-800 bg-zinc-950">
                 <header className="flex items-center justify-between border-b-2 border-zinc-800 bg-black p-4">
                   <div>
-                    <h2 className="text-xs font-black uppercase tracking-widest text-white">Daily confirmed payments</h2>
-                    <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">Settlement date · {finance.period}</p>
+                    <h2 className="text-xs font-black uppercase tracking-widest text-white">{t('adminUiDailyConfirmedPayments')}</h2>
+                    <p className="mt-1 text-[9px] uppercase tracking-widest text-zinc-600">{t('adminUiSettlementDate')} · {finance.period}</p>
                   </div>
                   <CalendarDays className="h-4 w-4 text-zinc-500" />
                 </header>
                 <div className="max-h-[60dvh] overflow-auto">
                   {finance.dailyRevenue.length === 0 ? (
-                    <p className="p-6 text-center text-[10px] uppercase tracking-widest text-zinc-600">No confirmed payments in this period.</p>
+                    <p className="p-6 text-center text-[10px] uppercase tracking-widest text-zinc-600">{t('adminUiNoConfirmedPayments')}</p>
                   ) : (
                     <table className="w-full min-w-full text-left text-[10px]">
                       <thead className="sticky top-0 bg-zinc-950 text-[9px] uppercase tracking-widest text-zinc-500">
-                        <tr><th className="p-3">Date</th><th className="p-3">Source</th><th className="p-3">Currency</th><th className="p-3 text-right">Amount</th><th className="p-3 text-right">Count</th></tr>
+                        <tr><th className="p-3">{t('adminUiDate')}</th><th className="p-3">{t('adminUiSource')}</th><th className="p-3">{t('adminUiCurrency')}</th><th className="p-3 text-right">{t('adminUiAmount')}</th><th className="p-3 text-right">{t('adminUiCount')}</th></tr>
                       </thead>
                       <tbody>
                         {finance.dailyRevenue.map((row) => (
@@ -301,22 +303,22 @@ export default function AdminFinance() {
 
             <section className="grid gap-6 lg:grid-cols-2">
               {[
-                { title: 'Creator crypto payout requests · USD', rows: finance.creatorPayouts, currency: 'USD' },
-                { title: 'After Dark withdrawals · KES', rows: finance.afterDarkWithdrawals, currency: 'KES' },
+                { title: t('adminUiCreatorCryptoPayoutRequestsUsd'), rows: finance.creatorPayouts, currency: 'USD' },
+                { title: t('adminUiAfterDarkWithdrawalsKes'), rows: finance.afterDarkWithdrawals, currency: 'KES' },
               ].map((group) => (
                 <div key={group.title} className="border-2 border-zinc-800 bg-zinc-950">
                   <header className="border-b-2 border-zinc-800 bg-black p-4">
                     <h2 className="text-xs font-black uppercase tracking-widest text-white">{group.title}</h2>
                   </header>
                   {group.rows.length === 0 ? (
-                    <p className="p-5 text-center text-[10px] uppercase tracking-widest text-zinc-600">No payout requests found.</p>
+                    <p className="p-5 text-center text-[10px] uppercase tracking-widest text-zinc-600">{t('adminUiNoPayoutRequests')}</p>
                   ) : (
                     <div className="divide-y divide-zinc-800">
                       {group.rows.map((row) => (
                         <div key={row.status} className="flex items-center justify-between gap-4 p-4">
                           <div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-white">{row.status}</p>
-                            <p className="mt-1 text-[9px] text-zinc-500">{Number(row.requestCount).toLocaleString()} request(s)</p>
+                            <p className="mt-1 text-[9px] text-zinc-500">{t('adminUiRequestCount', { count: Number(row.requestCount).toLocaleString() })}</p>
                           </div>
                           <p className="text-sm font-black text-zinc-200">{formatMoney(group.currency, row.amountMinor)}</p>
                         </div>
@@ -328,8 +330,8 @@ export default function AdminFinance() {
             </section>
 
             <footer className="border-t-2 border-zinc-800 pt-4 text-[9px] uppercase tracking-widest text-zinc-600">
-              <p>Generated {finance.generatedAt ? new Date(finance.generatedAt).toLocaleString() : 'just now'} · Confirmed checkouts only.</p>
-              <p className="mt-2">CAC, LTV, churn, and cohort retention are not shown because the current database does not record their required cost or subscription-history inputs.</p>
+              <p>{t('adminUiGenerated')} {finance.generatedAt ? new Date(finance.generatedAt).toLocaleString() : t('adminUiJustNow')} · {t('adminUiConfirmedCheckoutsOnly')}</p>
+              <p className="mt-2">{t('adminUiFinanceMetricsUnavailable')}</p>
             </footer>
           </>
         )}

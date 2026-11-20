@@ -13,6 +13,7 @@ import { afterDarkService } from '../../api/afterdark.service';
 import { useAppDialogs } from '../../components/modals/useAppDialogs';
 import AIDraftAssistant from '../../components/AIDraftAssistant';
 import { normalizeMediaType } from '../../utils/mediaType';
+import { useI18n } from '../../i18n';
 
 // ============================================================================
 // DATA NORMALIZATION
@@ -51,12 +52,13 @@ const normalizeSubscriber = subscriber => ({
 });
 
 const SubscriberAvatar = ({ name, src, className = '' }) => {
+  const { t } = useI18n();
   const [hasError, setHasError] = useState(false);
   const initials = (name || 'S').trim().slice(0, 1).toUpperCase();
 
   if (!src || hasError) {
     return (
-      <div className={`flex shrink-0 items-center justify-center bg-zinc-900 font-bold text-zinc-300 rounded-none ${className}`} aria-label={`${name || 'Subscriber'} avatar`}>
+      <div className={`flex shrink-0 items-center justify-center bg-zinc-900 font-bold text-zinc-300 rounded-none ${className}`} aria-label={t('afterDarkUiSubscriberAvatar', { name: name || t('afterDarkUiSubscriber') })}>
         {initials}
       </div>
     );
@@ -69,6 +71,7 @@ const SubscriberAvatar = ({ name, src, className = '' }) => {
 // INLINE COMPONENT: EDIT POST MODAL (MATCHES BLUEPRINT)
 // ============================================================================
 const EditPostModal = ({ post, onClose, onSave }) => {
+  const { t } = useI18n();
   const [caption, setCaption] = useState(post?.caption ?? '');
   const [captionContext, setCaptionContext] = useState('');
   const [price, setPrice] = useState(post?.price ?? 0);
@@ -87,7 +90,7 @@ const EditPostModal = ({ post, onClose, onSave }) => {
 
   const handleSave = async () => {
     if (strategy === 'ppv' && (!Number(price) || Number(price) < 50)) {
-      toast.error('Minimum PPV price is KES 50.');
+      toast.error(t('afterDarkUiMinimumPpvPostPrice'));
       return;
     }
     setIsSubmitting(true);
@@ -97,11 +100,11 @@ const EditPostModal = ({ post, onClose, onSave }) => {
         pricing_strategy: strategy,
         price_cents: strategy === 'ppv' ? Math.round(Number(price) * 100) : 0,
       });
-      toast.success('Post metadata updated successfully.');
+      toast.success(t('afterDarkUiPostMetadataUpdated'));
       onSave(updatedPost);
       onClose();
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not update this post.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiPostUpdateFailed')));
     } finally {
       setIsSubmitting(false);
     }
@@ -114,7 +117,7 @@ const EditPostModal = ({ post, onClose, onSave }) => {
         
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
-            <Edit3 className="w-4 h-4 text-white" /> Edit Media Vault
+            <Edit3 className="w-4 h-4 text-white" /> {t('afterDarkUiEditMediaVault')}
           </h2>
           <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors rounded-none">
             <X className="w-4 h-4" />
@@ -128,10 +131,10 @@ const EditPostModal = ({ post, onClose, onSave }) => {
                 <Video className="w-6 h-6 text-zinc-400" />
               </div>
             ) : (
-              <img src={post.url} alt="thumbnail" className="w-16 h-16 object-cover border-2 border-zinc-700 shrink-0 rounded-none" />
+              <img src={post.url} alt={t('afterDarkUiThumbnail')} className="w-16 h-16 object-cover border-2 border-zinc-700 shrink-0 rounded-none" />
             )}
             <div>
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1.5">Current Status</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1.5">{t('afterDarkUiCurrentStatus')}</span>
               <span className={`px-2 py-1 text-[9px] font-bold uppercase tracking-widest border-2 rounded-none inline-block ${
                 post.status === 'published' 
                   ? 'bg-black border-green-500 text-green-500' 
@@ -143,14 +146,14 @@ const EditPostModal = ({ post, onClose, onSave }) => {
           </div>
 
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Caption</label>
-            <label htmlFor="edit-caption-context" className="mb-2 block text-[9px] font-bold uppercase tracking-widest text-zinc-600">Caption direction (optional)</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">{t('afterDarkUiCaption')}</label>
+            <label htmlFor="edit-caption-context" className="mb-2 block text-[9px] font-bold uppercase tracking-widest text-zinc-600">{t('afterDarkUiCaptionDirectionOptional')}</label>
             <input
               id="edit-caption-context"
               value={captionContext}
               onChange={(event) => setCaptionContext(event.target.value)}
               maxLength={500}
-              placeholder="What should the caption mention?"
+              placeholder={t('afterDarkUiCaptionDirectionPlaceholder')}
               className="mb-3 w-full border-2 border-zinc-800 bg-black px-3 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-white"
             />
             <textarea 
@@ -169,12 +172,12 @@ const EditPostModal = ({ post, onClose, onSave }) => {
           </div>
 
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Monetization Strategy</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">{t('afterDarkUiMonetizationStrategy')}</label>
             <div className="flex border-2 border-zinc-800 bg-black rounded-none mb-4">
               {[
-                { id: 'subscriber', label: 'VIP Subs' },
-                { id: 'ppv', label: 'PPV Unlock' },
-                { id: 'free', label: 'Free' },
+                { id: 'subscriber', labelKey: 'afterDarkUiVipSubs' },
+                { id: 'ppv', labelKey: 'afterDarkUiPpvUnlock' },
+                { id: 'free', labelKey: 'afterDarkUiFree' },
               ].map(opt => (
                 <button
                   key={opt.id}
@@ -186,14 +189,14 @@ const EditPostModal = ({ post, onClose, onSave }) => {
                       : 'text-zinc-500 hover:text-white hover:bg-zinc-950'
                   }`}
                 >
-                  {opt.label}
+                  {t(opt.labelKey)}
                 </button>
               ))}
             </div>
 
             {strategy === 'ppv' && (
               <div>
-                <label className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest block mb-2">PPV Price (KES)</label>
+                <label className="text-[10px] font-bold text-yellow-400 uppercase tracking-widest block mb-2">{t('afterDarkUiPpvPriceKes')}</label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-zinc-500 text-xs font-bold">KES</span>
                   <input 
@@ -213,7 +216,7 @@ const EditPostModal = ({ post, onClose, onSave }) => {
               onClick={onClose} 
               className="flex-1 py-3 bg-black border-2 border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors rounded-none"
             >
-              Cancel
+              {t('afterDarkUiCancel')}
             </button>
             <button 
               type="button"
@@ -221,7 +224,7 @@ const EditPostModal = ({ post, onClose, onSave }) => {
               disabled={isSubmitting} 
               className="flex-1 py-3 bg-white border-2 border-white hover:bg-zinc-200 text-black text-xs font-bold uppercase tracking-widest transition-colors disabled:opacity-50 rounded-none"
             >
-              {isSubmitting ? 'Saving...' : 'Save Changes'}
+              {isSubmitting ? t('afterDarkUiSaving') : t('afterDarkUiSaveChanges')}
             </button>
           </div>
         </div>
@@ -235,6 +238,7 @@ const EditPostModal = ({ post, onClose, onSave }) => {
 // INLINE COMPONENT: SUBSCRIBER MESSAGE MODAL (MATCHES BLUEPRINT)
 // ============================================================================
 const SubscriberMessageModal = ({ subscriber, onClose }) => {
+  const { t } = useI18n();
   const [draft, setDraft] = useState('');
   const [conversationId, setConversationId] = useState('');
   const [messages, setMessages] = useState([]);
@@ -251,26 +255,26 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
     const targetUserId = subscriber.user?.id || subscriber.user_id || subscriber.user?.user_id;
     if (!targetUserId) {
       setIsLoading(false);
-      toast.error('This subscriber does not have a chat account ID.');
+      toast.error(t('afterDarkUiSubscriberNoChatAccount'));
       return undefined;
     }
     setIsLoading(true);
     afterDarkService.initConversation(targetUserId)
       .then(async result => {
         const id = result?.conversation_id || result?.id;
-        if (!id) throw new Error('The conversation service did not return a conversation ID.');
+        if (!id) throw new Error(t('afterDarkUiConversationIdMissing'));
         const response = await afterDarkService.getMessages(id);
         const records = Array.isArray(response) ? response : response?.messages || response?.items || [];
-        if (!Array.isArray(records)) throw new Error('The message service returned an invalid response.');
+        if (!Array.isArray(records)) throw new Error(t('afterDarkUiInvalidMessagesResponse'));
         if (active) {
           setConversationId(id);
           setMessages(records);
         }
       })
-      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load this conversation.')))
+      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiConversationLoadFailed'))))
       .finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
-  }, [subscriber]);
+  }, [subscriber, t]);
 
   if (!subscriber) return null;
 
@@ -284,7 +288,7 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
       setMessages(current => [...current, message]);
       setDraft('');
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not send this message.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiSendMessageFailed')));
     } finally {
       setIsSending(false);
     }
@@ -296,7 +300,7 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
       <section 
         role="dialog" 
         aria-modal="true" 
-        aria-label={`Conversation with ${subscriberName}`} 
+        aria-label={t('afterDarkUiConversationWith', { name: subscriberName })}
         className="relative z-10 flex h-[85dvh] min-h-0 w-full max-w-lg flex-col overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] rounded-none animate-in zoom-in-95 duration-200"
       >
         <header className="flex items-center justify-between border-b-2 border-zinc-800 bg-zinc-950 p-4 shrink-0">
@@ -307,7 +311,7 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
               <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">{subscriberTier} member · {subscriberStatus}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors rounded-none" aria-label="Close">
+          <button type="button" onClick={onClose} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors rounded-none" aria-label={t('afterDarkUiClose')}>
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -320,8 +324,8 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
           ) : messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center border-2 border-dashed border-zinc-800 p-8 rounded-none">
               <MessageSquare className="mb-3 h-8 w-8 text-zinc-600" />
-              <p className="text-xs font-bold uppercase tracking-widest text-white">No messages yet</p>
-              <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-500">Start a conversation with this subscriber.</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-white">{t('afterDarkUiNoMessagesYet')}</p>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiStartSubscriberConversation')}</p>
             </div>
           ) : messages.filter(Boolean).map((message, index) => {
             const isMine = message.sender === 'creator' || message.is_mine;
@@ -346,8 +350,8 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
           <input 
             value={draft} 
             onChange={event => setDraft(event.target.value)} 
-            placeholder="WRITE A MESSAGE..." 
-            aria-label="Message" 
+            placeholder={t('afterDarkUiWriteMessage')}
+            aria-label={t('afterDarkUiMessage')}
             className="min-w-0 flex-1 border-2 border-zinc-800 bg-black px-3 py-2.5 text-xs font-bold text-white rounded-none focus:outline-none focus:border-white transition-colors" 
           />
           <button 
@@ -355,7 +359,7 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
             disabled={!draft.trim() || !conversationId || isSending} 
             className="flex items-center gap-2 border-2 border-white bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-black hover:bg-zinc-200 transition-colors disabled:cursor-not-allowed disabled:opacity-50 rounded-none"
           >
-            {isSending ? 'Sending...' : <><Send className="h-3.5 w-3.5" /> Send</>}
+            {isSending ? t('afterDarkUiSending') : <><Send className="h-3.5 w-3.5" /> {t('afterDarkUiSend')}</>}
           </button>
         </form>
       </section>
@@ -368,6 +372,7 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
 
 // ============================================================================
 const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) => {
+  const { t } = useI18n();
   const [amount, setAmount] = useState('');
   const [payoutMethodId, setPayoutMethodId] = useState(payoutMethods[0]?.id || payoutMethods[0]?.payout_method_id || '');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -380,22 +385,22 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
 
   const handleWithdraw = async () => {
     const val = Number(amount);
-    if (!val || val < 1000) return toast.error('Minimum withdrawal is KES 1,000');
-    if (val > balance) return toast.error('Insufficient available balance');
-    if (!Number.isFinite(val) || Math.abs(val * 100 - Math.round(val * 100)) > 1e-7) return toast.error('Enter an amount with no more than two decimal places.');
-    if (isMpesa && !Number.isInteger(val)) return toast.error('M-Pesa payouts must be a whole number of Kenyan shillings.');
+    if (!val || val < 1000) return toast.error(t('afterDarkUiMinimumWithdrawal', { amount: '1,000' }));
+    if (val > balance) return toast.error(t('afterDarkUiInsufficientAvailableBalance'));
+    if (!Number.isFinite(val) || Math.abs(val * 100 - Math.round(val * 100)) > 1e-7) return toast.error(t('afterDarkUiMaxTwoDecimals'));
+    if (isMpesa && !Number.isInteger(val)) return toast.error(t('afterDarkUiMpesaWholeShillings'));
 
-    if (!payoutMethodId) return toast.error('Add a payout method before withdrawing.');
+    if (!payoutMethodId) return toast.error(t('afterDarkUiPayoutMethodBeforeWithdrawal'));
     setIsProcessing(true);
     try {
       const result = await afterDarkService.requestWithdrawal({
         amount_cents: Math.round(val * 100),
         payout_method_id: payoutMethodId,
       });
-      toast.success(result?.status === 'completed' ? 'Payout completed.' : 'Withdrawal request submitted.');
+      toast.success(t(result?.status === 'completed' ? 'afterDarkUiPayoutCompleted' : 'afterDarkUiWithdrawalRequestSubmitted'));
       onSuccess(result);
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not request this withdrawal.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiWithdrawalRequestFailed')));
     } finally {
       setIsProcessing(false);
     }
@@ -408,7 +413,7 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
         
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
-            <Smartphone className="w-4 h-4 text-green-500" /> Withdraw via {isMpesa ? 'M-Pesa' : provider === 'paystack_bank' ? 'Paystack bank' : provider === 'paystack_mobile_money' ? 'Paystack mobile money' : 'payout'}
+            <Smartphone className="w-4 h-4 text-green-500" /> {t('afterDarkUiWithdrawVia', { method: isMpesa ? 'M-Pesa' : provider === 'paystack_bank' ? 'Paystack bank' : provider === 'paystack_mobile_money' ? 'Paystack mobile money' : 'payout' })}
           </h2>
           <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors rounded-none">
             <X className="w-4 h-4" />
@@ -418,17 +423,17 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
         <div className="p-6 space-y-6 bg-black">
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-zinc-950 border-2 border-zinc-800 p-4 rounded-none">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">Available</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">{t('afterDarkUiAvailable')}</span>
               <span className="text-lg font-bold text-green-500">KES {balance.toLocaleString()}</span>
             </div>
             <div className="bg-zinc-950 border-2 border-zinc-800 p-4 rounded-none">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">Pending (7d)</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">{t('afterDarkUiPendingSevenDays')}</span>
               <span className="text-lg font-bold text-zinc-400">KES {pending.toLocaleString()}</span>
             </div>
           </div>
 
           <div>
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Payout method</label>
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">{t('afterDarkUiPayoutMethod')}</label>
             {payoutMethods.length ? (
               <select value={payoutMethodId} onChange={event => setPayoutMethodId(event.target.value)} className="w-full bg-black border-2 border-zinc-800 p-3 text-xs font-bold text-white focus:outline-none focus:border-white">
                 {payoutMethods.map(method => (
@@ -438,14 +443,14 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
                 ))}
               </select>
             ) : (
-              <p className="border-2 border-zinc-800 bg-zinc-950 p-3 text-[10px] font-bold uppercase text-zinc-400">Add a payout method before withdrawing.</p>
+              <p className="border-2 border-zinc-800 bg-zinc-950 p-3 text-[10px] font-bold uppercase text-zinc-400">{t('afterDarkUiPayoutMethodBeforeWithdrawal')}</p>
             )}
           </div>
 
           <div>
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2 flex justify-between">
-              <span>Amount to Withdraw</span>
-              <button type="button" onClick={() => setAmount((isMpesa ? Math.floor(balance) : balance).toFixed(isMpesa ? 0 : 2))} className="text-white hover:underline">MAX</button>
+              <span>{t('afterDarkUiAmountToWithdraw')}</span>
+              <button type="button" onClick={() => setAmount((isMpesa ? Math.floor(balance) : balance).toFixed(isMpesa ? 0 : 2))} className="text-white hover:underline">{t('afterDarkUiMax')}</button>
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-zinc-500 font-bold text-xs">KES</span>
@@ -465,11 +470,11 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
             <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
             <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-relaxed">
               {selectedPayoutMethod
-                ? `Destination: ${selectedPayoutMethod.account_number || selectedPayoutMethod.phone_number || 'saved payout method'}. `
-                : 'Select a saved payout destination. '}
+                ? t('afterDarkUiWithdrawalDestination', { destination: selectedPayoutMethod.account_number || selectedPayoutMethod.phone_number || t('afterDarkUiSavedPayoutMethod') })
+                : t('afterDarkUiSelectSavedPayoutDestination')}
               {isMpesa
-                ? `Your KES ${feeKes.toLocaleString()} fee is deducted from the withdrawal amount; KES ${payoutKes.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} will be sent.`
-                : 'No fixed payout fee is deducted by Chattie for this Paystack method.'}
+                ? t('afterDarkUiWithdrawalFeeNotice', { fee: feeKes.toLocaleString(), amount: payoutKes.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })
+                : t('afterDarkUiNoPaystackPayoutFee')}
             </p>
           </div>
 
@@ -479,7 +484,7 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
             disabled={isProcessing || !payoutMethodId || !amount || amountKes < 1000 || amountKes > balance || (isMpesa && !Number.isInteger(amountKes))}
             className="w-full py-4 bg-white text-black font-bold uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 disabled:opacity-50 transition-colors rounded-none"
           >
-            {isProcessing ? 'Processing...' : `Confirm KES ${amountKes.toLocaleString()} Withdrawal`}
+            {isProcessing ? t('afterDarkUiProcessing') : t('afterDarkUiConfirmKesWithdrawal', { amount: amountKes.toLocaleString() })}
           </button>
         </div>
 
@@ -493,6 +498,7 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
 // MAIN COMPONENT: MY CHANNEL STUDIO (USERSETTINGS BLUEPRINT)
 // ============================================================================
 export default function AfterDarkMyChannel() {
+  const { t } = useI18n();
   const { confirm } = useAppDialogs();
   const location = useLocation();
   const navigate = useNavigate();
@@ -547,7 +553,7 @@ export default function AfterDarkMyChannel() {
     const withdrawalRecords = Array.isArray(payoutResponse) ? payoutResponse : payoutResponse?.withdrawals || payoutResponse?.items || [];
     const methods = Array.isArray(methodsResponse) ? methodsResponse : methodsResponse?.methods || methodsResponse?.items || [];
     if (![vaultRecords, subscriberRecords, withdrawalRecords, methods].every(Array.isArray)) {
-      throw new Error('The creator channel service returned invalid data.');
+      throw new Error(t('afterDarkUiCreatorChannelDataInvalid'));
     }
     const wallet = walletResponse?.wallet || walletResponse || {};
     const availableBalance = Number(wallet.available_balance ?? wallet.available_balance_cents ?? 0) /
@@ -581,7 +587,7 @@ export default function AfterDarkMyChannel() {
       ? Number(subscriptionPriceCents) / 100
       : subscriptionPrice ?? ''));
     setWelcomeMessage(profile.welcome_message || profile.welcomeMessage || '');
-  }, [vaultFilter, subscriberQuery, subscriberStatusFilter, setWalletBalance, updateUser]);
+  }, [vaultFilter, subscriberQuery, subscriberStatusFilter, setWalletBalance, t, updateUser]);
 
   useEffect(() => {
     if (!isCreator) {
@@ -592,12 +598,12 @@ export default function AfterDarkMyChannel() {
     setIsLoadingChannel(true);
     setChannelError('');
     loadChannel().catch(error => {
-      if (active) setChannelError(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load creator channel data.'));
+      if (active) setChannelError(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiCreatorChannelLoadFailed')));
     }).finally(() => {
       if (active) setIsLoadingChannel(false);
     });
     return () => { active = false; };
-  }, [loadChannel, isCreator]);
+  }, [loadChannel, isCreator, t]);
 
   useEffect(() => {
     if (location.state?.newPost) {
@@ -625,22 +631,22 @@ export default function AfterDarkMyChannel() {
     try {
       const result = await afterDarkService.createShareLink({ target_type: 'post', target_id: post.id });
       const shareUrl = result?.url || result?.share_url;
-      if (!shareUrl) throw new Error('The share service did not return a URL.');
+      if (!shareUrl) throw new Error(t('afterDarkUiShareUrlMissing'));
       await navigator.clipboard.writeText(shareUrl);
-      toast.success('Link copied to clipboard.');
+      toast.success(t('afterDarkUiLinkCopied'));
     } catch {
-      toast.error('Unable to copy the post link from this browser.');
+      toast.error(t('afterDarkUiCopyPostLinkFailed'));
     }
   };
 
   const downloadReceipt = (payout) => {
     const receipt = [
-      'CHATTIE AFTER DARK - PAYOUT RECEIPT',
-      `Reference: ${payout.ref}`,
-      `Date: ${payout.date}`,
-      `Method: ${payout.method}`,
-      `Status: ${payout.status}`,
-      `Amount: KES ${payout.amount.toLocaleString()}`,
+      t('afterDarkUiPayoutReceiptTitle'),
+      `${t('afterDarkUiReferenceId')}: ${payout.ref}`,
+      `${t('afterDarkUiDate')}: ${payout.date}`,
+      `${t('afterDarkUiMethod')}: ${payout.method}`,
+      `${t('afterDarkUiStatus')}: ${payout.status}`,
+      `${t('afterDarkUiAmountKes')}: KES ${payout.amount.toLocaleString()}`,
     ].join('\n');
     const url = URL.createObjectURL(new Blob([receipt], { type: 'text/plain' }));
     const link = document.createElement('a');
@@ -667,7 +673,7 @@ export default function AfterDarkMyChannel() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Content Library</h2>
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiContentLibrary')}</h2>
           <h3 className="text-base font-bold text-white uppercase tracking-widest flex items-center gap-2 mt-1">
             <Lock className="w-4 h-4 text-yellow-400" /> Media Vault ({vaultPosts.length})
           </h3>
@@ -676,9 +682,9 @@ export default function AfterDarkMyChannel() {
         {/* Segmented Status Filter (Matches UserSettings 'Show Me' group) */}
         <div className="flex border-2 border-zinc-800 bg-black rounded-none">
           {[
-            { id: 'all', label: 'All' },
-            { id: 'published', label: 'Published' },
-            { id: 'scheduled', label: 'Scheduled' },
+            { id: 'all', labelKey: 'afterDarkUiAll' },
+            { id: 'published', labelKey: 'afterDarkUiPublished' },
+            { id: 'scheduled', labelKey: 'afterDarkUiScheduled' },
           ].map(opt => (
             <button
               key={opt.id}
@@ -690,7 +696,7 @@ export default function AfterDarkMyChannel() {
                   : 'text-zinc-500 hover:text-white hover:bg-zinc-950'
               }`}
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </button>
           ))}
         </div>
@@ -699,8 +705,8 @@ export default function AfterDarkMyChannel() {
       {visibleVaultPosts.length === 0 ? (
         <div className="bg-black border-2 border-dashed border-zinc-800 p-12 text-center flex flex-col items-center justify-center rounded-none">
           <ImageIcon className="w-8 h-8 text-zinc-600 mb-3" />
-          <p className="text-xs font-bold uppercase tracking-widest text-white mb-1">No media in vault</p>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Upload content from the sidebar to populate your channel.</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-white mb-1">{t('afterDarkUiNoVaultMedia')}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiUploadContentToPopulate')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -734,40 +740,40 @@ export default function AfterDarkMyChannel() {
                     {post.status}
                   </span>
                   <span className="px-2 py-0.5 bg-black border-2 border-zinc-700 text-[9px] font-bold uppercase tracking-widest text-white rounded-none">
-                    {post.strategy === 'ppv' ? `PPV: KES ${post.price}` : post.strategy === 'free' ? 'Free' : 'Subs Only'}
+                    {post.strategy === 'ppv' ? `PPV: KES ${post.price}` : post.strategy === 'free' ? t('afterDarkUiFree') : t('afterDarkUiSubsOnly')}
                   </span>
                 </div>
               </div>
 
               <div className="p-4 flex-1 flex flex-col">
                 <p className="text-xs font-bold text-zinc-300 uppercase tracking-wider leading-relaxed line-clamp-2 mb-4 flex-1">
-                  {post.caption || 'Untitled Media'}
+                  {post.caption || t('afterDarkUiUntitledMedia')}
                 </p>
                 
                 <div className="grid grid-cols-3 gap-2 border-y-2 border-zinc-800 py-3 mb-4 bg-zinc-950">
                   <div className="text-center">
                     <div className="text-xs font-bold text-white">{post.stats.views.toLocaleString()}</div>
                     <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 flex items-center justify-center gap-1">
-                      <Eye className="w-3 h-3"/> Views
+                      <Eye className="w-3 h-3"/> {t('afterDarkUiViews')}
                     </div>
                   </div>
                   <div className="text-center border-x-2 border-zinc-800">
                     <div className="text-xs font-bold text-white">{post.stats.likes.toLocaleString()}</div>
                     <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 flex items-center justify-center gap-1">
-                      <Heart className="w-3 h-3"/> Likes
+                      <Heart className="w-3 h-3"/> {t('afterDarkUiLikes')}
                     </div>
                   </div>
                   <div className="text-center">
                     <div className="text-xs font-bold text-green-500">{post.strategy === 'ppv' ? post.stats.unlocks : '--'}</div>
                     <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 flex items-center justify-center gap-1">
-                      <Unlock className="w-3 h-3"/> Unlocks
+                      <Unlock className="w-3 h-3"/> {t('afterDarkUiUnlocks')}
                     </div>
                   </div>
                 </div>
 
                 {post.strategy === 'ppv' && (
                   <div className="flex justify-between items-center bg-zinc-950 border-2 border-green-500 px-3 py-2 mb-4 rounded-none">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Revenue</span>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{t('afterDarkUiRevenue')}</span>
                     <span className="text-xs font-bold text-green-500 tracking-widest">KES {post.stats.revenue.toLocaleString()}</span>
                   </div>
                 )}
@@ -778,32 +784,32 @@ export default function AfterDarkMyChannel() {
                     onClick={() => setEditPost(post)}
                     className="flex-1 py-2.5 bg-black border-2 border-zinc-700 text-[10px] font-bold text-zinc-300 uppercase tracking-widest hover:border-white hover:text-white transition-colors rounded-none flex items-center justify-center gap-1.5"
                   >
-                    <Edit3 className="w-3.5 h-3.5" /> Edit
+                    <Edit3 className="w-3.5 h-3.5" /> {t('afterDarkUiEdit')}
                   </button>
                   <button 
                     type="button"
                     onClick={() => sharePost(post)}
                     className="flex-1 py-2.5 bg-black border-2 border-zinc-700 text-[10px] font-bold text-zinc-300 uppercase tracking-widest hover:border-white hover:text-white transition-colors rounded-none flex items-center justify-center gap-1.5"
                   >
-                    <Share2 className="w-3.5 h-3.5" /> Share
+                    <Share2 className="w-3.5 h-3.5" /> {t('afterDarkUiShare')}
                   </button>
                   <button 
                     type="button"
                     onClick={async () => {
-                      if (!await confirm('Delete this media from your vault?', {
-                        title: 'Delete media',
-                        confirmLabel: 'Delete',
+                      if (!await confirm(t('afterDarkUiDeleteVaultMediaConfirm'), {
+                        title: t('afterDarkUiDeleteMedia'),
+                        confirmLabel: t('afterDarkUiDelete'),
                         tone: 'danger',
                       })) return;
                       try {
                         await afterDarkService.deletePost(post.id);
                         setVaultPosts(current => current.filter(item => item.id !== post.id));
-                        toast.success('Post deleted.');
+                        toast.success(t('afterDarkUiPostDeleted'));
                       } catch (error) {
-                        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not delete this post.'));
+                        toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiPostDeleteFailed')));
                       }
                     }} 
-                    aria-label={`Delete ${post.caption}`} 
+                    aria-label={t('afterDarkUiDeletePost', { caption: post.caption })}
                     className="px-3 bg-black border-2 border-red-900 text-red-500 hover:bg-red-950 hover:border-red-500 transition-colors rounded-none flex items-center justify-center"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -821,18 +827,18 @@ export default function AfterDarkMyChannel() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Audience Management</h2>
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiAudienceManagement')}</h2>
           <h3 className="text-base font-bold text-white uppercase tracking-widest flex items-center gap-2 mt-1">
             <Users className="w-4 h-4 text-white" /> Your Subscribers
           </h3>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:w-auto">
           <div className="border-2 border-green-500 bg-black px-4 py-2 rounded-none">
-            <span className="block text-[9px] font-bold uppercase tracking-widest text-green-500">Active VIPs</span>
+            <span className="block text-[9px] font-bold uppercase tracking-widest text-green-500">{t('afterDarkUiActiveVips')}</span>
             <span className="text-base font-bold text-white">{activeSubscriberCount}</span>
           </div>
           <div className="border-2 border-zinc-800 bg-zinc-950 px-4 py-2 rounded-none">
-            <span className="block text-[9px] font-bold uppercase tracking-widest text-zinc-500">Expired</span>
+            <span className="block text-[9px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiExpired')}</span>
             <span className="text-base font-bold text-zinc-300">{expiredSubscriberCount}</span>
           </div>
         </div>
@@ -845,7 +851,7 @@ export default function AfterDarkMyChannel() {
             type="text"
             value={subscriberQuery}
             onChange={event => setSubscriberQuery(event.target.value)}
-            placeholder="SEARCH SUBSCRIBER OR TIER..."
+            placeholder={t('afterDarkUiSearchSubscriberTier')}
             className="w-full border-2 border-zinc-800 bg-black py-2.5 pl-10 pr-4 text-xs font-bold text-white uppercase tracking-widest rounded-none focus:outline-none focus:border-white transition-colors"
           />
         </div>
@@ -853,9 +859,9 @@ export default function AfterDarkMyChannel() {
         {/* Segmented Membership Filter */}
         <div className="flex border-2 border-zinc-800 bg-black rounded-none shrink-0">
           {[
-            { id: 'all', label: 'All' },
-            { id: 'active', label: 'Active' },
-            { id: 'expired', label: 'Expired' },
+            { id: 'all', labelKey: 'afterDarkUiAll' },
+            { id: 'active', labelKey: 'afterDarkUiActive' },
+            { id: 'expired', labelKey: 'afterDarkUiExpired' },
           ].map(opt => (
             <button
               key={opt.id}
@@ -867,7 +873,7 @@ export default function AfterDarkMyChannel() {
                   : 'text-zinc-500 hover:text-white hover:bg-zinc-950'
               }`}
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </button>
           ))}
         </div>
@@ -877,12 +883,12 @@ export default function AfterDarkMyChannel() {
         <table className="w-full min-w-full text-left border-collapse">
           <thead>
             <tr className="bg-zinc-950 border-b-2 border-zinc-800">
-              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Customer</th>
-              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Tier</th>
-              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Status</th>
-              <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:table-cell lg:p-4">Joined / Expires</th>
-              <th className="hidden p-2 text-right text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:table-cell lg:p-4">Lifetime Value</th>
-              <th className="p-2 text-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Message</th>
+              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiCustomer')}</th>
+              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiTier')}</th>
+              <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiStatus')}</th>
+              <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:table-cell lg:p-4">{t('afterDarkUiJoinedExpires')}</th>
+              <th className="hidden p-2 text-right text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:table-cell lg:p-4">{t('afterDarkUiLifetimeValue')}</th>
+              <th className="p-2 text-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiMessage')}</th>
             </tr>
           </thead>
           <tbody>
@@ -921,7 +927,7 @@ export default function AfterDarkMyChannel() {
                   <button 
                     type="button"
                     onClick={() => setSelectedSubscriber(sub)} 
-                    aria-label={`Message ${sub.user.name}`} 
+                    aria-label={t('afterDarkUiMessagePerson', { name: sub.user.name })}
                     className="p-2 bg-black border-2 border-zinc-700 text-zinc-300 hover:text-black hover:bg-white hover:border-white transition-colors mx-auto rounded-none inline-flex"
                   >
                     <MessageSquare className="w-4 h-4" />
@@ -973,13 +979,13 @@ export default function AfterDarkMyChannel() {
             KES {channelStats.pendingClearance.toLocaleString()}
           </div>
           <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-relaxed">
-            Funds clear 7 days after transaction to prevent chargebacks.
+            {t('afterDarkUiFundsClearAfterSevenDays')}
           </p>
         </div>
 
         <div className="bg-zinc-950 border-2 border-zinc-800 p-6 flex flex-col justify-center rounded-none">
           <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-yellow-400" /> Lifetime Gross
+            <TrendingUp className="w-4 h-4 text-yellow-400" /> {t('afterDarkUiLifetimeGross')}
           </h4>
           <div className="text-2xl font-bold text-white tracking-widest mb-2">
             KES {channelStats.totalEarned.toLocaleString()}
@@ -993,19 +999,19 @@ export default function AfterDarkMyChannel() {
       {/* Payout History */}
       <div className="space-y-3">
         <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-          Recent Payouts
+          {t('afterDarkUiRecentPayouts')}
         </h3>
         
         <div className="w-full overflow-x-auto custom-scrollbar border-2 border-zinc-800 bg-black rounded-none">
           <table className="w-full min-w-full text-left border-collapse">
             <thead>
               <tr className="bg-zinc-950 border-b-2 border-zinc-800">
-                <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Date</th>
-                <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:table-cell sm:p-3 lg:p-4">Reference ID</th>
-                <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest md:table-cell md:p-3 lg:p-4">Method</th>
-                <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Status</th>
-                <th className="p-2 text-right text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Amount (KES)</th>
-                <th className="p-2 text-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">Receipt</th>
+                <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiDate')}</th>
+                <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:table-cell sm:p-3 lg:p-4">{t('afterDarkUiReferenceId')}</th>
+                <th className="hidden p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest md:table-cell md:p-3 lg:p-4">{t('afterDarkUiMethod')}</th>
+                <th className="p-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiStatus')}</th>
+                <th className="p-2 text-right text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiAmountKes')}</th>
+                <th className="p-2 text-center text-[10px] font-bold text-zinc-500 uppercase tracking-widest sm:p-3 lg:p-4">{t('afterDarkUiReceipt')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1024,7 +1030,7 @@ export default function AfterDarkMyChannel() {
                     <button 
                       type="button"
                       onClick={() => downloadReceipt(tx)} 
-                      aria-label={`Download receipt for ${tx.ref}`} 
+                      aria-label={t('afterDarkUiDownloadReceipt', { reference: tx.ref })}
                       className="p-2 bg-black border-2 border-zinc-700 text-zinc-300 hover:text-black hover:bg-white hover:border-white transition-colors mx-auto rounded-none inline-flex"
                     >
                       <Download className="w-4 h-4" />
@@ -1035,7 +1041,7 @@ export default function AfterDarkMyChannel() {
               {payouts.length === 0 && (
                 <tr>
                   <td colSpan="6" className="p-10 text-center text-xs font-bold uppercase tracking-widest text-zinc-500">
-                    No payout transactions recorded yet.
+                    {t('afterDarkUiNoPayoutTransactions')}
                   </td>
                 </tr>
               )}
@@ -1049,11 +1055,11 @@ export default function AfterDarkMyChannel() {
   const renderSettingsTab = () => (
     <div className="space-y-8">
       <section className="space-y-3">
-        <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Subscription Settings</h2>
+        <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('afterDarkUiSubscriptionSettings')}</h2>
         <div className="bg-black border-2 border-zinc-800 p-4 md:p-6 space-y-6 rounded-none">
           
           <div>
-            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Monthly VIP Price (KES)</label>
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">{t('afterDarkUiMonthlyVipPriceKes')}</label>
             <input 
               type="number" 
               value={vipPrice} 
@@ -1062,19 +1068,19 @@ export default function AfterDarkMyChannel() {
               className="w-full max-w-xs bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white transition-colors"
             />
             <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-2">
-              Set to 0 to make your channel free to follow.
+              {t('afterDarkUiSetZeroFreeChannel')}
             </p>
           </div>
 
           <div className="pt-6 border-t-2 border-zinc-800">
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2 flex items-center justify-between">
-              <span>Automated Welcome Message</span>
-              <span className="text-yellow-400 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Active</span>
+              <span>{t('afterDarkUiAutomatedWelcomeMessage')}</span>
+              <span className="text-yellow-400 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> {t('afterDarkUiActive')}</span>
             </label>
             <textarea 
               value={welcomeMessage} 
               onChange={event => setWelcomeMessage(event.target.value)}
-              placeholder="Welcome to my VIP room..."
+              placeholder={t('afterDarkUiWelcomeVipRoom')}
               className="min-h-[clamp(6rem,15vh,9rem)] w-full resize-none border-2 border-zinc-800 bg-black px-4 py-3 text-sm font-bold text-white transition-colors focus:outline-none focus:border-white rounded-none custom-scrollbar"
             />
           </div>
@@ -1089,10 +1095,10 @@ export default function AfterDarkMyChannel() {
                     subscription_price_cents: Math.round(Number(vipPrice || 0) * 100),
                     welcome_message: welcomeMessage,
                   });
-                  toast.success('Channel settings saved.');
+                  toast.success(t('afterDarkUiChannelSettingsSaved'));
                   await loadChannel();
                 } catch (error) {
-                  toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Channel settings could not be saved.'));
+                  toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('afterDarkUiChannelSettingsSaveFailed')));
                 } finally {
                   setIsSavingChannel(false);
                 }
@@ -1100,27 +1106,27 @@ export default function AfterDarkMyChannel() {
               disabled={isSavingChannel} 
               className="px-6 py-3 bg-white text-black border-2 border-white text-xs font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors disabled:opacity-50 rounded-none"
             >
-              {isSavingChannel ? 'Saving...' : 'Save Channel Settings'}
+              {isSavingChannel ? t('afterDarkUiSaving') : t('afterDarkUiSaveChannelSettings')}
             </button>
           </div>
         </div>
       </section>
 
       <section className="pt-6 border-t-2 border-zinc-800 space-y-3">
-        <h2 className="text-[10px] font-bold uppercase tracking-widest text-red-500">Danger Zone</h2>
+        <h2 className="text-[10px] font-bold uppercase tracking-widest text-red-500">{t('afterDarkUiDangerZone')}</h2>
         <div className="bg-black border-2 border-red-900 p-4 md:p-6 shadow-[4px_4px_0px_rgba(var(--danger-rgb), 0.1)] rounded-none">
           <h3 className="text-sm font-bold text-white uppercase tracking-widest mb-2 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-500" /> Deactivate Creator Channel
+            <AlertTriangle className="w-4 h-4 text-red-500" /> {t('afterDarkUiDeactivateCreatorChannel')}
           </h3>
           <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-relaxed mb-6">
-            Deleting your creator account will permanently remove all vault media, cancel all active subscriptions, and initiate a final payout for cleared funds.
+            {t('afterDarkUiDeactivateCreatorWarning')}
           </p>
           <button 
             type="button"
             onClick={() => navigate('/afterdark/settings?tab=danger')} 
             className="px-6 py-3 bg-black text-red-500 border-2 border-red-900 font-bold uppercase text-xs tracking-widest hover:bg-red-950 hover:border-red-500 transition-colors rounded-none"
           >
-            Deactivate Creator Account
+            {t('afterDarkUiDeactivateCreatorAccount')}
           </button>
         </div>
       </section>
@@ -1141,7 +1147,7 @@ export default function AfterDarkMyChannel() {
         {/* Cover Photo */}
         <div className="relative aspect-[4/1] w-full overflow-hidden border-b-2 border-zinc-800 bg-black rounded-none group">
           {creatorProfile.cover_url || creatorProfile.cover ? (
-            <img src={creatorProfile.cover_url || creatorProfile.cover} alt="Creator cover" className="w-full h-full object-cover opacity-60 grayscale group-hover:opacity-40 transition-opacity rounded-none" />
+            <img src={creatorProfile.cover_url || creatorProfile.cover} alt={t('afterDarkUiCreatorCover')} className="w-full h-full object-cover opacity-60 grayscale group-hover:opacity-40 transition-opacity rounded-none" />
           ) : (
             <div className="h-full w-full bg-zinc-950" />
           )}
@@ -1151,7 +1157,7 @@ export default function AfterDarkMyChannel() {
               onClick={() => navigate('/afterdark/settings')} 
               className="px-4 py-2 bg-white text-black font-bold uppercase tracking-widest text-xs border-2 border-white hover:bg-zinc-200 flex items-center gap-2 rounded-none"
             >
-              <Camera className="w-4 h-4" /> Edit Cover
+              <Camera className="w-4 h-4" /> {t('afterDarkUiEditCover')}
             </button>
           </div>
         </div>
@@ -1167,7 +1173,7 @@ export default function AfterDarkMyChannel() {
               {(creatorProfile.avatar_url || currentUser?.avatar) ? (
                 <img 
                   src={creatorProfile.avatar_url || currentUser.avatar} 
-                  alt="avatar" 
+                  alt={t('afterDarkUiAvatar')}
                   className="size-[clamp(5.5rem,12vw,8rem)] object-cover border-2 border-zinc-600 bg-black rounded-none"
                 />
               ) : (
@@ -1181,7 +1187,7 @@ export default function AfterDarkMyChannel() {
             </button>
             <div className="pb-1 min-w-0">
               <h1 className="text-xl md:text-2xl font-bold text-white uppercase tracking-widest flex items-center gap-2 truncate">
-                <span className="truncate">{creatorProfile.display_name || creatorAlias || currentUser?.name || 'Creator'}</span>
+                <span className="truncate">{creatorProfile.display_name || creatorAlias || currentUser?.name || t('afterDarkUiCreator')}</span>
                 <CheckCircle2 className="w-5 h-5 text-yellow-400 shrink-0" />
               </h1>
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-1 truncate">
@@ -1193,15 +1199,15 @@ export default function AfterDarkMyChannel() {
           <div className="flex items-center border-2 border-zinc-800 bg-black shrink-0 overflow-x-auto custom-scrollbar rounded-none">
             <div className="text-center px-5 py-3 border-r-2 border-zinc-800">
               <div className="text-base md:text-lg font-bold text-white">{channelStats.activeSubs}</div>
-              <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">Active VIPs</div>
+              <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{t('afterDarkUiActiveVips')}</div>
             </div>
             <div className="text-center px-5 py-3 border-r-2 border-zinc-800">
               <div className="text-base md:text-lg font-bold text-white">{channelStats.totalLikes}</div>
-              <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">Total Likes</div>
+              <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{t('afterDarkUiTotalLikes')}</div>
             </div>
             <div className="text-center px-5 py-3">
               <div className="text-base md:text-lg font-bold text-green-500">KES {(channelStats.totalEarned / 1000).toFixed(0)}k</div>
-              <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">Gross Earned</div>
+              <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{t('afterDarkUiGrossEarned')}</div>
             </div>
           </div>
         </div>
@@ -1209,10 +1215,10 @@ export default function AfterDarkMyChannel() {
         {/* SHARP SEGMENTED TAB NAVIGATION (Exact match to UserSettings 'Show Me' group) */}
         <div className="flex overflow-x-auto custom-scrollbar border-t-2 border-zinc-800 bg-black rounded-none">
           {[
-            { id: 'vault', label: 'Media Vault', icon: ImageIcon },
-            { id: 'subscribers', label: 'Subscribers', icon: Users },
-            { id: 'finance', label: 'Finance & Payouts', icon: DollarSign },
-            { id: 'settings', label: 'Settings', icon: Settings },
+            { id: 'vault', labelKey: 'afterDarkUiMediaVault', icon: ImageIcon },
+            { id: 'subscribers', labelKey: 'afterDarkUiSubscribers', icon: Users },
+            { id: 'finance', labelKey: 'afterDarkUiFinancePayouts', icon: DollarSign },
+            { id: 'settings', labelKey: 'afterDarkUiSettings', icon: Settings },
           ].map(tab => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
@@ -1228,7 +1234,7 @@ export default function AfterDarkMyChannel() {
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{tab.label}</span>
+                <span className="truncate">{t(tab.labelKey)}</span>
               </button>
             );
           })}
@@ -1245,7 +1251,7 @@ export default function AfterDarkMyChannel() {
           )}
           {isLoadingChannel && (
             <div role="status" className="mb-6 flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-zinc-400">
-              <Loader2 className="w-4 h-4 animate-spin text-white" /> Loading creator channel...
+              <Loader2 className="w-4 h-4 animate-spin text-white" /> {t('afterDarkUiLoadingCreatorChannel')}
             </div>
           )}
           {activeTab === 'vault' && renderVaultTab()}

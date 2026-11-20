@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { DialogContext } from './DialogContext';
+import { useI18n } from '../../i18n';
 
 export function DialogProvider({ children }) {
+  const { t } = useI18n();
   const [dialog, setDialog] = useState(null);
   const [inputValue, setInputValue] = useState('');
   const resolverRef = useRef(null);
@@ -20,23 +22,23 @@ export function DialogProvider({ children }) {
   const confirm = useCallback((message, options = {}) => openDialog({
     type: 'confirm',
     message,
-    title: options.title || 'Please confirm',
-    confirmLabel: options.confirmLabel || 'Continue',
-    cancelLabel: options.cancelLabel || 'Cancel',
+    title: options.title || t('commonUiDialogConfirmTitle'),
+    confirmLabel: options.confirmLabel || t('commonUiDialogContinue'),
+    cancelLabel: options.cancelLabel || t('commonUiDialogCancel'),
     tone: options.tone || 'default',
-  }), [openDialog]);
+  }), [openDialog, t]);
 
   const prompt = useCallback((message, options = {}) => openDialog({
     type: 'prompt',
     message,
-    title: options.title || 'Your response',
-    inputLabel: options.inputLabel || 'Response',
+    title: options.title || t('commonUiDialogPromptTitle'),
+    inputLabel: options.inputLabel || t('commonUiDialogResponse'),
     placeholder: options.placeholder || '',
     defaultValue: options.defaultValue || '',
-    confirmLabel: options.confirmLabel || 'Submit',
-    cancelLabel: options.cancelLabel || 'Cancel',
+    confirmLabel: options.confirmLabel || t('commonUiDialogSubmit'),
+    cancelLabel: options.cancelLabel || t('commonUiDialogCancel'),
     tone: options.tone || 'default',
-  }), [openDialog]);
+  }), [openDialog, t]);
 
   const resolveDialog = useCallback(result => {
     const resolve = resolverRef.current;

@@ -51,7 +51,7 @@ export default function NotificationModal() {
       await notificationsService.markRead(notification.id);
     } catch (error) {
       setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read: false } : item));
-      toast.error(error.response?.data?.error || 'Could not mark this notification as read.');
+      toast.error(error.response?.data?.error || t('coreUiNotificationMarkReadFailed'));
     }
   };
 
@@ -67,7 +67,7 @@ export default function NotificationModal() {
       await notificationsService.markAllRead();
     } catch (error) {
       setNotifications(previousNotifications);
-      toast.error(error.response?.data?.error || 'Could not mark notifications as read.');
+      toast.error(error.response?.data?.error || t('coreUiNotificationsMarkReadFailed'));
     }
   };
 
@@ -81,7 +81,7 @@ export default function NotificationModal() {
     } catch (error) {
       setNotifications(previousNotifications);
       setSelectedId(notification.id);
-      toast.error(error.response?.data?.error || 'Could not delete this notification.');
+      toast.error(error.response?.data?.error || t('coreUiNotificationDeleteFailed'));
     }
   };
 
@@ -125,7 +125,7 @@ export default function NotificationModal() {
                   setSelectedId((currentId) => currentId || items[0]?.id || null);
                 } catch (error) {
                   setLoadError(true);
-                  toast.error(error.response?.data?.error || 'Could not refresh notifications.');
+                  toast.error(error.response?.data?.error || t('coreUiNotificationsRefreshFailed'));
                 } finally {
                   setIsLoading(false);
                 }
@@ -179,7 +179,7 @@ export default function NotificationModal() {
                     className="mt-6 inline-flex items-center gap-2 border px-4 py-2.5 text-xs font-bold"
                     style={{ borderColor: 'var(--border-strong)', backgroundColor: 'var(--accent-soft)', color: 'var(--accent-strong)' }}
                   >
-                    {selectedNotification.action_label || 'Open'}
+                    {selectedNotification.action_label || t('coreUiOpen')}
                     <ExternalLink className="h-3.5 w-3.5" />
                   </button>
                 )}

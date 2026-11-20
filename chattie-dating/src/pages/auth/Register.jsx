@@ -88,10 +88,10 @@ export default function Register() {
     toast.success(t('accountCreated'));
     try {
       await profileService.requestEmailOTP(cleanToken);
-      toast.success('Verification code sent. Check your email inbox and spam folder.');
+      toast.success(t('coreUiVerificationEmailSent'));
     } catch (error) {
       console.error('Registration succeeded but email verification code could not be sent:', error);
-      toast.error(error.message || 'Account created, but the verification code could not be sent. Resend it from onboarding.');
+      toast.error(error.message || t('coreUiAccountCreatedCodeFailed'));
     }
     navigate('/onboarding');
   };

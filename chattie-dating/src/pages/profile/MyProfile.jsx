@@ -111,7 +111,7 @@ export default function MyProfile() {
     };
 
     loadProfileData();
-  }, []);
+  }, [t]);
 
   // ============================================================================
   // HANDLERS
@@ -202,11 +202,11 @@ export default function MyProfile() {
     event.target.value = '';
     if (!file || !uploadTarget) return;
     if (!file.type.startsWith('image/')) {
-      toast.error('Choose an image file.');
+      toast.error(t('coreUiChooseImageFile'));
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast.error('Choose an image smaller than 10 MB.');
+      toast.error(t('coreUiImageSizeLimit'));
       return;
     }
 
@@ -231,9 +231,9 @@ export default function MyProfile() {
       }
 
       await refreshProfileFromServer();
-      toast.success(uploadTarget.type === 'cover' ? 'Cover image updated.' : 'Profile image uploaded.');
+      toast.success(t(uploadTarget.type === 'cover' ? 'coreUiCoverImageUpdated' : 'coreUiProfileImageUploaded'));
     } catch (error) {
-      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not upload this image.'));
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : t('coreUiImageUploadFailed')));
     } finally {
       setIsUploadingPhoto(false);
       setUploadTarget(null);
@@ -292,10 +292,10 @@ export default function MyProfile() {
               onClick={() => handlePhotoUpload({ type: 'cover' })}
               disabled={isUploadingPhoto}
               className="relative aspect-[3/1] w-full cursor-pointer border-b-2 border-zinc-800 bg-zinc-950 flex items-center justify-center group disabled:cursor-wait"
-              aria-label="Upload or change cover image"
+              aria-label={t('coreUiUploadOrChangeCover')}
             >
               {profile.cover ? (
-                <img src={profile.cover} alt="Cover" className="w-full h-full object-cover grayscale opacity-60 group-hover:opacity-40 transition-opacity" />
+                <img src={profile.cover} alt={t('coreUiCoverPhoto')} className="w-full h-full object-cover grayscale opacity-60 group-hover:opacity-40 transition-opacity" />
               ) : (
                 <ImageIcon className="w-12 h-12 text-zinc-800" />
               )}
@@ -313,11 +313,11 @@ export default function MyProfile() {
                 onClick={() => handlePhotoUpload({ type: 'gallery', index: 0 })}
                 disabled={isUploadingPhoto}
                 className="relative group cursor-pointer disabled:cursor-wait"
-                aria-label="Upload or change profile photo"
+                aria-label={t('coreUiUploadOrChangeProfilePhoto')}
               >
                 <div className="size-[clamp(7rem,16vw,10rem)] overflow-hidden border-4 border-black bg-zinc-950 flex items-center justify-center">
                   {profile.avatar ? (
-                    <img src={profile.avatar} alt="Avatar" className="w-full h-full object-cover grayscale" />
+                    <img src={profile.avatar} alt={t('coreUiAvatar')} className="w-full h-full object-cover grayscale" />
                   ) : (
                     <Camera className="w-8 h-8 text-zinc-600 group-hover:scale-110 transition-transform" />
                   )}
@@ -341,7 +341,7 @@ export default function MyProfile() {
                       key={idx}
                       className={`relative bg-black border-2 border-zinc-800 aspect-[3/4] ${idx === 0 ? 'col-span-2 row-span-2 aspect-auto' : ''}`}
                     >
-                      <img src={photo} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover grayscale" />
+                      <img src={photo} alt={t('coreUiGalleryPhoto', { index: idx + 1 })} className="w-full h-full object-cover grayscale" />
                     </div>
                   ) : (
                     <button
@@ -349,7 +349,7 @@ export default function MyProfile() {
                       key={idx}
                       onClick={() => handlePhotoUpload({ type: 'gallery', index: idx })}
                       disabled={isUploadingPhoto}
-                      aria-label={`Add gallery photo ${idx + 1}`}
+                      aria-label={t('coreUiAddGalleryPhoto', { index: idx + 1 })}
                       className={`relative bg-black border-2 border-dashed border-zinc-800 hover:border-zinc-500 cursor-pointer group aspect-[3/4] transition-colors disabled:cursor-wait ${idx === 0 ? 'col-span-2 row-span-2 aspect-auto' : ''}`}
                     >
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600 hover:text-white hover:bg-zinc-900 transition-colors">
@@ -427,10 +427,10 @@ export default function MyProfile() {
                   onChange={(e) => setProfile({...profile, intent: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm text-white focus:outline-none focus:border-white transition-colors appearance-none cursor-pointer"
                 >
-                  <option value="Dating">Dating & Relationships</option>
-                  <option value="Casual">Casual Texting</option>
-                  <option value="Friends">Friends & Networking</option>
-                  <option value="Everyone">Everyone</option>
+                  <option value="Dating">{t('coreUiDatingRelationships')}</option>
+                  <option value="Casual">{t('coreUiCasualTexting')}</option>
+                  <option value="Friends">{t('coreUiFriendsNetworking')}</option>
+                  <option value="Everyone">{t('coreUiEveryone')}</option>
                 </select>
               </div>
 
@@ -444,7 +444,7 @@ export default function MyProfile() {
                   value={profile.bio}
                   onChange={(e) => setProfile({...profile, bio: e.target.value})}
                   className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-sm text-white focus:outline-none focus:border-white resize-none transition-colors custom-scrollbar" 
-                  placeholder="Write something..."
+                  placeholder={t('coreUiWriteSomething')}
                   maxLength={500}
                 ></textarea>
                 <AIDraftAssistant

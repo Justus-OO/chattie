@@ -75,7 +75,7 @@ export default function ModelSidebar({
   }, [propProfiles, activeProfileId, setActiveProfileId, t]);
 
   // Derive active profile and network totals safely from state
-  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || { id: '', name: 'Select Profile', pending: 0, status: 'offline' };
+  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || { id: '', name: t('coreUiSelectProfile'), pending: 0, status: 'offline' };
   const totalNetworkPending = profiles.reduce((acc, curr) => acc + (curr.pending || 0), 0);
 
   // Toggle individual profile status via backend call
@@ -143,13 +143,13 @@ export default function ModelSidebar({
                 <h1 className="font-black text-xl leading-none uppercase tracking-[0.22em]" style={{ color: 'var(--text-primary)' }}>
                   {t('creator')}
                 </h1>
-                <span className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>{role} workspace</span>
+                <span className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>{t('coreUiWorkspace', { role })}</span>
               </div>
             </Link>
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => toast.info(`${activeProfile.pending || 0} alerts for ${activeProfile.name}`)}
+                onClick={() => toast.info(t('coreUiProfileAlerts', { count: activeProfile.pending || 0, name: activeProfile.name }))}
                 className="relative p-2 border transition-colors"
                 style={{ background: 'rgba(var(--highlight-rgb), 0.03)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
                 title={t('viewNotifications')}
@@ -261,7 +261,7 @@ export default function ModelSidebar({
                               color: profile.status === 'online' ? 'var(--success)' : 'var(--text-muted)'
                             }}
                           >
-                            {profile.status === 'online' ? 'On' : 'Off'}
+                            {profile.status === 'online' ? t('coreUiOn') : t('coreUiOff')}
                           </button>
                         </div>
                       </div>
@@ -335,10 +335,10 @@ export default function ModelSidebar({
             <p className="text-[9px] font-black uppercase tracking-[0.22em] mb-3" style={{ color: 'var(--text-muted)' }}>{t('liveFeed')}</p>
           <div className="space-y-2.5">
             <div className="p-3 text-[9px] uppercase tracking-[0.14em] rounded-xl" style={{ background: 'rgba(var(--success-rgb), 0.08)', color: 'var(--text-secondary)', borderLeft: '2px solid var(--success)' }}>
-              <span className="font-black" style={{ color: 'var(--success)' }}>[14:02]</span> {activeProfile.name}: system synced
+              <span className="font-black" style={{ color: 'var(--success)' }}>[14:02]</span> {t('coreUiSystemSynced', { name: activeProfile.name })}
             </div>
             <div className="p-3 text-[9px] uppercase tracking-[0.14em] rounded-xl" style={{ background: 'rgba(var(--highlight-rgb), 0.03)', color: 'var(--text-secondary)', borderLeft: '2px solid var(--accent)' }}>
-              <span className="font-black" style={{ color: 'var(--accent)' }}>[14:04]</span> network pulse stable
+              <span className="font-black" style={{ color: 'var(--accent)' }}>[14:04]</span> {t('coreUiNetworkPulseStable')}
             </div>
           </div>
         </div>
@@ -359,7 +359,7 @@ export default function ModelSidebar({
         </div>
 
         <div className="flex items-center gap-1">
-          <Link to="/model/settings" className="p-2 border rounded-xl transition-colors" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)', background: 'rgba(var(--highlight-rgb), 0.03)' }} title="Creator settings" aria-label="Creator settings">
+          <Link to="/model/settings" className="p-2 border rounded-xl transition-colors" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)', background: 'rgba(var(--highlight-rgb), 0.03)' }} title={t('coreUiCreatorSettings')} aria-label={t('coreUiCreatorSettings')}>
             <Settings className="w-4 h-4" />
           </Link>
           <button
@@ -367,8 +367,8 @@ export default function ModelSidebar({
             onClick={() => { logout(); navigate('/login', { replace: true }); }}
             className="p-2 border rounded-xl transition-colors"
             style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)', background: 'rgba(var(--highlight-rgb), 0.03)' }}
-            title="Sign out"
-            aria-label="Sign out"
+            title={t('signOut')}
+            aria-label={t('signOut')}
           >
             <LogOut className="w-4 h-4" />
           </button>

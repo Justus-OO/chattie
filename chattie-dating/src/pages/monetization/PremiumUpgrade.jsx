@@ -18,25 +18,25 @@ import { useI18n } from '../../i18n';
 // STATIC UI DATA
 // ============================================================================
 const PREMIUM_FEATURES = [
-  { icon: Eye, title: 'See Who Likes You', desc: 'Stop guessing. See your admirers before you swipe.' },
-  { icon: Heart, title: 'Unlimited Likes', desc: 'Swipe right as much as you want, no limits.' },
-  { icon: Zap, title: '5 Free Super Likes', desc: 'Stand out from the crowd every single week.' },
-  { icon: MessageSquare, title: 'Read Receipts', desc: 'Know exactly when they read your messages.' },
-  { icon: Undo2, title: 'Unlimited Rewinds', desc: 'Accidentally swiped left? Bring them back instantly.' },
-  { icon: Crown, title: 'VIP Badge', desc: 'Get a golden badge in public rooms to show your status.' }
+  { icon: Eye, title: 'coreUiFeatureSeeLikes', desc: 'coreUiFeatureSeeLikesDescription' },
+  { icon: Heart, title: 'coreUiFeatureUnlimitedLikes', desc: 'coreUiFeatureUnlimitedLikesDescription' },
+  { icon: Zap, title: 'coreUiFeatureSuperLikes', desc: 'coreUiFeatureSuperLikesDescription' },
+  { icon: MessageSquare, title: 'coreUiFeatureReadReceipts', desc: 'coreUiFeatureReadReceiptsDescription' },
+  { icon: Undo2, title: 'coreUiFeatureRewinds', desc: 'coreUiFeatureRewindsDescription' },
+  { icon: Crown, title: 'coreUiFeatureVipBadge', desc: 'coreUiFeatureVipBadgeDescription' }
 ];
 
 const FAQS = [
-  { q: 'Can I cancel my subscription anytime?', a: 'Yes! You can cancel your VIP status at any time from your account settings. You will continue to have premium access until the end of your billing period.' },
-  { q: 'How does the billing work?', a: 'Subscriptions are billed in one upfront payment for the selected duration. They auto-renew unless cancelled 24 hours before the end of the current period.' },
-  { q: 'Do I get a refund if I cancel early?', a: 'We do not offer partial refunds for unused time in a billing cycle. However, you retain all VIP features until the cycle ends.' }
+  { q: 'coreUiFaqCancelQuestion', a: 'coreUiFaqCancelAnswer' },
+  { q: 'coreUiFaqBillingQuestion', a: 'coreUiFaqBillingAnswer' },
+  { q: 'coreUiFaqRefundQuestion', a: 'coreUiFaqRefundAnswer' }
 ];
 
 // ============================================================================
 // UTILITIES
 // ============================================================================
 const PAYSTACK_SCRIPT_URL = 'https://js.paystack.co/v2/inline.js';
-const loadPaystackScript = () => new Promise((resolve, reject) => {
+const loadPaystackScript = (t) => new Promise((resolve, reject) => {
   const existing = document.querySelector(`script[src="${PAYSTACK_SCRIPT_URL}"]`);
   if (window.PaystackPop && existing) {
     resolve();
@@ -46,7 +46,7 @@ const loadPaystackScript = () => new Promise((resolve, reject) => {
   script.src = PAYSTACK_SCRIPT_URL;
   script.async = true;
   script.onload = () => resolve();
-  script.onerror = () => reject(new Error('Could not load Paystack checkout.'));
+  script.onerror = () => reject(new Error(t('coreUiPaystackLoadFailed')));
   if (!existing) document.body.appendChild(script);
 });
 
@@ -62,6 +62,12 @@ const formatPrice = (amount, currency = 'USD') => new Intl.NumberFormat(undefine
 export default function PremiumUpgrade() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const localizedFeatures = PREMIUM_FEATURES.map((feature) => ({
+    ...feature,
+    title: t(feature.title),
+    desc: t(feature.desc),
+  }));
+  const localizedFaqs = FAQS.map((faq) => ({ q: t(faq.q), a: t(faq.a) }));
   
   // --- STATE ---
   const [plans, setPlans] = useState([]);
@@ -93,14 +99,14 @@ export default function PremiumUpgrade() {
       .catch(err => {
         if (!isMounted) return;
         console.error('Failed to load plans:', err);
-        toast.error('Could not load secure pricing. Please check your connection and refresh.');
+        toast.error(t('coreUiPricingLoadFailed'));
       })
       .finally(() => {
         if (isMounted) setIsLoadingPlans(false);
       });
 
     return () => { isMounted = false; };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -112,16 +118,16 @@ export default function PremiumUpgrade() {
     billingService.verifyPayment({ reference })
       .then((verification) => {
         if (verification?.payment_method_saved === false) {
-          toast.info('Your payment succeeded, but this card could not be saved. You can try again after checking your payment settings.');
+          toast.info(t('coreUiPaymentSucceededCardSaveFailed'));
         }
-        toast.success('VIP Upgrade Successful! Welcome to Gold.');
+        toast.success(t('coreUiUpgradeSuccessful'));
         navigate('/discover', { replace: true });
       })
       .catch((error) => {
-        toast.error(error.response?.data?.error || 'Payment could not be verified. If you were charged, contact support.');
+        toast.error(error.response?.data?.error || t('coreUiPaymentCouldNotBeVerified'));
       })
       .finally(() => setIsProcessing(false));
-  }, [navigate]);
+  }, [navigate, t]);
 
   useEffect(() => () => {
     window.clearInterval(paystackPollRef.current);
@@ -142,7 +148,7 @@ export default function PremiumUpgrade() {
       const sessionData = await billingService.initiateUpgrade(selectedPlan.id);
       
       if (!sessionData || !sessionData.provider) {
-        throw new Error('Invalid gateway response received.');
+        throw new Error(t('coreUiInvalidGatewayResponse'));
       }
 
       setShowSummaryModal(false); 
@@ -152,7 +158,7 @@ export default function PremiumUpgrade() {
       } else if (sessionData.provider === 'stripe') {
         await launchStripeModal(sessionData);
       } else {
-        throw new Error('No valid payment method returned.');
+        throw new Error(t('coreUiNoPaymentMethodReturned'));
       }
     } catch (error) {
       console.error('[BILLING ERROR]', error);
@@ -163,12 +169,12 @@ export default function PremiumUpgrade() {
 
   const launchPaystackModal = async (data) => {
     if (!data.session_id) {
-      throw new Error('Paystack did not return a transaction reference. Please try again or contact support.');
+      throw new Error(t('coreUiPaystackReferenceMissing'));
     }
     try {
-      await loadPaystackScript();
+      await loadPaystackScript(t);
       if (typeof window.PaystackPop !== 'function' || !data.client_secret) {
-        throw new Error('Paystack checkout could not initialize.');
+        throw new Error(t('coreUiPaystackInitializeFailed'));
       }
       const popup = new window.PaystackPop();
       popup.resumeTransaction(data.client_secret);
@@ -190,9 +196,9 @@ export default function PremiumUpgrade() {
         window.clearInterval(paystackPollRef.current);
         window.clearTimeout(paystackTimeoutRef.current);
         if (verification?.payment_method_saved === false) {
-          toast.info('Your payment succeeded, but this card could not be saved. You can try again after checking your payment settings.');
+          toast.info(t('coreUiPaymentSucceededCardSaveFailed'));
         }
-        toast.success('VIP Upgrade Successful! Welcome to Gold.');
+        toast.success(t('coreUiUpgradeSuccessful'));
         setIsProcessing(false);
         navigate('/discover');
       } catch (error) {
@@ -207,7 +213,7 @@ export default function PremiumUpgrade() {
     paystackTimeoutRef.current = window.setTimeout(() => {
       window.clearInterval(paystackPollRef.current);
       setIsProcessing(false);
-      toast.info('Payment is still pending. If you completed checkout, reopen Premium to verify it again.');
+      toast.info(t('coreUiPaymentPending'));
     }, 180000);
   };
 
@@ -215,7 +221,7 @@ export default function PremiumUpgrade() {
     try {
       const stripe = await loadStripe(data.public_key);
       if (!stripe) {
-        throw new Error('Stripe SDK failed to initialize. Please check your network.');
+        throw new Error(t('coreUiStripeInitializeFailed'));
       }
       setStripePromise(Promise.resolve(stripe));
       setPaymentSession(data);
@@ -240,17 +246,17 @@ export default function PremiumUpgrade() {
       setPaymentSession(null);
       setStripePromise(null);
       setIsProcessing(false);
-      toast.success('VIP Upgrade Successful! Welcome to Gold.');
+      toast.success(t('coreUiUpgradeSuccessful'));
       if (verification?.payment_method_saved === false) {
-        toast.info('Your payment succeeded, but this card could not be saved. You can try again after checking your payment settings.');
+        toast.info(t('coreUiPaymentSucceededCardSaveFailed'));
       }
       navigate('/discover');
     } catch (error) {
       console.error('[STRIPE VERIFICATION ERROR]', error);
-      toast.error(error.response?.data?.error || 'Payment verification failed. Please contact support.');
+      toast.error(error.response?.data?.error || t('coreUiPaymentVerificationFailed'));
       setIsProcessing(false);
     }
-  }, [navigate, paymentSession]);
+  }, [navigate, paymentSession, t]);
 
   // UX Lock scroll when modals are open
   useEffect(() => {
@@ -269,7 +275,7 @@ export default function PremiumUpgrade() {
     return (
       <div className="relative flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black">
         <Loader2 className="w-10 h-10 text-yellow-400 animate-spin mb-4" />
-        <p className="text-zinc-500 text-xs font-mono tracking-widest font-bold uppercase">SECURELY LOADING PRICING...</p>
+        <p className="text-zinc-500 text-xs font-mono tracking-widest font-bold uppercase">{t('coreUiLoadingSecurePricing')}</p>
       </div>
     );
   }
@@ -296,10 +302,10 @@ export default function PremiumUpgrade() {
             </div>
             
             <h1 className="text-3xl md:text-5xl font-black text-white mb-4 uppercase tracking-widest">
-              CHATTIE <span className="text-yellow-400">GOLD</span>
+              Chattie <span className="text-yellow-400">Gold</span>
             </h1>
             <p className="text-zinc-500 text-[10px] md:text-xs font-bold uppercase tracking-widest max-w-md mx-auto leading-relaxed">
-              {t('premiumExperience') || 'Unlock advanced features and maximize your matches.'}
+              {t('coreUiPremiumExperience')}
             </p>
           </div>
 
@@ -322,7 +328,7 @@ export default function PremiumUpgrade() {
                 >
                   {plan.isPopular && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-white text-black border-2 border-black text-[9px] font-bold uppercase tracking-widest whitespace-nowrap">
-                      Most Popular
+                      {t('coreUiMostPopular')}
                     </div>
                   )}
 
@@ -332,22 +338,22 @@ export default function PremiumUpgrade() {
                   
                   <div className="flex items-end justify-center gap-1 mb-3">
                     <span className="text-3xl font-black text-white leading-none">{formatPrice(plan.monthly, plan.currency)}</span>
-                    <span className="text-[10px] text-zinc-500 font-bold pb-1">/MO</span>
+                    <span className="text-[10px] text-zinc-500 font-bold pb-1">{t('coreUiPerMonth')}</span>
                   </div>
                   
                   <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-6">
-                    BILLED {formatPrice(plan.price, plan.currency)} EVERY {plan.id} MONTHS
+                    {t('coreUiBilledEvery', { price: formatPrice(plan.price, plan.currency), months: plan.id })}
                   </p>
 
                   {plan.save > 0 ? (
                     <div className={`mt-auto py-2 text-[10px] font-bold uppercase tracking-widest transition-colors border-2
                       ${isSelected ? 'bg-black border-yellow-400 text-yellow-400' : 'bg-black border-zinc-800 text-zinc-500'}
                     `}>
-                      SAVE {plan.save}%
+                      {t('coreUiSavePercent', { percent: plan.save })}
                     </div>
                   ) : (
                     <div className="mt-auto py-2 text-[10px] font-bold uppercase border-2 border-transparent text-transparent select-none">
-                      SPACER
+                      {t('coreUiSpacer')}
                     </div>
                   )}
                 </div>
@@ -362,19 +368,19 @@ export default function PremiumUpgrade() {
               disabled={!selectedPlan || isProcessing}
               className="w-full max-w-md py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-xs font-bold uppercase tracking-widest hover:bg-yellow-500 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 focus:ring-offset-black"
             >
-              CONTINUE WITH {selectedPlan?.duration}
+              {t('coreUiContinueWith', { duration: selectedPlan?.duration })}
             </button>
           </div>
 
           {/* Feature Showcase Grid */}
           <div className="w-full mb-16">
             <div className="text-center mb-8 border-b-2 border-zinc-800 pb-4">
-              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">{t('everythingGold') || 'EVERYTHING IN GOLD'}</h2>
-              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">UNLOCK THE ULTIMATE EXPERIENCE.</p>
+              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">{t('coreUiEverythingGold')}</h2>
+              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">{t('coreUiUnlockUltimateExperience')}</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {PREMIUM_FEATURES.map((feat, i) => (
+              {localizedFeatures.map((feat, i) => (
                 <div key={i} className="bg-black border-2 border-zinc-800 p-5 flex items-start gap-4 hover:border-zinc-600 transition-colors">
                   <div className="w-10 h-10 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center shrink-0">
                     <feat.icon className="w-4 h-4 text-yellow-400" aria-hidden="true" />
@@ -391,11 +397,11 @@ export default function PremiumUpgrade() {
           {/* FAQ Section */}
           <div className="w-full max-w-2xl mx-auto mb-10">
             <div className="text-center mb-8 border-b-2 border-zinc-800 pb-4">
-              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">FAQ</h2>
+              <h2 className="text-sm font-bold text-white uppercase tracking-widest mb-2">{t('coreUiFaq')}</h2>
             </div>
 
             <div className="space-y-4">
-              {FAQS.map((faq, idx) => {
+              {localizedFaqs.map((faq, idx) => {
                 const isExpanded = expandedFaq === idx;
                 return (
                   <div 
@@ -438,7 +444,7 @@ export default function PremiumUpgrade() {
           disabled={!selectedPlan || isProcessing}
           className="w-full py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center transition-colors disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.1)] focus:outline-none"
         >
-          GET {selectedPlan?.duration} FOR ${selectedPlan?.price}
+          {t('coreUiGetPlan', { duration: selectedPlan?.duration, price: selectedPlan?.price })}
         </button>
       </div>
 
@@ -453,12 +459,12 @@ export default function PremiumUpgrade() {
             
             <div className="bg-zinc-950 p-4 flex justify-between items-center border-b-2 border-zinc-800 shrink-0">
               <h2 className="font-bold text-[10px] uppercase tracking-widest text-white flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-green-500" aria-hidden="true" /> ORDER SUMMARY
+                <ShieldCheck className="w-4 h-4 text-green-500" aria-hidden="true" /> {t('coreUiOrderSummary')}
               </h2>
               {!isProcessing && (
                 <button 
                   onClick={() => setShowSummaryModal(false)} 
-                  aria-label="Close summary"
+                  aria-label={t('coreUiCloseSummary')}
                   className="p-1 text-zinc-500 hover:text-white border-2 border-transparent hover:border-zinc-700 hover:bg-zinc-900 transition-colors focus:outline-none focus:border-white"
                 >
                   <X className="w-4 h-4" />
@@ -469,26 +475,26 @@ export default function PremiumUpgrade() {
             <div className="p-6 bg-black">
               <div className="flex justify-between items-end mb-6 pb-6 border-b-2 border-zinc-800">
                 <div>
-                  <h3 className="text-[10px] font-bold text-white uppercase tracking-widest">CHATTIE GOLD</h3>
-                  <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">{selectedPlan.duration} SUBSCRIPTION</p>
+                  <h3 className="text-[10px] font-bold text-white uppercase tracking-widest">Chattie Gold</h3>
+                  <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">{t('coreUiDurationSubscription', { duration: selectedPlan.duration })}</p>
                 </div>
                 <div className="text-right">
                   <span className="text-2xl font-black text-white">{formatPrice(selectedPlan.price, selectedPlan.currency)}</span>
-                  <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">NO HIDDEN FEES</p>
+                  <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">{t('coreUiNoHiddenFees')}</p>
                 </div>
               </div>
 
               <div className="mb-6">
                 <p className="border-2 border-zinc-800 bg-zinc-950 p-4 text-[9px] font-bold uppercase leading-relaxed tracking-widest text-zinc-500">
                   {selectedPlan.currency === 'KES'
-                    ? 'Kenya checkout uses KES through Paystack, including supported local payment methods.'
-                    : 'Checkout uses USD through Stripe. Your payment provider and currency are selected automatically from your verified region.'}
+                    ? t('coreUiKenyaCheckout')
+                    : t('coreUiInternationalCheckout')}
                 </p>
               </div>
 
               <div className="flex items-center gap-2 mb-6 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-zinc-950 p-4 border-2 border-zinc-800 leading-relaxed">
                 <Lock className="w-3.5 h-3.5 text-green-500 shrink-0" aria-hidden="true" />
-                <p>A secure checkout window will open on this page. Payment processing is fully encrypted and PCI compliant.</p>
+                <p>{t('coreUiSecureCheckoutNotice')}</p>
               </div>
 
               <button 
@@ -497,9 +503,9 @@ export default function PremiumUpgrade() {
                 className="w-full py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-500 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors flex items-center justify-center gap-2 rounded-none focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 focus:ring-offset-black"
               >
                 {isProcessing ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> SECURING CONNECTION...</>
+                  <><Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> {t('coreUiSecuringConnection')}</>
                 ) : (
-                  <>PROCEED TO SECURE PAYMENT <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" /></>
+                  <>{t('coreUiProceedToSecurePayment')} <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" /></>
                 )}
               </button>
             </div>
@@ -516,7 +522,7 @@ export default function PremiumUpgrade() {
             
             <button 
               onClick={handleCloseStripeModal}
-              aria-label="Cancel payment"
+              aria-label={t('coreUiCancelPayment')}
               className="absolute top-4 right-4 z-[70] p-2 bg-black border-2 border-transparent text-white hover:border-white hover:bg-zinc-900 transition-colors rounded-none focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2"
             >
               <X className="w-5 h-5" />

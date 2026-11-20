@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"html"
 	"html/template"
 	"log"
+	"strings"
 	"sync"
 
 	"chattie-backend/repository"
+	"github.com/nicksnyder/go-i18n/v2/i18n"
 )
 
 // WSManager defines the methods the service needs to push live data.
@@ -55,6 +58,20 @@ func NewNotificationService(repo *repository.Repository, email *EmailClient, ws 
 func (s *NotificationService) SendTemplatedEmail(ctx context.Context, toEmail, templateName string, templateData interface{}) error {
 	if toEmail == "" {
 		return fmt.Errorf("recipient email required")
+	}
+	if templateName == "support_ticket_update" {
+		if data, ok := templateData.(map[string]interface{}); ok {
+			subject, body, err := localizeSupportTicketEmail(ctx, data)
+			if err != nil {
+				return fmt.Errorf("localize support ticket email: %w", err)
+			}
+			if err := s.Email.QueueHTML(ctx, toEmail, subject, body, nil); err != nil {
+				return fmt.Errorf("queue template %s: %w", templateName, err)
+			}
+			log.Printf("[NOTIF] Queued localized template %s to %s", templateName, toEmail)
+			return nil
+		}
+		return fmt.Errorf("support ticket email data must be a string map")
 	}
 
 	// 1. Try to load the compiled template from RAM (Read Lock)
@@ -106,6 +123,62 @@ func (s *NotificationService) SendTemplatedEmail(ctx context.Context, toEmail, t
 
 	log.Printf("[NOTIF] Queued template %s to %s", templateName, toEmail)
 	return nil
+}
+
+func localizeSupportTicketEmail(ctx context.Context, data map[string]interface{}) (string, string, error) {
+	localizer := GetLocalizer(ctx)
+	localize := func(id, fallback string) (string, error) {
+		return localizer.Localize(&i18n.LocalizeConfig{
+			MessageID: id,
+			DefaultMessage: &i18n.Message{
+				ID:    id,
+				Other: fallback,
+			},
+		})
+	}
+	subject, err := localize("SupportTicketEmailSubject", "Update to your Chattie support ticket")
+	if err != nil {
+		return "", "", err
+	}
+
+	status := stringValue(data["TicketStatus"])
+	statusID := map[string]string{
+		"open":          "SupportStatusOpen",
+		"waiting_human": "SupportStatusWaitingHuman",
+		"in_progress":   "SupportStatusInProgress",
+		"resolved":      "SupportStatusResolved",
+	}[status]
+	if statusID != "" {
+		status, err = localize(statusID, status)
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	actionID := "SupportEmailOpen"
+	if strings.HasPrefix(stringValue(data["ActionURL"]), "/admin/") {
+		actionID = "SupportEmailOpenAdmin"
+	}
+	actionLabel, err := localize(actionID, "Open support")
+	if err != nil {
+		return "", "", err
+	}
+	body, err := localize("SupportTicketEmailBody", `<h1>Support ticket update</h1><p>Your ticket &quot;[[TICKET_SUBJECT]]&quot; is now [[TICKET_STATUS]].</p><p><a href="[[ACTION_URL]]">[[ACTION_LABEL]]</a></p>`)
+	if err != nil {
+		return "", "", err
+	}
+	body = strings.NewReplacer(
+		"[[TICKET_SUBJECT]]", html.EscapeString(stringValue(data["TicketSubject"])),
+		"[[TICKET_STATUS]]", html.EscapeString(status),
+		"[[ACTION_URL]]", html.EscapeString(stringValue(data["ActionURL"])),
+		"[[ACTION_LABEL]]", html.EscapeString(actionLabel),
+	).Replace(body)
+	return subject, body, nil
+}
+
+func stringValue(value interface{}) string {
+	text, _ := value.(string)
+	return text
 }
 
 // SendWebSocketMessage pushes a JSON payload to an active connection

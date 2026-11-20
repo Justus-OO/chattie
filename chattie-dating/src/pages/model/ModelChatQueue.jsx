@@ -101,7 +101,7 @@ export default function ModelChatQueue() {
     } catch (error) {
       if (requestId !== queueRequestRef.current) return;
       console.error("Queue fetch error:", error);
-      toast.error(isManual ? translateRef.current('queueRefreshFailed') : 'Could not load this profile inbox.');
+      toast.error(isManual ? translateRef.current('queueRefreshFailed') : translateRef.current('coreUiProfileInboxLoadFailed'));
     } finally {
       if (requestId === queueRequestRef.current) {
         setIsLoading(false);
@@ -175,7 +175,7 @@ export default function ModelChatQueue() {
               <MessageSquare className="w-4 h-4" />
             </div>
             <div>
-              <p className="text-[9px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>Profile inbox</p>
+              <p className="text-[9px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>{t('coreUiProfileInbox')}</p>
               <h1 className="text-xl md:text-2xl font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>{activeProfile.name}</h1>
             </div>
           </div>
@@ -183,7 +183,7 @@ export default function ModelChatQueue() {
           <div className="flex items-center flex-wrap gap-3">
             <div className="flex items-center gap-2 rounded-full border px-3 py-1.5" style={{ background: 'rgba(var(--success-rgb), 0.08)', borderColor: 'rgba(var(--success-rgb), 0.35)', color: 'var(--success)' }}>
               <span className="inline-block h-2 w-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }} />
-              <span className="text-[9px] font-black uppercase tracking-[0.18em]">Sync live</span>
+              <span className="text-[9px] font-black uppercase tracking-[0.18em]">{t('coreUiSyncLive')}</span>
             </div>
             <button
               onClick={() => fetchQueue(true)}
@@ -201,15 +201,15 @@ export default function ModelChatQueue() {
       <div className="shrink-0 border-b p-2 sm:p-3 lg:p-4" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="border p-3" style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
-            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Conversations</p>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>{t('coreUiConversations')}</p>
             <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{masterQueue.length}</p>
           </div>
           <div className="border p-3" style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
-            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Unread messages</p>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>{t('coreUiUnreadMessages')}</p>
             <p className="mt-2 text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{masterQueue.reduce((count, item) => count + item.unreadCount, 0)}</p>
           </div>
           <div className="border p-3" style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
-            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>Selected profile</p>
+            <p className="text-[9px] uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>{t('coreUiSelectedProfile')}</p>
             <p className="mt-2 text-lg font-black truncate" style={{ color: 'var(--text-primary)' }}>{activeProfile.name}</p>
           </div>
         </div>
@@ -304,6 +304,7 @@ export default function ModelChatQueue() {
 // ==========================================
 function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBack, onEnd, onBlocked, modelName, aiDraftsEnabled }) {
   const { confirm, prompt } = useAppDialogs();
+  const { t } = useI18n();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [aiSuggestions, setAiSuggestions] = useState([]);
@@ -391,7 +392,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
     } catch (error) {
       console.error('Failed to generate model chat reply drafts:', error);
       const detail = error.response?.data?.error || error.response?.data;
-      toast.error(typeof detail === 'string' ? detail : 'Could not generate AI reply drafts.');
+      toast.error(typeof detail === 'string' ? detail : t('coreUiAiDraftGenerationFailed'));
     } finally {
       setIsGeneratingAISuggestions(false);
     }
@@ -1023,7 +1024,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
         clearLocalStream();
         if (type === 'call_rejected') {
           appendSystemMessage('Call declined', 'call_declined', { mode: pending.mode });
-          toast.error(incoming.reason === 'busy' ? 'This person is already on another call.' : t('callRejected'));
+          toast.error(incoming.reason === 'busy' ? t('coreUiPersonAlreadyOnCall') : t('callRejected'));
         }
       }
       if (incomingCallData?.roomId === signalRoomId) {
@@ -1146,7 +1147,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
       chatService.recordDirectCallEvent(roomId, event, meta.mode || callMode, activeProfileId)
         .catch((error) => {
           console.error('Failed to save profile call history:', error);
-          toast.error('Call history could not be saved.');
+          toast.error(t('coreUiCallHistorySaveFailed'));
         });
     }
   };
@@ -1197,7 +1198,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
     };
 
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      toast.error("Chat is reconnecting. Your message was not sent.");
+      toast.error(t('coreUiChatReconnecting'));
       return;
     }
 
@@ -1237,14 +1238,14 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
         : item));
     } catch (error) {
       console.error('Failed to update profile message pin:', error);
-      toast.error('Could not update the message pin.');
+      toast.error(t('coreUiMessagePinUpdateFailed'));
     } finally {
       setPinningMessageId(null);
     }
   };
 
   const handleBlockUser = async () => {
-    if (!await confirm(`Block ${chatData.user}? They will no longer be able to contact this profile.`, {
+    if (!await confirm(t('commonUiBlockUserConfirm', { name: chatData.user }), {
       title: 'Block user',
       confirmLabel: 'Block',
       tone: 'danger',
@@ -1256,14 +1257,14 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
       onBlocked?.();
     } catch (error) {
       console.error('Failed to block profile conversation user:', error);
-      toast.error(error.response?.data?.error || 'Failed to block user.');
+      toast.error(error.response?.data?.error || t('coreUiBlockUserFailed'));
     } finally {
       setIsModerating(false);
     }
   };
 
   const handleReportUser = async () => {
-    const reason = await prompt(`Why are you reporting ${chatData.user}?`, {
+    const reason = await prompt(t('commonUiReportUserReason', { name: chatData.user }), {
       title: 'Report user',
       inputLabel: 'Reason',
       placeholder: 'Enter the reason for this report',
@@ -1272,10 +1273,10 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
     setIsModerating(true);
     try {
       await creatorService.reportProfileConversationUser(activeProfileId, roomId, reason.trim());
-      toast.success('Report submitted to moderation.');
+      toast.success(t('coreUiReportSubmittedModeration'));
     } catch (error) {
       console.error('Failed to report profile conversation user:', error);
-      toast.error(error.response?.data?.error || 'Failed to submit report.');
+      toast.error(error.response?.data?.error || t('coreUiReportSubmitFailed'));
     } finally {
       setIsModerating(false);
     }
@@ -1325,10 +1326,10 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
           <button onClick={() => startCall('video')} disabled={isConnectingCall || isInCall || Boolean(outgoingCallData) || Boolean(incomingCallData)} className="px-3 py-2 bg-zinc-950 border-2 border-zinc-800 text-zinc-200 hover:border-white text-xs font-black uppercase flex items-center gap-2 disabled:opacity-40">
             <Video className="w-4 h-4 text-blue-400" /> {outgoingCallData?.mode === 'video' ? 'Calling…' : 'Video'}
           </button>
-          <button onClick={handleReportUser} disabled={isModerating} title="Report user" className="p-2 border-2 border-zinc-800 text-zinc-300 hover:border-yellow-500 hover:text-yellow-400 disabled:opacity-50">
+          <button onClick={handleReportUser} disabled={isModerating} title={t('coreUiReportUser')} className="p-2 border-2 border-zinc-800 text-zinc-300 hover:border-yellow-500 hover:text-yellow-400 disabled:opacity-50">
             <Flag className="w-4 h-4" />
           </button>
-          <button onClick={handleBlockUser} disabled={isModerating} title="Block user" className="p-2 border-2 border-zinc-800 text-red-400 hover:border-red-500 disabled:opacity-50">
+          <button onClick={handleBlockUser} disabled={isModerating} title={t('coreUiBlockUser')} className="p-2 border-2 border-zinc-800 text-red-400 hover:border-red-500 disabled:opacity-50">
             <Ban className="w-4 h-4" />
           </button>
           <button onClick={onEnd} disabled={isInCall || Boolean(outgoingCallData)} className="px-4 py-2 border-2 border-zinc-700 text-zinc-300 hover:border-white hover:text-white font-black uppercase text-[10px] tracking-widest transition-colors ml-2 disabled:opacity-40">
@@ -1343,7 +1344,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
           className="px-4 py-2 flex items-center gap-2 text-left border-b border-zinc-800 bg-zinc-900/80"
         >
           <Pin className="w-4 h-4 text-yellow-400 shrink-0" />
-          <span className="text-[9px] font-black uppercase tracking-widest text-yellow-400 shrink-0">Pinned</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-yellow-400 shrink-0">{t('coreUiPinned')}</span>
           <span className="text-xs text-zinc-300 truncate">{latestPinnedMessage.text || 'Attachment'}</span>
         </button>
       )}
@@ -1373,7 +1374,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
             <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">Incoming {incomingCallData.mode} Call</h3>
             <p className="text-xs text-zinc-400 uppercase font-bold mb-6">From {incomingCallData.fromName}</p>
             <div className="flex gap-4">
-              <button onClick={rejectCall} className="flex-1 py-3 bg-black border-2 border-red-500 text-red-500 font-black uppercase text-xs">Decline</button>
+              <button onClick={rejectCall} className="flex-1 py-3 bg-black border-2 border-red-500 text-red-500 font-black uppercase text-xs">{t('coreUiDecline')}</button>
               <button onClick={acceptCall} disabled={isConnectingCall} className="flex-1 py-3 bg-green-500 border-2 border-green-500 text-black font-black uppercase text-xs disabled:opacity-50">
                 {isConnectingCall ? 'Connecting…' : 'Answer'}
               </button>
@@ -1417,7 +1418,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
               </div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-zinc-500 font-bold uppercase tracking-widest text-[10px]">
-                <p>No message history</p>
+                <p>{t('coreUiNoMessageHistory')}</p>
               </div>
             ) : (
               messages.map((msg) => {
@@ -1436,11 +1437,11 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
                         {isModel ? modelName : (chatData.user || chatData.name)} • {msg.time}
                       </span>
                     )}
-                    {msg.flagged && <span className="mb-1 text-[9px] font-black uppercase text-red-400">Flagged by moderation</span>}
+                    {msg.flagged && <span className="mb-1 text-[9px] font-black uppercase text-red-400">{t('coreUiFlaggedByModeration')}</span>}
                     <div className={`flex max-w-full flex-col gap-2 text-sm leading-relaxed ${bubbleStyle}`}>
                       {msg.media && (
                         <div className="w-full max-w-[min(70vw,22rem)] overflow-hidden rounded-xl border border-black/10">
-                          <img src={msg.media} alt="Chat attachment" className="max-h-80 w-full object-cover" />
+                          <img src={msg.media} alt={t('coreUiChatAttachment')} className="max-h-80 w-full object-cover" />
                         </div>
                       )}
                       {msg.text && <div className="whitespace-pre-wrap break-words">{msg.text}</div>}
@@ -1500,7 +1501,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
             </div>
             {aiSuggestions.length > 0 && (
               <div className="mt-2 space-y-2" aria-live="polite">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-300">AI drafts — review before sending</p>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-300">{t('coreUiAiDraftsReviewBeforeSending')}</p>
                 {aiSuggestions.map((suggestion, index) => (
                   <button
                     key={`${index}-${suggestion}`}
@@ -1519,7 +1520,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
           <div className="p-4 bg-zinc-950 border-t-2 border-zinc-800 shrink-0 relative z-30">
             {showEmojiPicker && (
               <div className="absolute bottom-[calc(100%+10px)] left-16 z-50 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] border-2 border-zinc-700 bg-black">
-                <Suspense fallback={<div className="p-4 text-xs text-zinc-400">Loading emoji...</div>}>
+                <Suspense fallback={<div className="p-4 text-xs text-zinc-400">{t('coreUiLoadingEmoji')}</div>}>
                   <EmojiPicker
                     theme={theme}
                     onEmojiClick={handleEmojiSelect}
@@ -1535,10 +1536,10 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
             <div className="flex flex-col gap-2">
               {attachedMedia && (
                 <div className="flex items-center gap-4 bg-black border-2 border-zinc-700 p-2 w-max">
-                  <img src={attachedMedia} alt="preview" className="w-12 h-12 object-cover border-2 border-zinc-800" />
+                  <img src={attachedMedia} alt={t('coreUiPreview')} className="w-12 h-12 object-cover border-2 border-zinc-800" />
                   <div className="flex flex-col pr-2">
-                    <span className="text-[9px] font-black uppercase text-zinc-400">Attached File</span>
-                    <span className="text-[10px] font-bold text-white uppercase">Ready to send</span>
+                    <span className="text-[9px] font-black uppercase text-zinc-400">{t('coreUiAttachedFile')}</span>
+                    <span className="text-[10px] font-bold text-white uppercase">{t('coreUiReadyToSend')}</span>
                   </div>
                   <button 
                     onClick={() => setAttachedMedia(null)} 
@@ -1562,7 +1563,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
                 <textarea 
                   value={inputText} onChange={handleTypingInput}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  placeholder="TYPE A MESSAGE..."
+                  placeholder={t('coreUiTypeMessage')}
                   className="flex-1 bg-black border-2 border-zinc-700 p-3 text-white font-bold text-sm resize-none outline-none focus:border-white transition-colors custom-scrollbar disabled:opacity-50"
                   rows="2"
                 />
@@ -1571,7 +1572,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
                   className="w-24 bg-white border-2 border-white text-black flex flex-col items-center justify-center gap-1 font-black uppercase tracking-widest hover:bg-black hover:text-white disabled:opacity-50 transition-colors"
                 >
                   <Send className="w-5 h-5" />
-                  <span className="text-[10px]">SEND</span>
+                  <span className="text-[10px]">{t('send')}</span>
                 </button>
               </div>
             </div>
@@ -1580,7 +1581,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
 
         {/* Right Profile Panel */}
         <div className="hidden w-[clamp(14rem,22vw,20rem)] flex-col overflow-y-auto border-l-2 border-zinc-800 bg-black p-6 custom-scrollbar lg:flex">
-          <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b-2 border-zinc-800 pb-2 mb-6">Target Profile</h3>
+          <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b-2 border-zinc-800 pb-2 mb-6">{t('coreUiTargetProfile')}</h3>
           {chatData.avatar && !avatarFailed ? (
             <img src={chatData.avatar} alt={chatPartnerName} onError={() => setAvatarFailed(true)} className="aspect-[3/2] w-full object-cover border-2 border-zinc-800 grayscale mb-4" />
           ) : (
@@ -1590,8 +1591,8 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
           )}
           <div className="space-y-4">
             <div>
-              <label className="text-[8px] text-zinc-500 font-black uppercase block">CHAT SAFETY</label>
-              <div className="text-[10px] font-bold text-zinc-400 mt-1">Messages are screened by Chattie moderation. Use Report or Block if a user is abusive.</div>
+              <label className="text-[8px] text-zinc-500 font-black uppercase block">{t('coreUiChatSafety')}</label>
+              <div className="text-[10px] font-bold text-zinc-400 mt-1">{t('coreUiChatSafetyDescription')}</div>
             </div>
           </div>
         </div>
@@ -1611,7 +1612,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
               </button>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6">Select an approved image from this profile's gallery to send in chat.</p>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6">{t('coreUiSelectApprovedGalleryImage')}</p>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {isLoadingVault ? (
                   <div className="col-span-full flex items-center justify-center py-10">
@@ -1631,9 +1632,9 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
                       }}
                       className="aspect-square bg-zinc-950 border-2 border-zinc-800 hover:border-white transition-all overflow-hidden group relative"
                     >
-                      <img src={mediaObj.url || mediaObj.media_url} alt="vault item" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      <img src={mediaObj.url || mediaObj.media_url} alt={t('coreUiMediaVaultItem')} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <span className="text-[10px] font-black text-white uppercase tracking-widest border-2 border-white px-3 py-1">SELECT</span>
+                        <span className="text-[10px] font-black text-white uppercase tracking-widest border-2 border-white px-3 py-1">{t('coreUiSelect')}</span>
                       </div>
                     </button>
                   ))
@@ -1682,7 +1683,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
             {(localParticipant?.name || 'You').charAt(0).toUpperCase()}
           </div>
         )}
-        <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg bg-black/50 text-white">You</div>
+        <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg bg-black/50 text-white">{t('coreUiYou')}</div>
         <div className="text-xs z-10 flex flex-col gap-2 text-zinc-400">
           {micEnabled ? (
             <>
@@ -1705,7 +1706,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
           ) : (
             <div className="inline-flex items-center gap-2 mt-2">
               <span className="inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-              <span>Mic off</span>
+              <span>{t('coreUiMicOff')}</span>
             </div>
           )}
         </div>
@@ -1734,7 +1735,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
               </div>
             )}
             <div className="text-sm font-semibold z-10 px-3 py-1.5 rounded-lg bg-black/50 text-white">{activeChat?.user || activeChat?.name}</div>
-            <div className="text-xs z-10 text-zinc-400">Ringing...</div>
+            <div className="text-xs z-10 text-zinc-400">{t('coreUiRinging')}</div>
           </>
         )}
       </div>

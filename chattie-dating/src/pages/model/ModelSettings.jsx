@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import AIDraftAssistant from '../../components/AIDraftAssistant';
 import { creatorService } from '../../api/creator.service';
 import { settingsService } from '../../api/settings.service';
+import { useI18n } from '../../i18n';
 
 const DEFAULT_USER_SETTINGS = {
   name: '',
@@ -86,6 +87,7 @@ function SettingsSection({ icon: Icon, title, description, children }) {
 }
 
 function ProfileSettingsCard({ profile, onSave, onStatusChange, isSavingStatus }) {
+  const { t } = useI18n();
   const [details, setDetails] = useState({
     name: profile.name || '',
     avatar_url: profile.avatar_url || '',
@@ -106,9 +108,9 @@ function ProfileSettingsCard({ profile, onSave, onStatusChange, isSavingStatus }
     setIsSaving(true);
     try {
       await onSave(profile.id, details);
-      toast.success(`${profile.name} profile saved.`);
+      toast.success(t('coreUiProfileSaved', { name: profile.name }));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not save this profile.');
+      toast.error(error.response?.data?.error || t('coreUiProfileSaveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -127,26 +129,26 @@ function ProfileSettingsCard({ profile, onSave, onStatusChange, isSavingStatus }
           )}
           <div>
             <h3 className="text-xs font-black uppercase tracking-widest text-white">{profile.name}</h3>
-            <p className="mt-1 text-[10px] uppercase tracking-widest text-zinc-500">Assigned profile</p>
+            <p className="mt-1 text-[10px] uppercase tracking-widest text-zinc-500">{t('coreUiAssignedProfile')}</p>
           </div>
         </div>
         <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-          Availability
+          {t('coreUiAvailability')}
           <select
             value={profile.status || 'offline'}
             disabled={isSavingStatus}
             onChange={(event) => onStatusChange(profile.id, event.target.value)}
             className="border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white outline-none focus:border-amber-300 disabled:opacity-50"
           >
-            <option value="online">Online</option>
-            <option value="busy">Busy</option>
-            <option value="offline">Offline</option>
+            <option value="online">{t('online')}</option>
+            <option value="busy">{t('coreUiBusy')}</option>
+            <option value="offline">{t('offline')}</option>
           </select>
         </label>
       </div>
 
       <label className="block space-y-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Display name</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiDisplayName')}</span>
         <input
           value={details.name}
           onChange={(event) => setDetails((current) => ({ ...current, name: event.target.value }))}
@@ -158,7 +160,7 @@ function ProfileSettingsCard({ profile, onSave, onStatusChange, isSavingStatus }
       </label>
 
       <label className="block space-y-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Avatar image URL (HTTPS)</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiAvatarImageUrl')}</span>
         <input
           type="url"
           value={details.avatar_url}
@@ -171,7 +173,7 @@ function ProfileSettingsCard({ profile, onSave, onStatusChange, isSavingStatus }
       </label>
 
       <label className="block space-y-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Profile bio</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiProfileBio')}</span>
         <textarea
           value={details.bio}
           onChange={(event) => setDetails((current) => ({ ...current, bio: event.target.value }))}
@@ -196,13 +198,14 @@ function ProfileSettingsCard({ profile, onSave, onStatusChange, isSavingStatus }
         className="inline-flex items-center gap-2 border border-amber-300 bg-amber-300 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-black transition-colors hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-        Save profile
+        {t('coreUiSaveProfile')}
       </button>
     </form>
   );
 }
 
 export default function ModelSettings() {
+  const { t } = useI18n();
   const {
     profiles = [],
     setProfiles,
@@ -248,7 +251,7 @@ export default function ModelSettings() {
         setAreNotificationsLoaded(true);
       } else {
         console.error('Failed to load model notification preferences:', settingsResult.reason);
-        toast.error('Could not load notification preferences.');
+        toast.error(t('coreUiNotificationPreferencesLoadFailed'));
       }
 
       if (payoutResult.status === 'fulfilled') {
@@ -256,13 +259,13 @@ export default function ModelSettings() {
         setArePayoutMethodsLoaded(true);
       } else {
         console.error('Failed to load model payout methods:', payoutResult.reason);
-        toast.error('Could not load payout methods.');
+        toast.error(t('coreUiPayoutMethodsLoadFailed'));
       }
       setIsLoadingSettings(false);
     };
     void loadSettings();
     return () => { active = false; };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const savedMethod = payoutMethods.find((method) => method.asset_network === selectedNetwork);
@@ -287,10 +290,10 @@ export default function ModelSettings() {
       setProfiles((current) => current.map((profile) => profile.id === profileId
         ? { ...profile, status }
         : profile));
-      toast.success('Profile availability updated.');
+      toast.success(t('coreUiProfileAvailabilityUpdated'));
     } catch (error) {
       console.error('Failed to update assigned profile status:', error);
-      toast.error(error.response?.data?.error || 'Could not update profile availability.');
+      toast.error(error.response?.data?.error || t('coreUiProfileAvailabilityUpdateFailed'));
     } finally {
       setSavingProfileStatus('');
     }
@@ -302,10 +305,10 @@ export default function ModelSettings() {
       const updated = await creatorService.toggleOnlineStatus(!isGlobalOnline);
       setIsGlobalOnline(updated.is_online === true);
       setModelSettings((current) => ({ ...current, is_online: updated.is_online === true }));
-      toast.success('Global availability updated.');
+      toast.success(t('coreUiGlobalAvailabilityUpdated'));
     } catch (error) {
       console.error('Failed to update global availability:', error);
-      toast.error(error.response?.data?.error || 'Could not update availability.');
+      toast.error(error.response?.data?.error || t('coreUiAvailabilityUpdateFailed'));
     } finally {
       setIsSavingAvailability(false);
     }
@@ -315,10 +318,10 @@ export default function ModelSettings() {
     setIsSavingNotifications(true);
     try {
       await settingsService.updateSettings(userSettings);
-      toast.success('Notification preferences saved.');
+      toast.success(t('coreUiNotificationPreferencesSaved'));
     } catch (error) {
       console.error('Failed to save model notification preferences:', error);
-      toast.error(error.response?.data?.error || 'Could not save notification preferences.');
+      toast.error(error.response?.data?.error || t('coreUiNotificationPreferencesSaveFailed'));
     } finally {
       setIsSavingNotifications(false);
     }
@@ -330,10 +333,10 @@ export default function ModelSettings() {
     try {
       const updated = await creatorService.updateModelSettings({ ai_drafts_enabled: enabled });
       setModelSettings(updated);
-      toast.success(enabled ? 'AI reply drafts enabled.' : 'AI reply drafts disabled.');
+      toast.success(t(enabled ? 'coreUiAiDraftsEnabled' : 'coreUiAiDraftsDisabled'));
     } catch (error) {
       console.error('Failed to update model AI draft preference:', error);
-      toast.error(error.response?.data?.error || 'Could not update AI draft setting.');
+      toast.error(error.response?.data?.error || t('coreUiAiDraftSettingFailed'));
     } finally {
       setIsSavingAI(false);
     }
@@ -348,10 +351,10 @@ export default function ModelSettings() {
         ...current.filter((method) => method.asset_network !== saved.asset_network),
         saved,
       ]);
-      toast.success('Payout wallet saved.');
+      toast.success(t('coreUiPayoutWalletSaved'));
     } catch (error) {
       console.error('Failed to save model payout wallet:', error);
-      toast.error(error.response?.data?.error || 'Could not save payout wallet.');
+      toast.error(error.response?.data?.error || t('coreUiPayoutWalletSaveFailed'));
     } finally {
       setIsSavingPayout(false);
     }
@@ -363,15 +366,15 @@ export default function ModelSettings() {
         <header className="flex flex-wrap items-end justify-between gap-4 border-b-2 border-zinc-800 pb-5">
           <div>
             <p className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-amber-300">
-              <Settings className="h-4 w-4" /> Model workspace
+              <Settings className="h-4 w-4" /> {t('coreUiModelWorkspace')}
             </p>
-            <h1 className="text-2xl font-black uppercase tracking-widest text-white sm:text-3xl">Settings</h1>
+            <h1 className="text-2xl font-black uppercase tracking-widest text-white sm:text-3xl">{t('settings')}</h1>
             <p className="mt-2 max-w-2xl text-xs leading-relaxed text-zinc-500">
-              Manage your availability, assigned profiles, notifications, AI reply drafts, and payout wallet.
+              {t('coreUiModelSettingsDescription')}
             </p>
           </div>
           <Link to="/model/earnings" className="inline-flex items-center gap-2 border border-zinc-700 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:border-amber-300 hover:text-amber-200">
-            Earnings and payout history <ExternalLink className="h-3.5 w-3.5" />
+            {t('coreUiEarningsPayoutHistory')} <ExternalLink className="h-3.5 w-3.5" />
           </Link>
         </header>
         {modelSettingsLoadError && (
@@ -382,14 +385,14 @@ export default function ModelSettings() {
 
         <SettingsSection
           icon={Power}
-          title="Availability"
-          description="Global availability affects whether you receive new model chat requests. Assigned profile statuses can be managed separately."
+          title={t('coreUiAvailability')}
+          description={t('coreUiGlobalAvailabilityDescription')}
         >
           <div className="flex flex-wrap items-center justify-between gap-4 border border-zinc-800 bg-black p-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest text-white">Global chat availability</p>
+              <p className="text-xs font-black uppercase tracking-widest text-white">{t('coreUiGlobalChatAvailability')}</p>
               <p className="mt-1 text-[10px] uppercase tracking-widest text-zinc-500">
-                Currently {isGlobalOnline ? 'online' : 'offline'}
+                {t('coreUiCurrentlyStatus', { status: t(isGlobalOnline ? 'online' : 'offline') })}
               </p>
             </div>
             <button
@@ -401,22 +404,22 @@ export default function ModelSettings() {
               }`}
             >
               {isSavingAvailability ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-              Go {isGlobalOnline ? 'offline' : 'online'}
+              {t(isGlobalOnline ? 'coreUiGoOffline' : 'coreUiGoOnline')}
             </button>
           </div>
         </SettingsSection>
 
         <SettingsSection
           icon={UserRound}
-          title="Assigned profiles"
-          description="Edit the public name, avatar, and bio of profiles assigned to your model account. Profile assignment itself is managed by an administrator."
+          title={t('coreUiAssignedProfiles')}
+          description={t('coreUiAssignedProfilesDescription')}
         >
           {profilesLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-amber-300" /></div>
           ) : profilesLoadError ? (
             <p role="alert" className="border border-red-500/40 bg-red-500/5 p-4 text-xs text-red-200">{profilesLoadError}</p>
           ) : profiles.length === 0 ? (
-            <p className="border border-dashed border-zinc-800 p-5 text-xs text-zinc-500">No profiles are assigned to this model account yet.</p>
+            <p className="border border-dashed border-zinc-800 p-5 text-xs text-zinc-500">{t('coreUiNoAssignedProfiles')}</p>
           ) : (
             <div className="space-y-4">
               {profiles.map((profile) => (
@@ -434,20 +437,20 @@ export default function ModelSettings() {
 
         <SettingsSection
           icon={Bell}
-          title="Notifications"
-          description="Choose which account notifications you want to receive."
+          title={t('notifications')}
+          description={t('coreUiNotificationPreferencesDescription')}
         >
           {isLoadingSettings ? (
             <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-amber-300" /></div>
           ) : !areNotificationsLoaded ? (
-            <p role="alert" className="border border-red-500/40 bg-red-500/5 p-4 text-xs text-red-200">Notification preferences could not be loaded. Refresh before changing them.</p>
+            <p role="alert" className="border border-red-500/40 bg-red-500/5 p-4 text-xs text-red-200">{t('coreUiNotificationPreferencesLoadNotice')}</p>
           ) : (
             <>
               {[
-                ['messages', 'New messages'],
-                ['newMatches', 'New matches'],
-                ['superLikes', 'Super likes'],
-                ['promotions', 'Product announcements'],
+                ['messages', t('coreUiNewMessages')],
+                ['newMatches', t('coreUiNewMatches')],
+                ['superLikes', t('coreUiSuperLikes')],
+                ['promotions', t('coreUiProductAnnouncements')],
               ].map(([key, label]) => (
                 <div key={key} className="flex items-center justify-between gap-4 border-b border-zinc-800 pb-3 last:border-0 last:pb-0">
                   <span className="text-xs font-bold text-zinc-200">{label}</span>
@@ -468,7 +471,7 @@ export default function ModelSettings() {
                 className="inline-flex items-center gap-2 border border-amber-300 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-amber-200 hover:bg-amber-300/10 disabled:opacity-50"
               >
                 {isSavingNotifications ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save notification preferences
+                {t('coreUiSaveNotificationPreferences')}
               </button>
             </>
           )}
@@ -476,19 +479,19 @@ export default function ModelSettings() {
 
         <SettingsSection
           icon={Sparkles}
-          title="AI chat drafts"
-          description="When enabled, AI can draft optional replies using recent messages from the selected assigned profile's conversation."
+          title={t('coreUiAiChatDrafts')}
+          description={t('coreUiAiDraftsDescription')}
         >
           <div className="flex items-center justify-between gap-4 border border-zinc-800 bg-black p-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest text-white">Enable AI reply drafts</p>
+              <p className="text-xs font-black uppercase tracking-widest text-white">{t('coreUiEnableAiReplyDrafts')}</p>
               <p className="mt-1 text-[10px] leading-relaxed text-zinc-500">
-                Drafts are never sent automatically. Review and send each reply yourself.
+                {t('coreUiAiDraftsReviewNotice')}
               </p>
             </div>
             <SettingsToggle
               checked={modelSettings.ai_drafts_enabled === true}
-              label="Enable AI reply drafts"
+              label={t('coreUiEnableAiReplyDrafts')}
               disabled={isSavingAI || profilesLoading}
               onChange={changeAIDrafts}
             />
@@ -497,17 +500,17 @@ export default function ModelSettings() {
 
         <SettingsSection
           icon={Wallet}
-          title="Payout wallet"
-          description="Save a USDT payout address for the selected network. Address/network matching is validated by the backend."
+          title={t('coreUiPayoutWallet')}
+          description={t('coreUiPayoutWalletDescription')}
         >
           {isLoadingSettings ? (
             <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-amber-300" /></div>
           ) : !arePayoutMethodsLoaded ? (
-            <p role="alert" className="border border-red-500/40 bg-red-500/5 p-4 text-xs text-red-200">Payout methods could not be loaded. Refresh before saving a wallet.</p>
+            <p role="alert" className="border border-red-500/40 bg-red-500/5 p-4 text-xs text-red-200">{t('coreUiPayoutMethodsLoadNotice')}</p>
           ) : (
             <form onSubmit={savePayoutMethod} className="grid gap-3 sm:grid-cols-[minmax(12rem,0.8fr)_minmax(15rem,1.2fr)_auto] sm:items-end">
               <label className="block space-y-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Network</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiNetwork')}</span>
                 <select
                   value={selectedNetwork}
                   onChange={(event) => setSelectedNetwork(event.target.value)}
@@ -518,7 +521,7 @@ export default function ModelSettings() {
                 </select>
               </label>
               <label className="block space-y-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Wallet address</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('coreUiWalletAddress')}</span>
                 <input
                   value={walletAddress}
                   onChange={(event) => setWalletAddress(event.target.value)}
@@ -526,7 +529,7 @@ export default function ModelSettings() {
                   maxLength={255}
                   autoComplete="off"
                   spellCheck="false"
-                  placeholder={selectedNetwork === 'USDT-TRC20' ? 'TRON address (starts with T)' : 'Ethereum address (starts with 0x)'}
+                  placeholder={t(selectedNetwork === 'USDT-TRC20' ? 'coreUiTronAddressPlaceholder' : 'coreUiEthereumAddressPlaceholder')}
                   disabled={isSavingPayout}
                   className="w-full border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-xs text-white outline-none focus:border-amber-300 disabled:opacity-50"
                 />
@@ -537,12 +540,12 @@ export default function ModelSettings() {
                 className="inline-flex items-center justify-center gap-2 border border-amber-300 bg-amber-300 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-black hover:bg-amber-200 disabled:opacity-50"
               >
                 {isSavingPayout ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save wallet
+                {t('coreUiSaveWallet')}
               </button>
             </form>
           )}
           <p className="text-[10px] text-zinc-600">
-            Payout requests, balances, and request history remain available on <Link to="/model/earnings" className="text-amber-300 underline">Earnings</Link>.
+            {t('coreUiPayoutHistoryAvailable')} <Link to="/model/earnings" className="text-amber-300 underline">{t('earnings')}</Link>.
           </p>
         </SettingsSection>
       </div>

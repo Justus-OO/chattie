@@ -3,6 +3,7 @@ import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { useAppStore } from '../store/useAppStore';
 import { toast } from 'sonner';
+import { useI18n } from '../i18n';
 
 /**
  * ============================================================================
@@ -11,6 +12,10 @@ import { toast } from 'sonner';
  * ============================================================================
  */
 export const useWebSocket = (roomId) => {
+  const { t } = useI18n();
+  const translateRef = useRef(t);
+  translateRef.current = t;
+
   // --- REFS ---
   const stompClient = useRef(null);
   const messageSubscription = useRef(null);
@@ -89,7 +94,7 @@ export const useWebSocket = (roomId) => {
       onStompError: (frame) => {
         console.error('[STOMP] Broker Error:', frame.headers['message']);
         console.error('[STOMP] Details:', frame.body);
-        toast.error('Lost connection to chat server. Reconnecting...', { id: 'stomp-error' });
+        toast.error(translateRef.current('webSocketConnectionLost'), { id: 'stomp-error' });
         setSocketStatus(false);
       },
     });
@@ -137,9 +142,9 @@ export const useWebSocket = (roomId) => {
         body: JSON.stringify(payload),
       });
     } else {
-      toast.error('Cannot send message. Connecting to server...', { id: 'stomp-offline' });
+      toast.error(t('webSocketConnectingCannotSend'), { id: 'stomp-offline' });
     }
-  }, [roomId, user?.username]);
+  }, [roomId, user?.username, t]);
 
   /**
    * Broadcast typing status to the room.

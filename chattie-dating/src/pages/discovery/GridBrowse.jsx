@@ -558,7 +558,7 @@ export default function GridBrowse() {
               ) : (
                 <img
                   src="https://images.unsplash.com/photo-1500000000000?auto=format&fit=crop&w=400&q=80"
-                  alt="placeholder"
+                  alt={t('coreUiImagePlaceholder')}
                   className="w-full h-full object-cover snap-start"
                 />
               )}
@@ -607,7 +607,7 @@ export default function GridBrowse() {
                 </div>
 
                 <section>
-                  <h3 className="text-[10px] font-bold text-zinc-600 tracking-widest uppercase mb-3 border-b-2 border-zinc-800 pb-2">About Target</h3>
+                  <h3 className="text-[10px] font-bold text-zinc-600 tracking-widest uppercase mb-3 border-b-2 border-zinc-800 pb-2">{t('coreUiAboutProfile')}</h3>
                   <p className="text-zinc-300 text-[10px] md:text-xs leading-relaxed tracking-normal bg-zinc-950 p-4 border-2 border-zinc-800 uppercase">
                     {selectedProfile.bio || "No data provided in bio registry."}
                   </p>

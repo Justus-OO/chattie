@@ -326,7 +326,7 @@ export default function Likes() {
             </div>
 
             <div className="p-6 md:p-8 text-center bg-black">
-              <h2 className="text-xl font-bold text-white uppercase tracking-widest mb-3">CHATTIE VIP</h2>
+              <h2 className="text-xl font-bold text-white uppercase tracking-widest mb-3">Chattie {t('vip')}</h2>
               <p className="text-zinc-500 text-[10px] uppercase tracking-widest leading-relaxed mb-6">
                 STOP GUESSING. SEE EXACTLY WHO LIKES YOU, MATCH INSTANTLY, AND UNLOCK UNLIMITED ACCESS.
               </p>
@@ -383,7 +383,7 @@ export default function Likes() {
               ) : (
                 <img 
                   src="https://images.unsplash.com/photo-1500000000000?auto=format&fit=crop&w=400&q=80" 
-                  alt="placeholder" 
+                  alt={t('coreUiImagePlaceholder')}
                   className="w-full h-full object-cover grayscale"
                 />
               )}
