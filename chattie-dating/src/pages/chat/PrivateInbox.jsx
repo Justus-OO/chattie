@@ -17,24 +17,13 @@ import { apiClient } from '../../api/client';
 import { ChattieService } from '../../api/chattie.service';
 import { MediaVaultModal, DeleteConfirmModal, BlockUserModal } from '../../components/chat/ChatModals';
 import { useI18n } from '../../i18n';
+import { WEBSOCKET_URL } from '../../config/backend';
 
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 const PrivateInboxCall = lazy(() => import('../../components/chat/PrivateInboxCall'));
 
 const getPrivateCallRoomId = (firstUserId, secondUserId) =>
   `dm_call_${[String(firstUserId), String(secondUserId)].sort().join('_')}`;
-
-// --- ROBUST WS URL BUILDER ---
-const getWsUrl = (queryParameters) => {
-  if (import.meta.env.VITE_WS_URL) {
-    return `${import.meta.env.VITE_WS_URL}${queryParameters}`;
-  }
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-    ? 'localhost:8080' 
-    : window.location.host;
-  return `${wsProtocol}//${host}/ws${queryParameters}`;
-};
 
 const CANNED_REPLIES = [
   "Hey there! Thanks for the tip ❤️ Let's chat.",
@@ -545,7 +534,7 @@ export default function PrivateInbox() {
         const chatTarget = activeChatRef.current?.id;
         
         // USE ROBUST URL BUILDER
-        const wsUrl = getWsUrl(`?${shouldUseRoom ? `room_id=${chatTarget}` : `target_id=${chatTarget}`}&token=${encodeURIComponent(cleanToken)}`);
+        const wsUrl = `${WEBSOCKET_URL}?${shouldUseRoom ? `room_id=${chatTarget}` : `target_id=${chatTarget}`}&token=${encodeURIComponent(cleanToken)}`;
 
         try {
           const ws = new WebSocket(wsUrl);
@@ -756,7 +745,7 @@ export default function PrivateInbox() {
       const cleanToken = activeToken.startsWith('Bearer ') ? activeToken.slice(7) : activeToken;
       
       // USE ROBUST URL BUILDER
-      const notifyUrl = getWsUrl(`?token=${encodeURIComponent(cleanToken)}`);
+      const notifyUrl = `${WEBSOCKET_URL}?token=${encodeURIComponent(cleanToken)}`;
 
       try {
         const nws = new WebSocket(notifyUrl);

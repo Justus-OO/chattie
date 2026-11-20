@@ -31,17 +31,7 @@ import { chatService } from '../../api/chat.service';
 import { apiClient } from '../../api/client';
 import { ChattieService } from '../../api/chattie.service';
 import { useI18n } from '../../i18n';
-
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880";
-
-const getWebSocketOrigin = () => {
-  const fallback = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8080'
-    : window.location.origin;
-  const apiUrl = new URL(import.meta.env.VITE_API_URL || fallback, window.location.origin);
-  apiUrl.protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-  return apiUrl.origin;
-};
+import { LIVEKIT_URL, WEBSOCKET_URL } from '../../config/backend';
 
 // --- Helper to Parse Quoted Replies ---
 const parseMessageContent = (rawText) => {
@@ -390,7 +380,7 @@ export default function LiveRoom() {
       }
 
       const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
-      const wsUrl = `${getWebSocketOrigin()}/ws?room_id=${encodeURIComponent(roomId)}&token=${encodeURIComponent(cleanToken)}`;
+      const wsUrl = `${WEBSOCKET_URL}?room_id=${encodeURIComponent(roomId)}&token=${encodeURIComponent(cleanToken)}`;
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -562,7 +552,7 @@ export default function LiveRoom() {
     if (!token) return;
 
     const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
-    const notifyUrl = `${getWebSocketOrigin()}/ws?token=${encodeURIComponent(cleanToken)}`;
+    const notifyUrl = `${WEBSOCKET_URL}?token=${encodeURIComponent(cleanToken)}`;
 
     try {
       const nws = new WebSocket(notifyUrl);

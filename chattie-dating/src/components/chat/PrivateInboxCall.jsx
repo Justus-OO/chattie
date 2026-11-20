@@ -12,6 +12,7 @@ import {
 import { PhoneOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '../../i18n';
+import { LIVEKIT_URL } from '../../config/backend';
 
 function AutoPublishMic({ micGain, setMicEnabled, setMicLevel }) {
   const { localParticipant } = useLocalParticipant();
@@ -247,7 +248,7 @@ export default function PrivateInboxCall({
   return (
     <div className="absolute inset-0 z-50 flex flex-col animate-in fade-in duration-300 bg-black">
       <LiveKitRoom
-        serverUrl={import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880'}
+        serverUrl={LIVEKIT_URL}
         token={token}
         connect={true}
         audio={false}

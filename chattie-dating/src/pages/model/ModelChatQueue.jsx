@@ -24,18 +24,8 @@ import { chatService } from '../../api/chat.service';
 import { apiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
 import { useAppDialogs } from '../../components/modals/useAppDialogs';
+import { LIVEKIT_URL, WEBSOCKET_URL } from '../../config/backend';
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
-
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880";
-
-const getWsUrl = (query) => {
-  if (import.meta.env.VITE_WS_URL) return `${import.meta.env.VITE_WS_URL}${query}`;
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = ['localhost', '127.0.0.1'].includes(window.location.hostname)
-    ? 'localhost:8080'
-    : window.location.host;
-  return `${protocol}//${host}/ws${query}`;
-};
 
 // ============================================================================
 // COMPONENT: MODEL CHAT QUEUE
@@ -569,7 +559,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     setIsPartnerTyping(false);
     const query = `?target_id=${encodeURIComponent(roomId)}&profile_id=${encodeURIComponent(activeProfileId)}&token=${encodeURIComponent(cleanToken)}`;
-    const wsUrl = getWsUrl(query);
+    const wsUrl = `${WEBSOCKET_URL}${query}`;
     
     let manuallyClosed = false;
     const connect = () => {
@@ -690,7 +680,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
     if (!activeToken) return;
 
     const cleanToken = activeToken.startsWith('Bearer ') ? activeToken.slice(7) : activeToken;
-    const notifyUrl = getWsUrl(`?token=${encodeURIComponent(cleanToken)}`);
+    const notifyUrl = `${WEBSOCKET_URL}?token=${encodeURIComponent(cleanToken)}`;
 
     try {
       const nws = new WebSocket(notifyUrl);

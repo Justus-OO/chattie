@@ -4,6 +4,7 @@ import SockJS from 'sockjs-client';
 import { useAppStore } from '../store/useAppStore';
 import { toast } from 'sonner';
 import { useI18n } from '../i18n';
+import { SOCKJS_URL } from '../config/backend';
 
 /**
  * ============================================================================
@@ -37,7 +38,7 @@ export const useWebSocket = (roomId) => {
 
     // Define the STOMP Client
     const client = new Client({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+      webSocketFactory: () => new SockJS(SOCKJS_URL),
       connectHeaders: {
         Authorization: `Bearer ${token}`,
       },

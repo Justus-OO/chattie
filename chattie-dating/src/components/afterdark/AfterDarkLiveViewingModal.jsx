@@ -11,6 +11,7 @@ import {
 import { ConnectionState, DisconnectReason, RoomEvent, Track } from 'livekit-client';
 import { afterDarkService } from '../../api/afterdark.service';
 import { useI18n } from '../../i18n';
+import { LIVEKIT_URL } from '../../config/backend';
 
 // Inner component that renders tracks once connected to LiveKit
 function LiveKitRenderer({ creator, isMuted, onConnectionStateChanged, onViewerCountChanged }) {
@@ -451,8 +452,6 @@ export default function LiveViewer({
     : creator.livePassPrice ?? 250;
   const price = accessType === 'subscription' ? subscriptionPrice : livePassPrice;
   const hasEnoughBalance = walletBalance >= price;
-  const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
-
   const checkoutTip = () => {
     const amount = Number(tipAmount);
     if (!Number.isSafeInteger(amount) || amount <= 0) {

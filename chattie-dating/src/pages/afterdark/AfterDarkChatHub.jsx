@@ -13,8 +13,8 @@ import { useAppDialogs } from '../../components/modals/useAppDialogs';
 import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
 import { useI18n } from '../../i18n';
+import { LIVEKIT_URL, WEBSOCKET_URL } from '../../config/backend';
 
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
 const CALL_REACTIONS = ['❤️', '👍', '😂', '🔥', '😮', '🙏'];
 const getAfterDarkCallRoomId = (firstUserId, secondUserId) =>
   `ad_call_${[String(firstUserId), String(secondUserId)].sort().join('_')}`;
@@ -370,10 +370,7 @@ export default function AfterDarkChatHub() {
       if (!token) return;
       const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
       const query = `?token=${encodeURIComponent(cleanToken)}`;
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = import.meta.env.VITE_WS_URL
-        ? `${import.meta.env.VITE_WS_URL}${query}`
-        : `${wsProtocol}//${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'localhost:8080' : window.location.host}/ws${query}`;
+      const wsUrl = `${WEBSOCKET_URL}${query}`;
       try {
         socket = new WebSocket(wsUrl);
         socketRef.current = socket;
@@ -698,10 +695,7 @@ export default function AfterDarkChatHub() {
       if (!token) return;
       const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
       const query = `?token=${encodeURIComponent(cleanToken)}`;
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = import.meta.env.VITE_WS_URL
-        ? `${import.meta.env.VITE_WS_URL}${query}`
-        : `${protocol}//${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'localhost:8080' : window.location.host}/ws${query}`;
+      const url = `${WEBSOCKET_URL}${query}`;
       socket = new WebSocket(url);
       callSocketRef.current = socket;
       socket.onopen = () => { attempts = 0; };

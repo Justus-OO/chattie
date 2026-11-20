@@ -17,6 +17,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { afterDarkService } from '../../api/afterdark.service';
 import { PagePrivacyShield, usePageFocus } from '../../hooks/usePageFocus';
 import { useI18n } from '../../i18n';
+import { LIVEKIT_URL } from '../../config/backend';
 import {
   ConnectionQuality, ConnectionState, LocalAudioTrack, LocalVideoTrack, Room, RoomEvent, Track,
 } from 'livekit-client';
@@ -83,7 +84,6 @@ const normalizeFeedPost = post => {
 const liveSessionKey = creatorId => `afterdark-live-session:${creatorId}`;
 const liveChannelName = session => `afterdark-live:${session.creatorId}:${session.sessionId}`;
 const livePassEntitlementKey = (creatorId, sessionId) => `live-pass:${creatorId}:${sessionId}`;
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
 const liveRoomOptions = { adaptiveStream: true, dynacast: true };
 
 const broadcastLivePresence = message => {

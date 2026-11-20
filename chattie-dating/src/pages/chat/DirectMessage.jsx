@@ -24,8 +24,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { useAppStore } from '../../store/useAppStore';
 import { apiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
-
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
+import { LIVEKIT_URL } from '../../config/backend';
 
 // ============================================================================
 // FALLBACK MOCK DATA (For Partner Profile Info - Until User Service is Added)
