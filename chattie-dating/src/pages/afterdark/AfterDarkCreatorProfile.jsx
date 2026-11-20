@@ -98,7 +98,7 @@ const TipModal = ({ isOpen, onClose, creator, onCheckout }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isProcessing && onClose()} />
-      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col z-10 rounded-none animate-in zoom-in-95 duration-200 overflow-hidden">
+      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col z-10 rounded-none animate-in zoom-in-95 duration-200 overflow-hidden">
         
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
@@ -216,7 +216,7 @@ const SubscribeModal = ({ isOpen, onClose, creator, balance, onCheckoutFallback 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isProcessing && onClose(false)} />
-      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col z-10 rounded-none animate-in zoom-in-95 duration-200 overflow-hidden">
+      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col z-10 rounded-none animate-in zoom-in-95 duration-200 overflow-hidden">
         
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
@@ -881,7 +881,7 @@ export default function AfterDarkCreatorProfile() {
               {showMenu && (
                 <>
                   <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-                  <div className="absolute right-0 top-full z-30 mt-2 flex w-[clamp(12rem,24vw,16rem)] flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] rounded-none">
+                  <div className="absolute right-0 top-full z-30 mt-2 flex w-[clamp(12rem,24vw,16rem)] flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] rounded-none">
                     <button onClick={copyProfileLink} className="px-4 py-3 text-left text-[10px] font-bold text-white uppercase tracking-widest hover:bg-zinc-950 flex items-center gap-2 border-b-2 border-zinc-800">
                       <Share2 className="w-4 h-4 text-zinc-400" /> Share Profile
                     </button>

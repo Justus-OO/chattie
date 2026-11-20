@@ -18,6 +18,64 @@ func NewChatRepository(db *sql.DB) *ChatRepository {
 	return &ChatRepository{DB: db}
 }
 
+func (r *ChatRepository) IsUserAutoMuted(ctx context.Context, userID string) (bool, error) {
+	var muted bool
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM user_chat_mutes
+			WHERE user_id = $1 AND muted_until > CURRENT_TIMESTAMP
+		)
+	`, userID).Scan(&muted)
+	return muted, err
+}
+
+func (r *ChatRepository) RecordExplicitFilterHit(ctx context.Context, userID string) (bool, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	enabled, err := firewallRuleActive(ctx, tx, "RUL_4")
+	if err != nil {
+		return false, err
+	}
+	if !enabled {
+		return false, tx.Commit()
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM user_filter_hits
+		WHERE user_id = $1 AND created_at < CURRENT_TIMESTAMP - INTERVAL '1 day'
+	`, userID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_filter_hits (user_id) VALUES ($1)
+	`, userID); err != nil {
+		return false, err
+	}
+	var hitCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM user_filter_hits
+		WHERE user_id = $1 AND created_at >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
+	`, userID).Scan(&hitCount); err != nil {
+		return false, err
+	}
+	muted := hitCount >= 3
+	if muted {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO user_chat_mutes (user_id, muted_until, reason)
+			VALUES ($1, CURRENT_TIMESTAMP + INTERVAL '1 hour', 'Repeated profanity filter hits')
+			ON CONFLICT (user_id) DO UPDATE SET
+				muted_until = GREATEST(user_chat_mutes.muted_until, EXCLUDED.muted_until),
+				reason = EXCLUDED.reason
+		`, userID); err != nil {
+			return false, err
+		}
+	}
+	return muted, tx.Commit()
+}
+
 func (r *ChatRepository) SaveMessage(msg *models.Message) error {
 	// Fallback to text if frontend sends text instead of content
 	content := msg.Content

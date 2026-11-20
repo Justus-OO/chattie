@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Bell, Check, CheckCheck, ChevronRight, Heart, MessageCircle,
-  RefreshCw, ShieldAlert, Trash2, X
+  RefreshCw, ShieldAlert, Trash2, X, ExternalLink
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -91,7 +91,7 @@ export default function NotificationModal() {
         <header className="flex shrink-0 items-center justify-between border-b px-5 py-4 sm:px-7" style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
           <div>
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center border" style={{ color: 'var(--accent)', backgroundColor: 'var(--accent-soft)', borderColor: 'rgba(210, 79, 116, 0.25)' }}>
+              <div className="flex h-9 w-9 items-center justify-center border" style={{ color: 'var(--accent)', backgroundColor: 'var(--accent-soft)', borderColor: 'rgba(var(--accent-rgb), 0.25)' }}>
                 <Bell className="h-4 w-4" />
               </div>
               <div>
@@ -145,7 +145,7 @@ export default function NotificationModal() {
                 const isSelected = notification.id === selectedNotification?.id;
                 return (
                   <button key={notification.id} type="button" onClick={() => selectNotification(notification)} className="flex w-full gap-3 border-b p-4 text-left transition-colors" style={{ backgroundColor: isSelected ? 'var(--surface-strong)' : 'transparent', borderColor: 'var(--border)' }}>
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center border" style={{ color: notification.read ? 'var(--text-muted)' : 'var(--accent)', backgroundColor: notification.read ? 'var(--surface)' : 'var(--accent-soft)', borderColor: notification.read ? 'var(--border)' : 'rgba(210, 79, 116, 0.25)' }}><Icon className="h-3.5 w-3.5" /></span>
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center border" style={{ color: notification.read ? 'var(--text-muted)' : 'var(--accent)', backgroundColor: notification.read ? 'var(--surface)' : 'var(--accent-soft)', borderColor: notification.read ? 'var(--border)' : 'rgba(var(--accent-rgb), 0.25)' }}><Icon className="h-3.5 w-3.5" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-2"><strong className="truncate text-xs" style={{ color: 'var(--text-primary)' }}>{notification.title}</strong>{!notification.read && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />}</span>
                       <span className="mt-1 block truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{notification.message}</span>
@@ -172,6 +172,30 @@ export default function NotificationModal() {
                 <div className="border-l-2 py-1 pl-5" style={{ borderColor: 'var(--accent)' }}>
                   <p className="text-base leading-8" style={{ color: 'var(--text-secondary)' }}>{selectedNotification.message}</p>
                 </div>
+                {selectedNotification.action_url && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(selectedNotification.action_url)}
+                    className="mt-6 inline-flex items-center gap-2 border px-4 py-2.5 text-xs font-bold"
+                    style={{ borderColor: 'var(--border-strong)', backgroundColor: 'var(--accent-soft)', color: 'var(--accent-strong)' }}
+                  >
+                    {selectedNotification.action_label || 'Open'}
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {selectedNotification.payload && Object.keys(selectedNotification.payload).length > 0 && (
+                  <dl className="mt-8 grid gap-3 border-t pt-5 sm:grid-cols-2" style={{ borderColor: 'var(--border)' }}>
+                    {Object.entries(selectedNotification.payload)
+                      .filter(([key, value]) => !['title', 'message', 'body', 'action_url', 'action_label', 'category'].includes(key) && value !== null && value !== '')
+                      .slice(0, 8)
+                      .map(([key, value]) => (
+                        <div key={key} className="border p-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-alt)' }}>
+                          <dt className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>{key.replaceAll('_', ' ')}</dt>
+                          <dd className="mt-1 break-all text-xs" style={{ color: 'var(--text-secondary)' }}>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                )}
                 <div className="mt-12 flex items-center gap-2 border-t pt-5 text-xs" style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}>
                   <Check className="h-3.5 w-3.5" /> {selectedNotification.read ? t('read') : t('markedRead')}
                 </div>

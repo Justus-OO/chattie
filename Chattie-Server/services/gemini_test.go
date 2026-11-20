@@ -92,3 +92,32 @@ func TestGeminiGenerateRejectsMissingKey(t *testing.T) {
 		t.Fatal("expected an error when the API key is missing")
 	}
 }
+
+func TestNormalizeGeminiJSONAcceptsPlainAndFencedJSON(t *testing.T) {
+	for _, response := range []string{
+		`{"answer":"ok"}`,
+		"```json\n{\"answer\":\"ok\"}\n```",
+		"```JSON\r\n{\"answer\":\"ok\"}\r\n```",
+	} {
+		got, err := NormalizeGeminiJSON(response)
+		if err != nil {
+			t.Errorf("NormalizeGeminiJSON(%q) error = %v", response, err)
+			continue
+		}
+		if got != `{"answer":"ok"}` {
+			t.Errorf("NormalizeGeminiJSON(%q) = %q", response, got)
+		}
+	}
+}
+
+func TestNormalizeGeminiJSONRejectsInvalidOutput(t *testing.T) {
+	for _, response := range []string{
+		"```json\n{\"answer\":\"ok\"}",
+		"```text\n{\"answer\":\"ok\"}\n```",
+		"not json",
+	} {
+		if _, err := NormalizeGeminiJSON(response); err == nil {
+			t.Errorf("NormalizeGeminiJSON(%q) succeeded; want an error", response)
+		}
+	}
+}

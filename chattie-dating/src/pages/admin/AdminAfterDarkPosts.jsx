@@ -24,6 +24,7 @@ export default function AdminAfterDarkPosts() {
   const [loadError, setLoadError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [pendingAction, setPendingAction] = useState('');
+  const [aiAction, setAiAction] = useState('');
   const [reasonByPost, setReasonByPost] = useState({});
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState('');
@@ -93,6 +94,73 @@ export default function AdminAfterDarkPosts() {
     }
   };
 
+  const scorePost = async (post) => {
+    setAiAction(post.id);
+    try {
+      const result = await adminService.scoreAfterDarkPostSafety(post.id);
+      setPosts((current) => current.map((item) => item.id === post.id
+        ? { ...item, ai_safety_score: result.safe_confidence, ai_safety_reason: result.rationale, ai_safety_scored_at: result.scored_at }
+        : item));
+      toast.success(`Caption safety confidence: ${result.safe_confidence}%.`);
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not assess this post caption.'));
+    } finally {
+      setAiAction('');
+    }
+  };
+
+  const scoreVisiblePosts = async () => {
+    const candidates = visiblePosts
+      .filter((post) => ['draft', 'processing'].includes(post.status) && post.caption?.trim())
+      .slice(0, 20);
+    if (candidates.length === 0) {
+      toast.info('No captioned draft or processing posts are available to assess on this page.');
+      return;
+    }
+
+    setAiAction('score-page');
+    let cursor = 0;
+    let scored = 0;
+    let failed = 0;
+    const workers = Array.from({ length: Math.min(3, candidates.length) }, async () => {
+      while (cursor < candidates.length) {
+        const index = cursor;
+        cursor += 1;
+        const post = candidates[index];
+        try {
+          const result = await adminService.scoreAfterDarkPostSafety(post.id);
+          setPosts((current) => current.map((item) => item.id === post.id
+            ? { ...item, ai_safety_score: result.safe_confidence, ai_safety_reason: result.rationale, ai_safety_scored_at: result.scored_at }
+            : item));
+          scored += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+    });
+    await Promise.all(workers);
+    setAiAction('');
+    toast[failed ? 'warning' : 'success'](`Assessed ${scored} post(s); ${failed} failed. Scores inspect captions only.`);
+  };
+
+  const autoApproveSafePosts = async () => {
+    if (!await confirm('Publish all recently scored posts with at least 80% safe confidence, only if media is ready, content is non-explicit, the creator is active, and no unresolved post or comment reports exist?', {
+      title: 'AI-assisted approval',
+      confirmLabel: 'Publish eligible posts',
+    })) return;
+
+    setAiAction('auto-approve');
+    try {
+      const result = await adminService.autoApproveSafeAfterDarkPosts();
+      toast.success(`${result.approved_count} eligible post(s) published.`);
+      setRefreshKey((key) => key + 1);
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not publish eligible posts.'));
+    } finally {
+      setAiAction('');
+    }
+  };
+
   return (
     <main className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-black p-2 font-mono text-zinc-300 sm:p-3 lg:p-4">
       <div className="w-full space-y-4">
@@ -108,14 +176,34 @@ export default function AdminAfterDarkPosts() {
               Review post metadata and private media, handle reports, and record a reason for every moderation decision.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setRefreshKey((key) => key + 1)}
-            disabled={loading}
-            className="flex items-center justify-center gap-2 border-2 border-zinc-700 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-white hover:border-white disabled:opacity-50"
-          >
-            <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={scoreVisiblePosts}
+              disabled={Boolean(aiAction) || loading}
+              className="flex items-center justify-center gap-2 border-2 border-purple-800 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-purple-200 hover:border-purple-400 disabled:opacity-50"
+            >
+              {aiAction === 'score-page' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+              Assess page (up to 20)
+            </button>
+            <button
+              type="button"
+              onClick={autoApproveSafePosts}
+              disabled={Boolean(aiAction) || loading}
+              className="flex items-center justify-center gap-2 border-2 border-green-800 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-green-200 hover:border-green-400 disabled:opacity-50"
+            >
+              {aiAction === 'auto-approve' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Publish eligible ≥80%
+            </button>
+            <button
+              type="button"
+              onClick={() => setRefreshKey((key) => key + 1)}
+              disabled={loading || Boolean(aiAction)}
+              className="flex items-center justify-center gap-2 border-2 border-zinc-700 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-white hover:border-white disabled:opacity-50"
+            >
+              <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
         </header>
 
         <section className="grid gap-3 sm:grid-cols-3">
@@ -195,8 +283,39 @@ export default function AdminAfterDarkPosts() {
                           </span>
                         )}
                       </div>
+                      {post.ai_safety_score !== null && post.ai_safety_score !== undefined && (
+                        <aside className="mt-3 border border-purple-900/70 bg-purple-950/20 p-3">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-purple-300">
+                            AI safe confidence · {post.ai_safety_score}% · caption only
+                          </p>
+                          <p className="mt-1 text-[10px] text-zinc-400">{post.ai_safety_reason}</p>
+                        </aside>
+                      )}
                       <h2 className="mt-3 break-all text-sm font-black text-white">{post.creator_name}</h2>
                       <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-zinc-300">{post.caption || 'No caption'}</p>
+                      <section className="mt-4 border-l-2 border-zinc-800 pl-3" aria-label="Post comments">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                          {Number(post.comments_count || 0)} comment{Number(post.comments_count || 0) === 1 ? '' : 's'}
+                        </p>
+                        {post.comments?.length > 0 ? (
+                          <div className="mt-2 space-y-2">
+                            {post.comments.map((comment) => (
+                              <article key={comment.id} className="border border-zinc-900 bg-black/50 p-2">
+                                <div className="flex flex-wrap justify-between gap-2 text-[9px] font-bold text-zinc-500">
+                                  <span>{comment.author}</span>
+                                  <time dateTime={comment.created_at}>{new Date(comment.created_at).toLocaleString()}</time>
+                                </div>
+                                <p className="mt-1 whitespace-pre-wrap break-words text-xs text-zinc-300">{comment.content}</p>
+                              </article>
+                            ))}
+                            {post.comments_count > post.comments.length && (
+                              <p className="text-[9px] text-zinc-600">Showing the 5 most recent comments.</p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-[10px] text-zinc-600">No comments on this post.</p>
+                        )}
+                      </section>
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[9px] font-bold uppercase tracking-widest text-zinc-500">
                         <span>{post.access_type}{post.access_type === 'ppv' ? ` · KES ${(Number(post.price_cents) / 100).toFixed(2)}` : ''}</span>
                         <span>{post.media_type || 'unknown media'}</span>
@@ -213,6 +332,17 @@ export default function AdminAfterDarkPosts() {
                         {previewLoading === post.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                         Preview private media
                       </button>
+                      {!deleted && ['draft', 'processing'].includes(post.status) && (
+                        <button
+                          type="button"
+                          onClick={() => scorePost(post)}
+                          disabled={Boolean(aiAction) || !post.caption?.trim()}
+                          className="mt-2 flex items-center gap-2 border-2 border-purple-900 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-purple-200 hover:border-purple-400 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {aiAction === post.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                          Assess caption safety
+                        </button>
+                      )}
                     </div>
                     {!deleted && (
                       <div className="space-y-3 border-t-2 border-zinc-900 pt-4 lg:border-l-2 lg:border-t-0 lg:pl-5 lg:pt-0">

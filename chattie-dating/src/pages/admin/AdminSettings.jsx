@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Globe2, Loader2, Plus, RefreshCcw, Shield, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminService } from '../../api/admin.service';
+import { authService } from '../../api/auth.service';
 import { useAppDialogs } from '../../components/modals/useAppDialogs';
 
 const getErrorMessage = (error, fallback) => error?.response?.data?.error
@@ -25,39 +26,59 @@ export default function AdminSettings() {
   const [isSavingAutoApprove, setIsSavingAutoApprove] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [twoFactor, setTwoFactor] = useState(null);
+  const [securityChannel, setSecurityChannel] = useState('email');
+  const [securityChallenge, setSecurityChallenge] = useState(null);
+  const [securityCode, setSecurityCode] = useState('');
+  const [isSecurityBusy, setIsSecurityBusy] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isPasswordSaving, setIsPasswordSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
     setIsLoading(true);
     setLoadError('');
-    Promise.all([
-      adminService.getModerationTerms(),
-      adminService.getFirewallRules(),
-      adminService.getRegionalCountries(),
-      adminService.getAfterDarkAutoModeration(),
-    ])
-      .then(([termRows, ruleRows, countryRows, autoModeration]) => {
+    const loadSettings = async () => {
+      try {
+        const security = await authService.getTwoFactorSettings();
+        if (!active) return;
+        setTwoFactor(security);
+        if (!security.enabled) {
+          setTerms([]);
+          setFirewallRules([]);
+          setCountries([]);
+          setAutoApprovePosts(false);
+          return;
+        }
+
+        const [termRows, ruleRows, countryRows, autoModeration] = await Promise.all([
+          adminService.getModerationTerms(),
+          adminService.getFirewallRules(),
+          adminService.getRegionalCountries(),
+          adminService.getAfterDarkAutoModeration(),
+        ]);
         if (!Array.isArray(termRows) || !Array.isArray(ruleRows) || !Array.isArray(countryRows)
           || typeof autoModeration?.auto_approve_new_posts !== 'boolean') {
           throw new Error('The settings service returned invalid data.');
         }
-        if (active) {
-          setTerms(termRows);
-          setFirewallRules(ruleRows);
-          setCountries(countryRows);
-          setAutoApprovePosts(autoModeration.auto_approve_new_posts);
-        }
-      })
-      .catch((error) => {
+        if (!active) return;
+        setTerms(termRows);
+        setFirewallRules(ruleRows);
+        setCountries(countryRows);
+        setAutoApprovePosts(autoModeration.auto_approve_new_posts);
+      } catch (error) {
         if (!active) return;
         setLoadError(getErrorMessage(error, 'Could not load admin settings.'));
         setTerms([]);
         setFirewallRules([]);
         setCountries([]);
-      })
-      .finally(() => {
+      } finally {
         if (active) setIsLoading(false);
-      });
+      }
+    };
+    loadSettings();
     return () => { active = false; };
   }, [refreshKey]);
 
@@ -180,6 +201,58 @@ export default function AdminSettings() {
     }
   };
 
+  const requestAdminTwoFactor = async (event) => {
+    event.preventDefault();
+    setIsSecurityBusy(true);
+    try {
+      const result = await authService.requestTwoFactorChange(true, securityChannel);
+      setSecurityChallenge(result);
+      toast.success(`Verification code sent to ${result.destination || securityChannel}.`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not start two-factor setup.'));
+    } finally {
+      setIsSecurityBusy(false);
+    }
+  };
+
+  const verifyAdminTwoFactor = async (event) => {
+    event.preventDefault();
+    if (!securityChallenge?.challenge_id || !securityCode.trim()) return;
+    setIsSecurityBusy(true);
+    try {
+      await authService.verifyTwoFactorChange(securityChallenge.challenge_id, securityCode.trim(), true);
+      setSecurityChallenge(null);
+      setSecurityCode('');
+      setTwoFactor((current) => ({ ...current, enabled: true, channel: securityChannel }));
+      toast.success('Two-factor authentication enabled. Admin access is now protected.');
+      setRefreshKey((key) => key + 1);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not verify the security code.'));
+    } finally {
+      setIsSecurityBusy(false);
+    }
+  };
+
+  const changeAdminPassword = async (event) => {
+    event.preventDefault();
+    if (newPassword.length < 8 || newPassword !== confirmPassword) {
+      toast.error(newPassword.length < 8 ? 'New password must contain at least 8 characters.' : 'The new passwords do not match.');
+      return;
+    }
+    setIsPasswordSaving(true);
+    try {
+      await authService.updatePassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success('Password updated.');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not update the administrator password.'));
+    } finally {
+      setIsPasswordSaving(false);
+    }
+  };
+
   const countryName = (code) => {
     try {
       return new Intl.DisplayNames(undefined, { type: 'region' }).of(code) || code;
@@ -210,6 +283,75 @@ export default function AdminSettings() {
             <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
           </button>
         </header>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <article className="border-2 border-zinc-800 bg-zinc-950 p-5">
+            <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white">
+              <Shield className="h-4 w-4 text-green-400" /> Administrator two-factor authentication
+            </h2>
+            {twoFactor?.enabled ? (
+              <p className="mt-3 text-xs text-green-300">
+                Required admin protection is enabled via {twoFactor.channel || 'your verified security method'}. Administrators cannot disable it.
+              </p>
+            ) : (
+              <>
+                <p className="mt-3 text-xs leading-relaxed text-amber-300">
+                  Enable two-factor authentication before using admin controls. Until then, admin APIs remain locked; setup and password controls stay available here.
+                </p>
+                {!securityChallenge ? (
+                  <form onSubmit={requestAdminTwoFactor} className="mt-4 flex flex-wrap gap-2">
+                    <label className="sr-only" htmlFor="admin-2fa-channel">Verification method</label>
+                    <select id="admin-2fa-channel" value={securityChannel} onChange={(event) => setSecurityChannel(event.target.value)} className="border-2 border-zinc-700 bg-black px-3 py-2 text-xs text-white">
+                      {twoFactor?.email_available && <option value="email">Email</option>}
+                      {twoFactor?.sms_available && twoFactor?.sms_verified && <option value="sms">SMS</option>}
+                    </select>
+                    <button type="submit" disabled={isSecurityBusy || (!twoFactor?.email_available && !(twoFactor?.sms_available && twoFactor?.sms_verified))} className="border-2 border-green-800 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-green-200 hover:border-green-400 disabled:opacity-50">
+                      {isSecurityBusy ? 'Sending…' : 'Send setup code'}
+                    </button>
+                    {!twoFactor?.email_available && !(twoFactor?.sms_available && twoFactor?.sms_verified) && (
+                      <p className="w-full text-[10px] text-red-300">Add a verified email or phone number before enabling admin two-factor authentication.</p>
+                    )}
+                  </form>
+                ) : (
+                  <form onSubmit={verifyAdminTwoFactor} className="mt-4 flex flex-wrap gap-2">
+                    <label className="sr-only" htmlFor="admin-2fa-code">Two-factor setup code</label>
+                    <input id="admin-2fa-code" inputMode="numeric" autoComplete="one-time-code" value={securityCode} onChange={(event) => setSecurityCode(event.target.value)} maxLength={12} placeholder="Verification code" className="border-2 border-zinc-700 bg-black px-3 py-2 text-xs text-white" />
+                    <button type="submit" disabled={isSecurityBusy || !securityCode.trim()} className="border-2 border-green-800 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-green-200 hover:border-green-400 disabled:opacity-50">
+                      {isSecurityBusy ? 'Verifying…' : 'Verify and enable'}
+                    </button>
+                  </form>
+                )}
+              </>
+            )}
+          </article>
+
+          <form onSubmit={changeAdminPassword} className="space-y-3 border-2 border-zinc-800 bg-zinc-950 p-5">
+            <h2 className="text-xs font-black uppercase tracking-widest text-white">Administrator password</h2>
+            <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-500">
+              Current password
+              <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className="mt-2 w-full border-2 border-zinc-800 bg-black p-3 text-xs text-white outline-none focus:border-white" />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                New password
+                <input type="password" autoComplete="new-password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required className="mt-2 w-full border-2 border-zinc-800 bg-black p-3 text-xs text-white outline-none focus:border-white" />
+              </label>
+              <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                Confirm new password
+                <input type="password" autoComplete="new-password" minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required className="mt-2 w-full border-2 border-zinc-800 bg-black p-3 text-xs text-white outline-none focus:border-white" />
+              </label>
+            </div>
+            <button type="submit" disabled={isPasswordSaving || !currentPassword || !newPassword || !confirmPassword} className="border-2 border-zinc-700 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-white hover:border-white disabled:opacity-50">
+              {isPasswordSaving ? 'Updating…' : 'Update password'}
+            </button>
+          </form>
+        </section>
+
+        {!twoFactor?.enabled && !isLoading && (
+          <p role="status" className="border-2 border-amber-900 bg-amber-950/20 p-4 text-xs text-amber-200">
+            Enable two-factor authentication to unlock moderation, finance, and other admin APIs.
+          </p>
+        )}
 
         {loadError && (
           <section role="alert" className="flex flex-wrap items-center justify-between gap-4 border-2 border-red-900 bg-red-950/30 p-4 text-xs text-red-300">

@@ -59,6 +59,14 @@ export const authService = {
     return response.data;
   },
 
+  updatePassword: async (currentPassword, newPassword) => {
+    const response = await apiClient.post('/settings/password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    return response.data;
+  },
+
   // NEW: Google Login
   googleLogin: async (idToken) => {
     try {

@@ -2,9 +2,10 @@
 <html>
 <head>
     <style>
-        body { font-family: 'Helvetica', sans-serif; background: #000; color: #fff; padding: 40px; }
-        .box { border: 2px solid #333; padding: 20px; background: #111; }
-        h1 { color: #facc15; text-transform: uppercase; letter-spacing: 2px; }
+        body { font-family: 'Helvetica', sans-serif; background: #f8fafc; color: #1f2937; padding: 40px; }
+        .box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; background: #fff; }
+        h1 { color: #d24f74; text-transform: uppercase; letter-spacing: 2px; }
+        .footer { color: #94a3b8; font-size: 10px; margin-top: 30px; }
     </style>
 </head>
 <body>
@@ -14,6 +15,6 @@
     <p><strong>USERNAME:</strong> {{.Username}}</p>
     <p><strong>RISK SCORE:</strong> {{.RiskScore}}</p>
 </div>
-<p style="color: #666; font-size: 10px; margin-top: 30px;">Generated: {{.GeneratedAt}}</p>
+<p class="footer">Generated: {{.GeneratedAt}} · Confidential administrative report</p>
 </body>
 </html>

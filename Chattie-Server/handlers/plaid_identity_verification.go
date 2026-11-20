@@ -87,8 +87,8 @@ func (h *SettingsHandler) CompletePlaidIdentityVerification(w http.ResponseWrite
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
 	var request struct {
-		AttemptID               string `json:"attempt_id"`
-		IdentityVerificationID  string `json:"identity_verification_id"`
+		AttemptID              string `json:"attempt_id"`
+		IdentityVerificationID string `json:"identity_verification_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil ||
 		strings.TrimSpace(request.AttemptID) == "" ||
@@ -238,4 +238,3 @@ func writePlaidServiceError(w http.ResponseWriter, userID, operation string, err
 	log.Printf("[KYC] Could not %s with Plaid for user %s: %v", operation, userID, err)
 	writePlaidJSONError(w, http.StatusBadGateway, "Could not complete Plaid identity verification")
 }
-

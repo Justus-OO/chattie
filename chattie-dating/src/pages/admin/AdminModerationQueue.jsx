@@ -132,7 +132,7 @@ export default function AdminModerationQueue() {
   });
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -304,7 +304,7 @@ export default function AdminModerationQueue() {
                             </span>
                             <button 
                               onClick={() => setSelectedIncident(item)}
-                              className="w-full py-3 bg-white border-2 border-white text-black hover:bg-black hover:text-white text-xs font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2 shadow-[4px_4px_0px_rgba(255,255,255,0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1"
+                              className="w-full py-3 bg-white border-2 border-white text-black hover:bg-black hover:text-white text-xs font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2 shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1"
                             >
                               <Search className="w-4 h-4" /> Investigate
                             </button>
@@ -480,7 +480,7 @@ export default function AdminModerationQueue() {
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedIncident(null)} />
           
-          <div className="relative w-full max-w-2xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(0,0,0,0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
+          <div className="relative w-full max-w-2xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(var(--shadow-rgb), 0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
             
             {/* Modal Header */}
             <div className="p-6 bg-zinc-950 border-b-2 border-zinc-800 shrink-0 flex justify-between items-start">

@@ -199,7 +199,7 @@ export default function GridBrowse() {
   // RENDER
   // ============================================================================
   return (
-    <div className="discovery-shell flex h-full min-h-0 min-w-0 flex-1 flex-col w-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="discovery-shell flex h-full min-h-0 min-w-0 flex-1 flex-col w-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
 
       {/* =====================================================================
           STICKY HEADER & CONTROLS
@@ -248,7 +248,7 @@ export default function GridBrowse() {
             </button>
 
             {showSort && (
-              <div className="absolute right-0 top-full z-30 mt-2 w-[clamp(12rem,24vw,16rem)] border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in fade-in duration-200">
+              <div className="absolute right-0 top-full z-30 mt-2 w-[clamp(12rem,24vw,16rem)] border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in fade-in duration-200">
                 {[
                   { id: 'match', label: t('topMatches') },
                   { id: 'distance', label: t('nearestFirst') },
@@ -323,7 +323,7 @@ export default function GridBrowse() {
           <>
             <div
               ref={gridRef}
-              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 w-full"
+              className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 w-full"
             >
               {users.map((user, idx) => {
                 const isFocused = focusedIndex === idx;
@@ -333,13 +333,13 @@ export default function GridBrowse() {
                     key={user.id}
                     onClick={() => handleProfileClick(user, idx)}
                     className={`discovery-card
-                      group relative border-2 cursor-pointer transition-colors p-3 flex flex-col
+                      group relative border-2 cursor-pointer transition-colors p-2 flex flex-col
                       ${isFocused ? 'border-white bg-zinc-900 z-10' : 'border-zinc-800 hover:border-zinc-600 hover:bg-zinc-950'}
                     `}
                   >
 
                     {/* Photo Container */}
-                    <div className="discovery-card-image aspect-[3/4] relative border-2 mb-3 overflow-hidden">
+                    <div className="discovery-card-image aspect-[4/5] relative border-2 mb-2 overflow-hidden">
                       <img
                         src={user.images?.[0] || 'https://images.unsplash.com/photo-1500000000000?auto=format&fit=crop&w=400&q=80'}
                         alt={user.display_name}
@@ -415,7 +415,7 @@ export default function GridBrowse() {
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
 
-          <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in slide-in-from-bottom-10 md:zoom-in-95 duration-200 rounded-none">
+          <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in slide-in-from-bottom-10 md:zoom-in-95 duration-200 rounded-none">
 
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="font-bold text-sm tracking-normal text-white flex items-center gap-2 uppercase">
@@ -531,7 +531,7 @@ export default function GridBrowse() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 lg:p-16">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm cursor-pointer" onClick={() => setSelectedProfile(null)} />
 
-          <div className="relative z-10 w-full h-full sm:h-auto max-h-full max-w-5xl bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col md:flex-row overflow-hidden animate-in zoom-in-95 duration-200 rounded-none">
+          <div className="relative z-10 w-full h-full sm:h-auto max-h-full max-w-5xl bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col md:flex-row overflow-hidden animate-in zoom-in-95 duration-200 rounded-none">
 
             {/* Mobile Close Button */}
             <button

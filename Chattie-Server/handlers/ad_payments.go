@@ -32,6 +32,7 @@ import (
 
 type ADPaymentsHandler struct {
 	Finance    *repository.ADFinanceRepository
+	Billing    *repository.ADBillingRepository
 	Users      *repository.Repository
 	Events     *services.EventHandler
 	Stripe     *services.StripeGateway
@@ -40,9 +41,9 @@ type ADPaymentsHandler struct {
 	RoomClient *lksdk.RoomServiceClient
 }
 
-func NewADPaymentsHandler(finance *repository.ADFinanceRepository, users *repository.Repository, events *services.EventHandler, stripe *services.StripeGateway, paystack *services.PaystackGateway, mpesa *services.MpesaGateway, roomClient *lksdk.RoomServiceClient) *ADPaymentsHandler {
+func NewADPaymentsHandler(finance *repository.ADFinanceRepository, billing *repository.ADBillingRepository, users *repository.Repository, events *services.EventHandler, stripe *services.StripeGateway, paystack *services.PaystackGateway, mpesa *services.MpesaGateway, roomClient *lksdk.RoomServiceClient) *ADPaymentsHandler {
 	return &ADPaymentsHandler{
-		Finance: finance, Users: users, Events: events, Stripe: stripe,
+		Finance: finance, Billing: billing, Users: users, Events: events, Stripe: stripe,
 		Paystack: paystack, Mpesa: mpesa, RoomClient: roomClient,
 	}
 }
@@ -51,6 +52,8 @@ type adCheckoutRequest struct {
 	PaymentType string `json:"payment_type"`
 	TargetID    string `json:"target_id"`
 	AmountCents int64  `json:"amount_cents"`
+	UseWallet   bool   `json:"use_wallet"`
+	WalletOnly  bool   `json:"wallet_only"`
 	Provider    string `json:"provider"`
 	PhoneNumber string `json:"phone_number"`
 	Message     string `json:"message"`
@@ -76,6 +79,51 @@ func (h *ADPaymentsHandler) CreateCheckout(w http.ResponseWriter, r *http.Reques
 	if req.PaymentType == "post_unlock" {
 		req.PaymentType = "ppv"
 	}
+	if req.WalletOnly && (!req.UseWallet || req.PaymentType != "ppv") {
+		writeADPaymentError(w, http.StatusBadRequest, "Wallet-only checkout is only available for PPV posts")
+		return
+	}
+	if req.UseWallet && req.PaymentType == "ppv" {
+		if h.Billing == nil {
+			writeADPaymentError(w, http.StatusServiceUnavailable, "Wallet checkout is not configured")
+			return
+		}
+		intent, err := h.Billing.PurchasePPVWithIntent(r.Context(), userID, "", req.TargetID, req.AmountCents)
+		switch {
+		case err == nil:
+			h.notifyADPaymentCompleted(r.Context(), intent)
+			writeADCheckout(w, map[string]interface{}{
+				"id": intent.ID, "provider": "wallet",
+				"status": "completed", "payment_type": "ppv",
+				"target_id": req.TargetID, "wallet_amount_cents": intent.WalletAmountCents,
+			})
+			return
+		case err != nil && err.Error() == "post is already unlocked":
+			writeADCheckout(w, map[string]interface{}{
+				"status": "completed", "payment_type": "ppv", "target_id": req.TargetID,
+			})
+			return
+		case err != nil && err.Error() == "insufficient funds":
+			if req.WalletOnly {
+				writeADPaymentError(w, http.StatusPaymentRequired, "Your wallet balance is not enough to unlock this post.")
+				return
+			}
+			// A partial wallet contribution can still be applied to provider checkout below.
+		case errors.Is(err, sql.ErrNoRows), err != nil && err.Error() == "post is not available for PPV purchase":
+			writeADPaymentError(w, http.StatusNotFound, "Post not found or unavailable for purchase")
+			return
+		case err != nil && err.Error() == "creators cannot purchase their own post":
+			writeADPaymentError(w, http.StatusBadRequest, err.Error())
+			return
+		case err != nil && err.Error() == "a PPV checkout for this post is already pending":
+			writeADPaymentError(w, http.StatusConflict, err.Error())
+			return
+		case err != nil:
+			log.Printf("[AFTER DARK PAYMENT] Wallet PPV purchase failed for %s: %v", userID, err)
+			writeADPaymentError(w, http.StatusInternalServerError, "Could not apply wallet balance")
+			return
+		}
+	}
 
 	countryCode := strings.ToUpper(strings.TrimSpace(middlewares.CountryCodeFromContext(r.Context())))
 	if countryCode == "" {
@@ -87,7 +135,7 @@ func (h *ADPaymentsHandler) CreateCheckout(w http.ResponseWriter, r *http.Reques
 	provider := "stripe"
 	exchangeRate := 0.0
 	if h.Mpesa != nil {
-		exchangeRate = h.Mpesa.USDToKESRate
+		exchangeRate = h.Mpesa.GetUSDToKESRate()
 	}
 	if countryCode == "KE" {
 		currency = "KES"
@@ -99,6 +147,20 @@ func (h *ADPaymentsHandler) CreateCheckout(w http.ResponseWriter, r *http.Reques
 			writeADPaymentError(w, http.StatusBadRequest, "Choose M-Pesa or Paystack for Kenyan checkout")
 			return
 		}
+	}
+	if provider == "mpesa" {
+		if h.Mpesa == nil {
+			writeADPaymentError(w, http.StatusServiceUnavailable, "M-Pesa is not configured")
+			return
+		}
+		if _, err := services.NormalizeMpesaPhone(req.PhoneNumber); err != nil {
+			writeADPaymentError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if provider == "paystack" && h.Paystack == nil {
+		writeADPaymentError(w, http.StatusServiceUnavailable, "Paystack is not configured")
+		return
 	}
 	if currency == "USD" && exchangeRate <= 0 {
 		writeADPaymentError(w, http.StatusServiceUnavailable, "USD checkout conversion is not configured correctly")
@@ -116,12 +178,42 @@ func (h *ADPaymentsHandler) CreateCheckout(w http.ResponseWriter, r *http.Reques
 	}
 	intent, err := h.Finance.CreateADPaymentIntent(
 		r.Context(), userID, req.PaymentType, req.TargetID, provider,
-		req.AmountCents, req.Message, currency, exchangeRate,
+		req.AmountCents, req.UseWallet, req.Message, currency, exchangeRate,
 	)
 	if err != nil {
 		switch {
+		case errors.Is(err, repository.ErrADWalletCoversPurchase):
+			intent, purchaseErr := h.Billing.PurchasePPVWithIntent(r.Context(), userID, "", req.TargetID, req.AmountCents)
+			if purchaseErr == nil {
+				h.notifyADPaymentCompleted(r.Context(), intent)
+				writeADCheckout(w, map[string]interface{}{
+					"id": intent.ID, "provider": "wallet",
+					"status": "completed", "payment_type": "ppv",
+					"target_id": req.TargetID, "wallet_amount_cents": intent.WalletAmountCents,
+				})
+				return
+			}
+			if purchaseErr.Error() == "post is already unlocked" {
+				writeADCheckout(w, map[string]interface{}{
+					"status": "completed", "payment_type": "ppv", "target_id": req.TargetID,
+				})
+				return
+			}
+			if purchaseErr.Error() == "insufficient funds" {
+				writeADPaymentError(w, http.StatusPaymentRequired, "Your wallet balance changed; retry checkout.")
+				return
+			}
+			if purchaseErr.Error() == "a PPV checkout for this post is already pending" {
+				writeADPaymentError(w, http.StatusConflict, purchaseErr.Error())
+				return
+			}
+			log.Printf("[AFTER DARK PAYMENT] Full wallet PPV retry failed for %s: %v", userID, purchaseErr)
+			writeADPaymentError(w, http.StatusInternalServerError, "Could not apply wallet balance")
+			return
 		case errors.Is(err, repository.ErrADPaymentUnavailable):
 			writeADPaymentError(w, http.StatusNotFound, "The selected After Dark purchase is unavailable")
+		case strings.Contains(err.Error(), "already pending"):
+			writeADPaymentError(w, http.StatusConflict, err.Error())
 		case strings.Contains(err.Error(), "unavailable"), strings.Contains(err.Error(), "yourself"), strings.Contains(err.Error(), "already unlocked"), strings.Contains(err.Error(), "payment or active subscription"):
 			writeADPaymentError(w, http.StatusBadRequest, err.Error())
 		case strings.Contains(err.Error(), "amount"), strings.Contains(err.Error(), "M-Pesa"), strings.Contains(err.Error(), "message"), strings.Contains(err.Error(), "provider"), strings.Contains(err.Error(), "payment type"):
@@ -160,7 +252,11 @@ func (h *ADPaymentsHandler) GetCheckoutConfig(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
-	if h.Mpesa == nil || h.Mpesa.USDToKESRate <= 0 {
+	rate := 0.0
+	if h.Mpesa != nil {
+		rate = h.Mpesa.GetUSDToKESRate()
+	}
+	if rate <= 0 {
 		writeADPaymentError(w, http.StatusServiceUnavailable, "USD checkout conversion is not configured correctly")
 		return
 	}
@@ -177,22 +273,25 @@ func (h *ADPaymentsHandler) GetCheckoutConfig(w http.ResponseWriter, r *http.Req
 		"currency":            "USD",
 		"default_provider":    "stripe",
 		"supported_providers": []string{"stripe"},
-		"kes_per_usd":         h.Mpesa.USDToKESRate,
+		"kes_per_usd":         rate,
 	})
 }
 
 func (h *ADPaymentsHandler) startStripe(w http.ResponseWriter, r *http.Request, intent *repository.ADPaymentIntent) {
 	if h.Stripe == nil || strings.TrimSpace(h.Stripe.PublishableKey) == "" {
+		h.failADPaymentIntent(r.Context(), intent, "Stripe checkout is not configured. Please try again.")
 		writeADPaymentError(w, http.StatusServiceUnavailable, "Stripe is not configured")
 		return
 	}
 	user, err := h.Users.GetUserByID(r.Context(), intent.UserID)
 	if err != nil {
+		h.failADPaymentIntent(r.Context(), intent, "Could not load your checkout account. Please try again.")
 		writeADPaymentError(w, http.StatusInternalServerError, "Could not load checkout user")
 		return
 	}
 	returnURL, err := afterDarkStripeReturnURL(intent.ID)
 	if err != nil {
+		h.failADPaymentIntent(r.Context(), intent, "Stripe return URL is not configured correctly. Please try again.")
 		writeADPaymentError(w, http.StatusServiceUnavailable, "After Dark Stripe return URL is not configured correctly")
 		return
 	}
@@ -202,12 +301,7 @@ func (h *ADPaymentsHandler) startStripe(w http.ResponseWriter, r *http.Request, 
 	)
 	if err != nil {
 		log.Printf("[AFTER DARK PAYMENT] Stripe initialization failed for %s: %v", intent.UserID, err)
-		newlyFailed, updateErr := h.Finance.MarkADPaymentFailed(r.Context(), intent.ID)
-		if updateErr != nil {
-			log.Printf("[AFTER DARK PAYMENT] Could not mark Stripe intent failed: %v", updateErr)
-		} else if newlyFailed {
-			h.notifyADActionRequired(r.Context(), intent, "Stripe checkout could not be started. Please try again.")
-		}
+		h.failADPaymentIntent(r.Context(), intent, "Stripe checkout could not be started. Please try again.")
 		writeADPaymentError(w, http.StatusBadGateway, "Could not start Stripe checkout")
 		return
 	}
@@ -221,10 +315,12 @@ func (h *ADPaymentsHandler) startStripe(w http.ResponseWriter, r *http.Request, 
 		"client_secret": checkout.ClientSecret, "public_key": checkout.PublicKey,
 		"payment_url":  checkout.PaymentURL,
 		"amount_cents": intent.AmountCents, "currency": intent.Currency,
-		"settlement_amount_cents": intent.SettlementAmountCents,
-		"settlement_currency":     intent.SettlementCurrency,
-		"exchange_rate":           intent.ExchangeRate,
-		"payment_type":            intent.PaymentType, "status": "pending",
+		"settlement_amount_cents":          intent.SettlementAmountCents,
+		"provider_settlement_amount_cents": intent.SettlementAmountCents - intent.WalletAmountCents,
+		"wallet_amount_cents":              intent.WalletAmountCents,
+		"settlement_currency":              intent.SettlementCurrency,
+		"exchange_rate":                    intent.ExchangeRate,
+		"payment_type":                     intent.PaymentType, "status": "pending",
 	})
 }
 
@@ -243,23 +339,20 @@ func afterDarkStripeReturnURL(intentID string) (string, error) {
 
 func (h *ADPaymentsHandler) startPaystack(w http.ResponseWriter, r *http.Request, intent *repository.ADPaymentIntent) {
 	if h.Paystack == nil {
+		h.failADPaymentIntent(r.Context(), intent, "Paystack checkout is not configured. Please try again.")
 		writeADPaymentError(w, http.StatusServiceUnavailable, "Paystack is not configured")
 		return
 	}
 	user, err := h.Users.GetUserByID(r.Context(), intent.UserID)
 	if err != nil {
+		h.failADPaymentIntent(r.Context(), intent, "Could not load your checkout account. Please try again.")
 		writeADPaymentError(w, http.StatusInternalServerError, "Could not load checkout user")
 		return
 	}
 	checkout, err := h.Paystack.CreateADCheckout(r.Context(), user.Email, intent.UserID, intent.ID, intent.AmountCents, intent.PaymentType)
 	if err != nil {
 		log.Printf("[AFTER DARK PAYMENT] Paystack initialization failed for %s: %v", intent.UserID, err)
-		newlyFailed, updateErr := h.Finance.MarkADPaymentFailed(r.Context(), intent.ID)
-		if updateErr != nil {
-			log.Printf("[AFTER DARK PAYMENT] Could not mark Paystack intent failed: %v", updateErr)
-		} else if newlyFailed {
-			h.notifyADActionRequired(r.Context(), intent, "Paystack checkout could not be started. Please try again.")
-		}
+		h.failADPaymentIntent(r.Context(), intent, "Paystack checkout could not be started. Please try again.")
 		writeADPaymentError(w, http.StatusBadGateway, "Could not start Paystack checkout")
 		return
 	}
@@ -273,20 +366,24 @@ func (h *ADPaymentsHandler) startPaystack(w http.ResponseWriter, r *http.Request
 		"client_secret": checkout.ClientSecret, "public_key": checkout.PublicKey,
 		"email":        user.Email,
 		"amount_cents": intent.AmountCents, "currency": intent.Currency,
-		"settlement_amount_cents": intent.SettlementAmountCents,
-		"settlement_currency":     intent.SettlementCurrency,
-		"exchange_rate":           intent.ExchangeRate,
-		"payment_type":            intent.PaymentType, "status": "pending",
+		"settlement_amount_cents":          intent.SettlementAmountCents,
+		"provider_settlement_amount_cents": intent.SettlementAmountCents - intent.WalletAmountCents,
+		"wallet_amount_cents":              intent.WalletAmountCents,
+		"settlement_currency":              intent.SettlementCurrency,
+		"exchange_rate":                    intent.ExchangeRate,
+		"payment_type":                     intent.PaymentType, "status": "pending",
 	})
 }
 
 func (h *ADPaymentsHandler) startMpesa(w http.ResponseWriter, r *http.Request, intent *repository.ADPaymentIntent, phone string) {
 	if h.Mpesa == nil {
+		h.failADPaymentIntent(r.Context(), intent, "M-Pesa checkout is not configured. Please try again.")
 		writeADPaymentError(w, http.StatusServiceUnavailable, "M-Pesa is not configured")
 		return
 	}
 	normalizedPhone, err := services.NormalizeMpesaPhone(phone)
 	if err != nil {
+		h.failADPaymentIntent(r.Context(), intent, "M-Pesa phone number was invalid. Please try again.")
 		writeADPaymentError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -294,12 +391,7 @@ func (h *ADPaymentsHandler) startMpesa(w http.ResponseWriter, r *http.Request, i
 	checkout, err := h.Mpesa.CreateADSTKPush(r.Context(), normalizedPhone, accountReference, intent.AmountCents/100)
 	if err != nil {
 		log.Printf("[AFTER DARK PAYMENT] M-Pesa initialization failed for %s: %v", intent.UserID, err)
-		newlyFailed, updateErr := h.Finance.MarkADPaymentFailed(r.Context(), intent.ID)
-		if updateErr != nil {
-			log.Printf("[AFTER DARK PAYMENT] Could not mark M-Pesa intent failed: %v", updateErr)
-		} else if newlyFailed {
-			h.notifyADActionRequired(r.Context(), intent, "M-Pesa checkout could not be started. Please try again.")
-		}
+		h.failADPaymentIntent(r.Context(), intent, "M-Pesa checkout could not be started. Please try again.")
 		writeADPaymentError(w, http.StatusBadGateway, "Could not start M-Pesa payment")
 		return
 	}
@@ -312,7 +404,9 @@ func (h *ADPaymentsHandler) startMpesa(w http.ResponseWriter, r *http.Request, i
 		"id": intent.ID, "provider": "mpesa", "session_id": checkout.CheckoutRequestID,
 		"amount_cents": intent.AmountCents, "amount_kes": checkout.AmountKES,
 		"currency": intent.Currency, "settlement_amount_cents": intent.SettlementAmountCents,
-		"settlement_currency": intent.SettlementCurrency, "exchange_rate": intent.ExchangeRate,
+		"provider_settlement_amount_cents": intent.SettlementAmountCents - intent.WalletAmountCents,
+		"wallet_amount_cents":              intent.WalletAmountCents,
+		"settlement_currency":              intent.SettlementCurrency, "exchange_rate": intent.ExchangeRate,
 		"payment_type": intent.PaymentType,
 		"status":       "pending", "message": checkout.CustomerMessage,
 	})
@@ -658,9 +752,22 @@ func (h *ADPaymentsHandler) notifyADPaymentCompleted(ctx context.Context, intent
 	if h.Events == nil {
 		return
 	}
+	amountCents := intent.AmountCents
+	currency := intent.Currency
+	if intent.PaymentType == "ppv" || intent.PaymentType == "live_pass" {
+		amountCents = intent.SettlementAmountCents
+		currency = intent.SettlementCurrency
+	}
+	paymentMethod := intent.Provider
+	if intent.WalletAmountCents > 0 && intent.Provider != "wallet" {
+		paymentMethod = "wallet + " + intent.Provider
+	}
+	formattedAmount := fmt.Sprintf("%.2f", float64(amountCents)/100)
 	receiptData := map[string]interface{}{
-		"Amount":             fmt.Sprintf("%.2f", float64(intent.AmountCents)/100),
-		"Currency":           intent.Currency,
+		"Amount":             formattedAmount,
+		"Currency":           currency,
+		"PaymentMethod":      paymentMethod,
+		"WalletContribution": fmt.Sprintf("%.2f", float64(intent.WalletAmountCents)/100),
 		"SettlementAmount":   fmt.Sprintf("%.2f", float64(intent.SettlementAmountCents)/100),
 		"SettlementCurrency": intent.SettlementCurrency,
 		"ExchangeRate":       intent.ExchangeRate,
@@ -706,7 +813,7 @@ func (h *ADPaymentsHandler) notifyADPaymentCompleted(ctx context.Context, intent
 		WSEventType: "AFTER_DARK_PAYMENT",
 		WSPayload: map[string]interface{}{
 			"title":     "After Dark payment received",
-			"message":   "A customer completed a " + strings.ReplaceAll(intent.PaymentType, "_", " ") + " purchase.",
+			"message":   fmt.Sprintf("A customer completed a %s purchase for %s %s via %s.", strings.ReplaceAll(intent.PaymentType, "_", " "), currency, formattedAmount, paymentMethod),
 			"reference": intent.ID,
 		},
 		EmailTemplate: templateName, EmailData: creatorData, AfterDarkEmailCategory: category,
@@ -723,6 +830,23 @@ func (h *ADPaymentsHandler) notifyADActionRequired(ctx context.Context, intent *
 		EmailTemplate: "ad_action_required",
 		EmailData:     map[string]interface{}{"Reference": intent.ID, "ActionMessage": message},
 	})
+}
+
+func (h *ADPaymentsHandler) failADPaymentIntent(ctx context.Context, intent *repository.ADPaymentIntent, message string) {
+	if h.Finance == nil {
+		log.Printf("[AFTER DARK PAYMENT] Cannot release wallet funds for intent %s: finance repository is unavailable", intent.ID)
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	newlyFailed, err := h.Finance.MarkADPaymentFailed(cleanupCtx, intent.ID)
+	if err != nil {
+		log.Printf("[AFTER DARK PAYMENT] Could not mark intent %s failed: %v", intent.ID, err)
+		return
+	}
+	if newlyFailed {
+		h.notifyADActionRequired(ctx, intent, message)
+	}
 }
 
 func (h *ADPaymentsHandler) publishLiveTip(ctx context.Context, intent *repository.ADPaymentIntent) {
@@ -754,10 +878,12 @@ func paymentStatusResponse(intent *repository.ADPaymentIntent) map[string]interf
 	return map[string]interface{}{
 		"id": intent.ID, "status": intent.Status, "payment_type": intent.PaymentType,
 		"amount_cents": intent.AmountCents, "currency": intent.Currency,
-		"settlement_amount_cents": intent.SettlementAmountCents,
-		"settlement_currency":     intent.SettlementCurrency,
-		"exchange_rate":           intent.ExchangeRate,
-		"tip_id":                  intent.ID, "target_id": intent.TargetID, "creator_id": intent.CreatorID,
+		"settlement_amount_cents":          intent.SettlementAmountCents,
+		"provider_settlement_amount_cents": intent.SettlementAmountCents - intent.WalletAmountCents,
+		"wallet_amount_cents":              intent.WalletAmountCents,
+		"settlement_currency":              intent.SettlementCurrency,
+		"exchange_rate":                    intent.ExchangeRate,
+		"tip_id":                           intent.ID, "target_id": intent.TargetID, "creator_id": intent.CreatorID,
 		"receipt_number": intent.ReceiptNumber,
 	}
 }

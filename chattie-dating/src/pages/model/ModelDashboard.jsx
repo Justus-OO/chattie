@@ -99,7 +99,7 @@ export default function ModelDashboard() {
   const metricValue = (value) => (isLoading ? '...' : dashboardError && !metrics ? '—' : value);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-none bg-black font-mono text-zinc-300 md:flex-row" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-none bg-black font-mono text-zinc-300 md:flex-row" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       <main className="min-h-0 flex-1 space-y-4 overflow-y-auto border-r-2 border-zinc-800 p-2 custom-scrollbar sm:p-3 lg:p-4">
         <header className="flex flex-col items-start justify-between gap-4 border-b-2 border-zinc-800 pb-4 md:flex-row md:items-end">
           <div>

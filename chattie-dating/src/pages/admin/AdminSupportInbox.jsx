@@ -158,7 +158,7 @@ export default function AdminSupportInbox() {
                 {isLoadingMessages ? (
                   <div className="flex justify-center p-6"><Loader2 className="h-5 w-5 animate-spin text-yellow-400" /></div>
                 ) : messages.map((message) => (
-                  <article key={message.id} className={`max-w-3xl border p-3 ${message.sender_type === 'admin' ? 'ml-auto border-yellow-900 bg-yellow-950/20' : 'border-zinc-800 bg-zinc-950'}`}>
+                  <article key={message.id} className={`chat-bubble ${message.sender_type === 'system' ? 'chat-bubble--system' : message.sender_type === 'admin' ? 'chat-bubble--mine' : 'chat-bubble--other'} max-w-3xl border p-3 ${message.sender_type === 'admin' ? 'ml-auto border-yellow-900 bg-yellow-950/20' : 'border-zinc-800 bg-zinc-950'}`}>
                     <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
                       {message.sender_type === 'user' ? <UserRound className="h-3.5 w-3.5" /> : message.sender_type === 'system' ? <LifeBuoy className="h-3.5 w-3.5 text-zinc-400" /> : <Bot className="h-3.5 w-3.5 text-yellow-400" />}
                       {message.sender_type === 'user' ? activeTicket.user_name || 'User' : message.sender_type === 'system' ? 'Support update' : message.sender_type === 'assistant' ? 'Chattie AI' : 'You · support agent'}

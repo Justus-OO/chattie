@@ -194,7 +194,7 @@ const handleSetPrimary = async (imageId) => {
   );
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -434,7 +434,7 @@ const handleSetPrimary = async (imageId) => {
                       <button 
                         onClick={executeBulkUpload}
                         disabled={isUploading}
-                        className="px-6 py-4 border-2 border-blue-500 bg-blue-600 text-black hover:bg-black hover:text-blue-500 font-black text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2 flex-1 shadow-[4px_4px_0px_rgba(59,130,246,0.3)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1 disabled:opacity-50"
+                        className="px-6 py-4 border-2 border-blue-500 bg-blue-600 text-black hover:bg-black hover:text-blue-500 font-black text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2 flex-1 shadow-[4px_4px_0px_rgba(var(--info-rgb), 0.3)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1 disabled:opacity-50"
                       >
                         {isUploading ? <><RefreshCcw className="w-4 h-4 animate-spin" /> Injecting...</> : <><Upload className="w-4 h-4" /> Execute Injection</>}
                       </button>
@@ -500,7 +500,7 @@ const handleSetPrimary = async (imageId) => {
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedPersona(null)} />
           
-          <div className="relative w-full max-w-4xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(0,0,0,0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
+          <div className="relative w-full max-w-4xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(var(--shadow-rgb), 0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
             
             {/* Drawer Header */}
             <div className="p-6 bg-zinc-950 border-b-2 border-zinc-800 shrink-0 flex justify-between items-start">

@@ -245,7 +245,7 @@ export default function MyProfile() {
   // ============================================================================
   if (isLoading) {
     return (
-      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-6 text-center text-zinc-300" style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}>
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-6 text-center text-zinc-300" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', fontWeight: 400 }}>
         <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
         <h2 className="text-sm text-white">{t('loadingProfile')}</h2>
       </div>
@@ -256,7 +256,7 @@ export default function MyProfile() {
   // RENDER
   // ============================================================================
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400 }}>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', fontWeight: 400 }}>
       
       {/* =====================================================================
           HEADER
@@ -509,7 +509,7 @@ export default function MyProfile() {
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-40" 
             onClick={() => setShowSettings(false)} 
           />
-          <aside className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l-2 border-zinc-800 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in slide-in-from-right-full duration-300 rounded-none md:w-[clamp(22rem,36vw,30rem)]">
+          <aside className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l-2 border-zinc-800 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in slide-in-from-right-full duration-300 rounded-none md:w-[clamp(22rem,36vw,30rem)]">
             
             <div className="p-4 border-b-2 border-zinc-800 flex items-center justify-between bg-zinc-950 shrink-0">
               <h2 className="text-sm text-white flex items-center gap-2">

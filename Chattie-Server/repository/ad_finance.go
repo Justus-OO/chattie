@@ -32,6 +32,8 @@ var (
 	ErrInvalidWithdrawal        = errors.New("invalid withdrawal amounts")
 	ErrWithdrawalNotFound       = errors.New("withdrawal not found for provider result")
 	ErrWithdrawalConflict       = errors.New("provider result conflicts with the recorded withdrawal status")
+	ErrEarningsOnHold           = errors.New("creator earnings are on hold")
+	ErrTippingLockedOut         = errors.New("tipping is temporarily locked after consecutive card payment failures")
 )
 
 func NewADFinanceRepository(db *sql.DB) *ADFinanceRepository {
@@ -142,6 +144,27 @@ func (r *ADFinanceRepository) sendTipTx(ctx context.Context, tx *sql.Tx, senderI
 	if senderID == creatorUserID {
 		return "", errors.New("you cannot tip yourself")
 	}
+	tippingLockEnabled, err := firewallRuleActive(ctx, tx, "RUL_3")
+	if err != nil {
+		return "", fmt.Errorf("check tipping firewall rule: %w", err)
+	}
+	if tippingLockEnabled {
+		var locked bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) = 2 AND BOOL_AND(status = 'failed')
+			FROM (
+				SELECT status FROM ad_payment_intents
+				WHERE user_id = $1 AND provider IN ('paystack', 'stripe')
+				ORDER BY created_at DESC, id DESC
+				LIMIT 2
+			) recent_card_attempts
+		`, senderID).Scan(&locked); err != nil {
+			return "", fmt.Errorf("check recent card payment attempts: %w", err)
+		}
+		if locked {
+			return "", ErrTippingLockedOut
+		}
+	}
 
 	var balance int64
 	err = tx.QueryRowContext(ctx, `
@@ -169,6 +192,9 @@ func (r *ADFinanceRepository) sendTipTx(ctx context.Context, tx *sql.Tx, senderI
 			pending_balance_cents = ad_wallets.pending_balance_cents + EXCLUDED.pending_balance_cents,
 			updated_at = CURRENT_TIMESTAMP
 	`, creatorUserID, amountCents); err != nil {
+		return "", err
+	}
+	if err := addADPendingEarning(ctx, tx, creatorUserID, "tips", amountCents); err != nil {
 		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -641,50 +667,104 @@ func (r *ADFinanceRepository) CompleteWithdrawal(ctx context.Context, provider, 
 func (r *ADFinanceRepository) GetPendingEarningsClearance(ctx context.Context) ([]map[string]interface{}, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT w.user_id::text, COALESCE(NULLIF(pp.display_name, ''), u.username, 'Creator'),
-			w.pending_balance_cents
+			w.pending_balance_cents, COALESCE(earnings.source, 'legacy'),
+			COALESCE(earnings.balance_cents, 0), CASE
+				WHEN LOWER(u.status) NOT IN ('active', 'online') THEN 'Account is not active'
+				WHEN COALESCE(pp.status, '') <> 'active' THEN 'Creator profile is not active'
+				WHEN EXISTS (
+					SELECT 1 FROM ad_reports report
+					WHERE report.status IN ('pending', 'reviewed')
+					  AND (
+					       (report.target_type = 'creator' AND report.target_id = u.id)
+					       OR (report.target_type = 'post' AND report.target_id IN (
+					           SELECT post.id FROM ad_posts post WHERE post.creator_id = u.id
+					       ))
+					       OR (report.target_type = 'comment' AND report.target_id IN (
+					           SELECT comment.id FROM ad_post_comments comment
+					           JOIN ad_posts post ON post.id = comment.post_id
+					           WHERE post.creator_id = u.id
+					       ))
+					  )
+				) THEN 'Unresolved creator, post, or comment reports'
+				ELSE ''
+			END
 		FROM ad_wallets w
 		JOIN users u ON u.id = w.user_id
-		JOIN performer_profiles pp ON pp.user_id = w.user_id AND pp.status = 'active'
+		LEFT JOIN performer_profiles pp ON pp.user_id = w.user_id
+		LEFT JOIN ad_pending_earnings earnings ON earnings.user_id = w.user_id
 		WHERE w.pending_balance_cents > 0
-		ORDER BY w.pending_balance_cents DESC
+		ORDER BY w.pending_balance_cents DESC, w.user_id, earnings.source
 	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	results := make([]map[string]interface{}, 0)
+	indexes := make(map[string]int)
 	for rows.Next() {
-		var userID, name string
-		var pending int64
-		if err := rows.Scan(&userID, &name, &pending); err != nil {
+		var userID, name, source, holdReason string
+		var pending, sourceBalance int64
+		if err := rows.Scan(&userID, &name, &pending, &source, &sourceBalance, &holdReason); err != nil {
 			return nil, err
 		}
-		results = append(results, map[string]interface{}{
-			"user_id": userID, "creator_name": name, "pending_cents": pending,
-		})
+		index, exists := indexes[userID]
+		if !exists {
+			index = len(results)
+			indexes[userID] = index
+			results = append(results, map[string]interface{}{
+				"user_id": userID, "creator_name": name, "pending_cents": pending,
+				"eligible_ppv_cents": int64(0), "hold_reason": holdReason,
+				"pending_by_source": map[string]int64{},
+			})
+		}
+		entry := results[index]
+		sources := entry["pending_by_source"].(map[string]int64)
+		sources[source] = sourceBalance
+		if source == "ppv" && holdReason == "" {
+			entry["eligible_ppv_cents"] = sourceBalance
+		}
 	}
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
-func (r *ADFinanceRepository) ClearCreatorEarnings(ctx context.Context, userID, adminID, reason string, amount int64) error {
+func (r *ADFinanceRepository) ClearCreatorEarnings(ctx context.Context, userID, adminID, reason, source string, amount int64) error {
 	if amount <= 0 || strings.TrimSpace(reason) == "" {
 		return errors.New("a positive amount and clearance reason are required")
+	}
+	switch source {
+	case "tips", "subscriptions", "live_pass", "chat", "legacy":
+	default:
+		return errors.New("manual clearance is only available for tips and other non-PPV earnings")
 	}
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if holdReason, err := getEarningsHoldReason(ctx, tx, userID); err != nil {
+		return err
+	} else if holdReason != "" {
+		return fmt.Errorf("%w: %s", ErrEarningsOnHold, holdReason)
+	}
 	var pending int64
 	if err := tx.QueryRowContext(ctx, `
 		SELECT w.pending_balance_cents FROM ad_wallets w
-		JOIN performer_profiles pp ON pp.user_id = w.user_id AND pp.status = 'active'
 		WHERE w.user_id = $1 FOR UPDATE OF w
 	`, userID).Scan(&pending); err != nil {
 		return err
 	}
-	if amount > pending {
-		return errors.New("clearance amount exceeds pending creator earnings")
+	var sourceBalance int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT balance_cents FROM ad_pending_earnings
+		WHERE user_id = $1 AND source = $2 FOR UPDATE
+	`, userID, source).Scan(&sourceBalance); err != nil {
+		return err
+	}
+	if amount > pending || amount > sourceBalance {
+		return errors.New("clearance amount exceeds pending earnings for the selected source")
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE ad_wallets SET pending_balance_cents = pending_balance_cents - $1,
@@ -694,12 +774,107 @@ func (r *ADFinanceRepository) ClearCreatorEarnings(ctx context.Context, userID, 
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO ad_earnings_clearances (user_id, admin_id, amount_cents, reason)
-		VALUES ($1, $2, $3, $4)
-	`, userID, adminID, amount, strings.TrimSpace(reason)); err != nil {
+		UPDATE ad_pending_earnings
+		SET balance_cents = balance_cents - $1, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $2 AND source = $3
+	`, amount, userID, source); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ad_earnings_clearances (user_id, admin_id, source, amount_cents, reason)
+		VALUES ($1, $2, $3, $4, $5)
+	`, userID, adminID, source, amount, strings.TrimSpace(reason)); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *ADFinanceRepository) AutoClearPPEarnings(ctx context.Context, userID, adminID string) (int64, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if holdReason, err := getEarningsHoldReason(ctx, tx, userID); err != nil {
+		return 0, err
+	} else if holdReason != "" {
+		return 0, fmt.Errorf("%w: %s", ErrEarningsOnHold, holdReason)
+	}
+	var walletPending int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT pending_balance_cents FROM ad_wallets WHERE user_id = $1 FOR UPDATE
+	`, userID).Scan(&walletPending); err != nil {
+		return 0, err
+	}
+	var ppvPending int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT balance_cents FROM ad_pending_earnings
+		WHERE user_id = $1 AND source = 'ppv' FOR UPDATE
+	`, userID).Scan(&ppvPending); err != nil {
+		return 0, err
+	}
+	if ppvPending <= 0 || ppvPending > walletPending {
+		return 0, errors.New("no consistent PPV earnings are eligible for clearance")
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ad_wallets
+		SET pending_balance_cents = pending_balance_cents - $1,
+		    available_balance_cents = available_balance_cents + $1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $2
+	`, ppvPending, userID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ad_pending_earnings
+		SET balance_cents = 0, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $1 AND source = 'ppv'
+	`, userID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ad_earnings_clearances (user_id, admin_id, source, amount_cents, reason)
+		VALUES ($1, $2, 'ppv', $3, 'Automatic PPV clearance after eligibility checks')
+	`, userID, adminID, ppvPending); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return ppvPending, nil
+}
+
+func getEarningsHoldReason(ctx context.Context, tx *sql.Tx, userID string) (string, error) {
+	var reason string
+	err := tx.QueryRowContext(ctx, `
+		SELECT CASE
+			WHEN LOWER(u.status) NOT IN ('active', 'online') THEN 'Account is not active'
+			WHEN COALESCE(pp.status, '') <> 'active' THEN 'Creator profile is not active'
+			WHEN EXISTS (
+				SELECT 1 FROM ad_reports report
+				WHERE report.status IN ('pending', 'reviewed')
+				  AND (
+				       (report.target_type = 'creator' AND report.target_id = u.id)
+				       OR (report.target_type = 'post' AND report.target_id IN (
+				           SELECT post.id FROM ad_posts post WHERE post.creator_id = u.id
+				       ))
+				       OR (report.target_type = 'comment' AND report.target_id IN (
+				           SELECT comment.id FROM ad_post_comments comment
+				           JOIN ad_posts post ON post.id = comment.post_id
+				           WHERE post.creator_id = u.id
+				       ))
+				  )
+			) THEN 'Unresolved creator, post, or comment reports'
+			ELSE ''
+		END
+		FROM users u
+		LEFT JOIN performer_profiles pp ON pp.user_id = u.id
+		WHERE u.id = $1
+	`, userID).Scan(&reason)
+	if err != nil {
+		return "", err
+	}
+	return reason, nil
 }
 
 // GetEarnings fetches the creator's earnings summary from their wallet

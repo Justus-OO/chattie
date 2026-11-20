@@ -20,6 +20,14 @@ const normalizeNotification = (notification = {}, fallback = {}) => {
   const createdAt = source.created_at ?? source.createdAt ?? source.timestamp ?? null;
   const read = source.read ?? source.is_read ?? source.isRead ?? false;
   const icon = source.icon ?? source.event_icon ?? source.type ?? fallback.icon ?? 'bell';
+  const payload = source.payload && typeof source.payload === 'object'
+    ? source.payload
+    : (() => {
+        try { return source.payload ? JSON.parse(source.payload) : {}; } catch { return {}; }
+      })();
+  const actionUrl = source.action_url ?? payload.action_url ?? null;
+  const actionLabel = source.action_label ?? payload.action_label ?? null;
+  const category = source.category ?? payload.category ?? source.event_type ?? 'general';
 
   return {
     ...source,
@@ -28,6 +36,10 @@ const normalizeNotification = (notification = {}, fallback = {}) => {
     title,
     message,
     icon,
+    payload,
+    action_url: actionUrl,
+    action_label: actionLabel,
+    category,
     read: Boolean(read),
     time: createdAt ? new Date(createdAt).toLocaleString() : source.time ?? fallback.time ?? 'Just now',
     created_at: createdAt ?? source.created_at ?? null,

@@ -242,6 +242,9 @@ func (r *ADChatRepository) PurchaseChatAccess(ctx context.Context, conversationI
 	if err != nil {
 		return err
 	}
+	if err := addADPendingEarning(ctx, tx, creatorID, "chat", creatorCut); err != nil {
+		return err
+	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, 'chat_unlock_earning', $3, 'One-time creator chat access')

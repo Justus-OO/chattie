@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Menu, X, Sparkles } from 'lucide-react';
 import AfterDarkSidebar from './AfterDarkSidebar';
+import { useI18n } from '../../i18n';
 
 export default function AfterDarkLayout() {
+  const { t } = useI18n();
   // Mobile Sidebar State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
@@ -38,7 +40,7 @@ export default function AfterDarkLayout() {
         <button 
           onClick={() => setIsMobileMenuOpen(true)}
           className="p-2 border-2 border-zinc-800 bg-black text-zinc-300 hover:text-white hover:border-yellow-500 transition-colors"
-          aria-label="Open Menu"
+          aria-label={t('openMenu')}
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -57,12 +59,13 @@ export default function AfterDarkLayout() {
       <div className={`
         fixed inset-y-0 left-0 z-50 w-[min(85vw,22rem)] bg-black transform transition-transform duration-300 ease-out border-r-2 border-zinc-800
         md:relative md:translate-x-0 md:w-[clamp(13rem,20vw,18rem)] md:flex md:shrink-0
-        ${isMobileMenuOpen ? 'translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.8)]' : '-translate-x-full'}
+        ${isMobileMenuOpen ? 'translate-x-0 shadow-[20px_0_50px_rgba(var(--shadow-rgb), 0.8)]' : '-translate-x-full'}
       `}>
         {/* Mobile Close Button (Inside Sidebar) */}
         <button 
           onClick={() => setIsMobileMenuOpen(false)}
           className="md:hidden absolute top-4 right-4 z-50 p-1.5 border-2 border-zinc-800 bg-black text-zinc-400 hover:text-white hover:border-yellow-500 transition-colors"
+          aria-label={t('closeMenu')}
         >
           <X className="w-4 h-4" />
         </button>

@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS ad_posts (
     access_type VARCHAR(20) DEFAULT 'free' CHECK (access_type IN ('free', 'subscriber', 'ppv')),
     price_cents BIGINT DEFAULT 0,
     is_explicit BOOLEAN DEFAULT TRUE,
+    ai_safety_score SMALLINT CHECK (ai_safety_score BETWEEN 0 AND 100),
+    ai_safety_reason TEXT,
+    ai_safety_scored_at TIMESTAMP WITH TIME ZONE,
     status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'processing', 'published', 'scheduled', 'rejected', 'deleted')),
     publish_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -196,8 +199,9 @@ CREATE TABLE IF NOT EXISTS ad_payment_intents (
     settlement_amount_cents BIGINT NOT NULL CHECK (settlement_amount_cents > 0),
     currency VARCHAR(3) NOT NULL DEFAULT 'KES',
     settlement_currency VARCHAR(3) NOT NULL DEFAULT 'KES' CHECK (settlement_currency = 'KES'),
+    wallet_amount_cents BIGINT NOT NULL DEFAULT 0 CHECK (wallet_amount_cents >= 0),
     exchange_rate NUMERIC(18, 8) NOT NULL DEFAULT 1 CHECK (exchange_rate > 0),
-    provider VARCHAR(20) NOT NULL CHECK (provider IN ('paystack', 'mpesa', 'stripe')),
+    provider VARCHAR(20) NOT NULL CHECK (provider IN ('paystack', 'mpesa', 'stripe', 'wallet')),
     provider_session_id TEXT,
     merchant_request_id TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
@@ -241,12 +245,22 @@ CREATE TABLE IF NOT EXISTS ad_earnings_clearances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     admin_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    source VARCHAR(30) NOT NULL DEFAULT 'legacy',
     amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
     reason TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_ad_earnings_clearances_user
     ON ad_earnings_clearances(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ad_pending_earnings (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source VARCHAR(30) NOT NULL
+        CHECK (source IN ('ppv', 'tips', 'subscriptions', 'live_pass', 'chat', 'legacy')),
+    balance_cents BIGINT NOT NULL DEFAULT 0 CHECK (balance_cents >= 0),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, source)
+);
 
 
 
@@ -341,10 +355,20 @@ CREATE TABLE IF NOT EXISTS ad_ledger_entries (
                                                  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                                                  amount_cents BIGINT NOT NULL, -- Positive for deposits/earnings, Negative for purchases/withdrawals
-                                                 transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN ('deposit', 'withdrawal', 'withdrawal_reversal', 'ppv_purchase', 'ppv_earning', 'subscription_purchase', 'subscription_earning', 'tip_sent', 'tip_received', 'chat_unlock_purchase', 'chat_unlock_earning')),
+                                                 transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN ('deposit', 'withdrawal', 'withdrawal_reversal', 'ppv_purchase', 'ppv_earning', 'subscription_purchase', 'subscription_earning', 'tip_sent', 'tip_received', 'chat_unlock_purchase', 'chat_unlock_earning', 'wallet_reserve', 'wallet_release')),
                                                  reference_id VARCHAR(255), -- e.g., Provider Payment ID or Post ID
                                                  description TEXT,
                                                  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS exchange_rates (
+    base_currency CHAR(3) NOT NULL,
+    quote_currency CHAR(3) NOT NULL,
+    rate NUMERIC(18, 8) NOT NULL CHECK (rate > 0),
+    provider VARCHAR(100) NOT NULL,
+    provider_updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    fetched_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (base_currency, quote_currency)
 );
 
 -- Cached Wallet Balance (Rebuilt from ledger if necessary)
@@ -1247,6 +1271,9 @@ CREATE TABLE IF NOT EXISTS notifications (
                                              message TEXT NOT NULL,
                                              icon VARCHAR(100),
                                              payload JSONB DEFAULT '{}'::jsonb,
+                                             action_url VARCHAR(512),
+                                             action_label VARCHAR(100),
+                                             category VARCHAR(50),
                                              is_read BOOLEAN DEFAULT FALSE,
                                              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -1330,6 +1357,21 @@ CREATE TABLE IF NOT EXISTS firewall_rules (
                                               updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS user_filter_hits (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS user_filter_hits_user_time_idx
+    ON user_filter_hits (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_chat_mutes (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    muted_until TIMESTAMP WITH TIME ZONE NOT NULL,
+    reason TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS user_action_logs (
                                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                                 user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -1340,21 +1382,21 @@ CREATE TABLE IF NOT EXISTS user_action_logs (
                                                 created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS idanalyzer_docupass_sessions (
-    custom_data VARCHAR(64) PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS plaid_identity_verification_attempts (
+    attempt_id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    reference VARCHAR(128) UNIQUE,
-    hosted_url TEXT NOT NULL DEFAULT '',
-    status VARCHAR(16) NOT NULL DEFAULT 'creating'
-        CHECK (status IN ('creating', 'pending', 'accept', 'review', 'reject', 'failed')),
-    transaction_id VARCHAR(128) UNIQUE,
-    warning_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    identity_verification_id VARCHAR(128) UNIQUE,
+    status VARCHAR(20) NOT NULL DEFAULT 'creating'
+        CHECK (status IN ('creating', 'active', 'pending_review', 'success', 'failed', 'expired', 'canceled')),
     consented_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_idanalyzer_docupass_user_created
-    ON idanalyzer_docupass_sessions (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_plaid_idv_attempts_user_created
+    ON plaid_identity_verification_attempts (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_plaid_idv_attempts_creating
+    ON plaid_identity_verification_attempts (user_id, created_at DESC)
+    WHERE status = 'creating';
 
 CREATE TABLE IF NOT EXISTS admin_audit_logs (
                                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1469,10 +1511,10 @@ INSERT INTO flagged_words (word, category) VALUES
 ON CONFLICT (word) DO NOTHING;
 
 INSERT INTO firewall_rules (id, name, description, is_active) VALUES
-                                                                  ('RUL_1', 'Auto-Ban High Risk Datacenter IPs', 'Instantly ban signups from known AWS/DO/GCP datacenters.', TRUE),
-                                                                  ('RUL_2', 'Block Disposable Email Domains', 'Reject signups from 10minutemail, temp-mail, etc.', TRUE),
-                                                                  ('RUL_3', 'Chargeback Prevention Lockout', 'Freeze tipping after 2 consecutive card failures.', TRUE),
-                                                                  ('RUL_4', 'Auto-Mute on Explicit Filter Hit', 'Mute users for 1 hour automatically if they trigger the banned word list 3 times.', FALSE)
+                                                                  ('RUL_1', 'Block banned IP addresses', 'Reject requests from IP addresses recorded in the administrator-managed ban list. Trusted proxy CIDRs are required before forwarding headers are used.', TRUE),
+                                                                  ('RUL_2', 'Block known disposable email domains', 'Reject new registrations using a curated list of disposable email domains, including social sign-ups.', TRUE),
+                                                                  ('RUL_3', 'Lock tipping after repeated card failures', 'Temporarily prevent tipping when the two most recent Paystack or Stripe payment attempts both failed.', TRUE),
+                                                                  ('RUL_4', 'Auto-mute repeated profanity filter hits', 'Automatically mute an account for one hour after three profanity-filter matches within one hour.', FALSE)
 ON CONFLICT (id) DO NOTHING;
 
 
@@ -1495,11 +1537,12 @@ INSERT INTO email_templates (name, subject, body_html) VALUES
     ('password_reset_email', 'Reset your Chattie password', '<h1>Password reset code</h1><p style="font-size:28px;font-weight:bold;letter-spacing:6px">{{.Code}}</p><p>This code expires in {{.ExpiresMinutes}} minutes. If you did not request a reset, ignore this message.</p>'),
     ('two_factor_setup_email', 'Confirm your Chattie security change', '<h1>Confirm your security change</h1><p style="font-size:28px;font-weight:bold;letter-spacing:6px">{{.Code}}</p><p>This code expires in {{.ExpiresMinutes}} minutes. If you did not request this change, secure your account.</p>'),
     ('ad_creator_subscription', 'New After Dark subscriber', '<h1>New subscriber</h1><p>Hello {{.Username}}, {{.CustomerName}} subscribed to your creator account.</p>'),
-    ('ad_creator_sale', 'New After Dark purchase', '<h1>New purchase</h1><p>Hello {{.Username}}, you received a new After Dark purchase.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Reference: {{.Reference}}</p>'),
+    ('ad_creator_sale', 'New After Dark purchase', '<h1>New purchase</h1><p>Hello {{.Username}}, you received a new After Dark purchase.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Payment method: {{.PaymentMethod}}<br>Wallet contribution: KES {{.WalletContribution}}<br>Reference: {{.Reference}}</p>'),
     ('ad_creator_tip', 'You received an After Dark tip', '<h1>New tip</h1><p>Hello {{.Username}}, {{.CustomerName}} sent you a tip.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Reference: {{.Reference}}</p>'),
-    ('ad_payment_receipt', 'After Dark payment receipt', '<h1>Payment received</h1><p>Hello {{.Username}}, your After Dark payment was successful.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Item: {{.PaymentType}}<br>Reference: {{.Reference}}<br>Receipt: {{.ReceiptNumber}}<br>Payment date: {{.PaidAt}}</p>'),
+    ('ad_payment_receipt', 'After Dark payment receipt', '<h1>Payment received</h1><p>Hello {{.Username}}, your After Dark payment was successful.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Payment method: {{.PaymentMethod}}<br>Wallet contribution: KES {{.WalletContribution}}<br>Item: {{.PaymentType}}<br>Reference: {{.Reference}}<br>Receipt: {{.ReceiptNumber}}<br>Payment date: {{.PaidAt}}</p>'),
     ('ad_action_required', 'Action needed for your After Dark payment', '<h1>Payment needs attention</h1><p>Hello {{.Username}}, your After Dark payment could not be completed.</p><p>{{.ActionMessage}}</p><p>Reference: {{.Reference}}</p>'),
-    ('afterdark_notification', 'After Dark account notification', '<h1>{{.Title}}</h1><p>Hello {{.Username}}, {{.Message}}</p>')
+    ('afterdark_notification', 'After Dark account notification', '<h1>{{.Title}}</h1><p>Hello {{.Username}}, {{.Message}}</p>'),
+    ('support_ticket_update', 'Update to your Chattie support ticket', '<h1>Support ticket update</h1><p>Your ticket "{{.TicketSubject}}" is now {{.TicketStatus}}.</p><p><a href="{{.ActionURL}}">{{.ActionLabel}}</a></p>')
 ON CONFLICT (name) DO UPDATE SET subject = EXCLUDED.subject, body_html = EXCLUDED.body_html, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO sms_templates (name, template_content) VALUES

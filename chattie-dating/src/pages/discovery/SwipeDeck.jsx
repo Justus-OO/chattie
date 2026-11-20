@@ -376,7 +376,7 @@ export default function SwipeDeck() {
     <div className="discovery-shell flex h-full min-h-0 min-w-0 flex-1 flex-col relative overflow-hidden font-mono text-zinc-300 w-full rounded-none border-l-2 md:border-zinc-800">
       
       {/* HEADER BAR */}
-      <div className="discovery-header w-full shrink-0 border-b-2 p-2 sm:p-3 lg:p-4 flex justify-between items-center z-10">
+      <div className="discovery-header hidden w-full shrink-0 border-b-2 p-2 sm:flex sm:p-3 lg:p-4 justify-between items-center z-10">
         <div className="flex items-center gap-3">
           <div>
             <p className="discovery-kicker mb-1">{t('curatedForYou')}</p>
@@ -399,7 +399,7 @@ export default function SwipeDeck() {
       </div>
 
       {/* SWIPE DECK AREA */}
-      <div className="discovery-content min-h-0 flex-1 w-full flex flex-col items-center justify-center p-0.5 sm:p-1 lg:p-2 relative overflow-hidden">
+      <div className="discovery-content min-h-0 flex-1 w-full flex flex-col items-center justify-center px-0.5 pb-0.5 pt-0 sm:px-1 sm:pb-1 lg:px-2 lg:pb-2 relative overflow-hidden">
         
         {/* Keyboard Hint (Top Left) */}
         <div className="absolute top-8 left-8 z-10 hidden lg:block text-zinc-600 text-[10px] font-bold uppercase tracking-widest">
@@ -474,12 +474,12 @@ export default function SwipeDeck() {
               <button
                 onClick={toggleProfile}
                 aria-label={t('profileShortcut')}
-                className="pointer-events-auto absolute right-4 top-8 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="pointer-events-auto absolute right-4 top-8 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-white drop-shadow-[0_2px_8px_rgba(var(--shadow-rgb), 0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <Info className="h-5 w-5" />
               </button>
 
-              <div className="pointer-events-none absolute inset-x-0 bottom-5 z-40 flex flex-col items-center gap-2 px-4 text-center">
+              <div className="discovery-swipe-card-caption pointer-events-none absolute inset-x-0 bottom-5 z-40 flex flex-col items-center gap-2 px-4 text-center">
                 <div className="max-w-full">
                   <div className="flex items-center justify-center gap-2">
                     <h2 className="discovery-swipe-profile-accent truncate text-xl font-bold">
@@ -515,7 +515,7 @@ export default function SwipeDeck() {
                     title={t('pass')}
                     className="flex size-14 items-center justify-center rounded-full bg-transparent text-white shadow-none transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
-                    <X className="h-7 w-7 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]" />
+                    <X className="h-7 w-7 drop-shadow-[0_2px_8px_rgba(var(--shadow-rgb), 0.95)]" />
                   </button>
 
                   <button
@@ -524,7 +524,7 @@ export default function SwipeDeck() {
                     title={t('superLike')}
                     className="flex size-12 items-center justify-center rounded-full bg-transparent text-white shadow-none transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
-                    <Star className="h-6 w-6 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]" />
+                    <Star className="h-6 w-6 drop-shadow-[0_2px_8px_rgba(var(--shadow-rgb), 0.95)]" />
                   </button>
 
                   <button
@@ -533,7 +533,7 @@ export default function SwipeDeck() {
                     title={t('like')}
                     className="flex size-14 items-center justify-center rounded-full bg-transparent text-white shadow-none transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                   >
-                    <Heart className="h-7 w-7 fill-current drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]" />
+                    <Heart className="h-7 w-7 fill-current drop-shadow-[0_2px_8px_rgba(var(--shadow-rgb), 0.95)]" />
                   </button>
                 </div>
               </div>
@@ -607,7 +607,7 @@ export default function SwipeDeck() {
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
           
           <div className="text-center max-w-md w-full space-y-8 relative">
-            <h1 className="text-5xl font-black text-white uppercase tracking-widest border-4 border-white p-4 inline-block shadow-[12px_12px_0px_rgba(255,255,255,0.2)]">
+            <h1 className="text-5xl font-black text-white uppercase tracking-widest border-4 border-white p-4 inline-block shadow-[12px_12px_0px_rgba(var(--highlight-rgb), 0.2)]">
               MATCH
             </h1>
             
@@ -630,7 +630,7 @@ export default function SwipeDeck() {
                   setMatchModal({ show: false, user: null });
                   navigate('/messages');
                 }} 
-                className="w-full py-4 bg-white text-black font-bold uppercase tracking-widest text-[10px] border-2 border-white hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 shadow-[8px_8px_0px_rgba(255,255,255,0.2)]"
+                className="w-full py-4 bg-white text-black font-bold uppercase tracking-widest text-[10px] border-2 border-white hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.2)]"
               >
                 <MessageCircle className="w-4 h-4" /> SEND MESSAGE
               </button>
@@ -650,7 +650,7 @@ export default function SwipeDeck() {
           ============================================================================ */}
       {reportModal && (
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
-          <div className="bg-black border-2 border-zinc-600 max-w-sm w-full p-6 space-y-6 shadow-[8px_8px_0px_rgba(255,255,255,0.1)]">
+          <div className="bg-black border-2 border-zinc-600 max-w-sm w-full p-6 space-y-6 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)]">
             <div className="flex items-center gap-3 text-white border-b-2 border-zinc-800 pb-4">
               <ShieldAlert className="w-5 h-5 text-zinc-400" />
               <h2 className="font-bold text-sm uppercase tracking-widest">REPORT PROFILE</h2>

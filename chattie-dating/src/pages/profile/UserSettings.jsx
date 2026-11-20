@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MediaVaultModal } from '../../components/chat/ChatModals';
-import DocuPassVerificationModal from '../../components/modals/DocuPassVerificationModal';
+import PlaidIdentityVerificationModal from '../../components/modals/PlaidIdentityVerificationModal';
 
 // Services
 import { settingsService } from '../../api/settings.service';
@@ -422,7 +422,7 @@ export default function UserSettings() {
           {/* VIP BANNER */}
           <section 
             onClick={() => navigate('/upgrade')}
-            className="bg-black border-2 border-yellow-400 p-4 md:p-6 cursor-pointer hover:bg-zinc-950 transition-colors flex items-center justify-between group shadow-[4px_4px_0px_rgba(250,204,21,0.1)] hover:shadow-[6px_6px_0px_rgba(250,204,21,0.2)]"
+            className="bg-black border-2 border-yellow-400 p-4 md:p-6 cursor-pointer hover:bg-zinc-950 transition-colors flex items-center justify-between group shadow-[4px_4px_0px_rgba(var(--warning-rgb), 0.1)] hover:shadow-[6px_6px_0px_rgba(var(--warning-rgb), 0.2)]"
           >
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-black border-2 border-yellow-400 flex items-center justify-center transition-transform group-hover:scale-105">
@@ -833,7 +833,7 @@ export default function UserSettings() {
 
             <button 
               onClick={() => setShowDeleteModal(true)}
-              className="w-full py-4 bg-black border-2 border-red-900 text-red-500 font-bold uppercase tracking-widest hover:bg-red-950 hover:border-red-500 flex items-center justify-center gap-2 transition-colors text-sm shadow-[4px_4px_0px_rgba(239,68,68,0.1)]"
+              className="w-full py-4 bg-black border-2 border-red-900 text-red-500 font-bold uppercase tracking-widest hover:bg-red-950 hover:border-red-500 flex items-center justify-center gap-2 transition-colors text-sm shadow-[4px_4px_0px_rgba(var(--danger-rgb), 0.1)]"
             >
               <Trash2 className="w-4 h-4" /> Delete Account
             </button>
@@ -846,7 +846,7 @@ export default function UserSettings() {
       {/* =====================================================================
           MULTI-STEP MODAL: HIGH SECURITY KYC VERIFICATION (ID + LIVENESS)
           ===================================================================== */}
-      <DocuPassVerificationModal
+      <PlaidIdentityVerificationModal
         isOpen={showVerifyModal}
         onClose={() => setShowVerifyModal(false)}
         onVerified={() => setIdentityVerificationStatus(true)}
@@ -868,7 +868,7 @@ export default function UserSettings() {
       {showSessionsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowSessionsModal(false)} />
-          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col overflow-hidden rounded-none animate-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col overflow-hidden rounded-none animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
                 <MonitorSmartphone className="w-4 h-4 text-white" /> Active Sessions
@@ -933,7 +933,7 @@ export default function UserSettings() {
       {showDataModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowDataModal(false)} />
-          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col overflow-hidden rounded-none animate-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col overflow-hidden rounded-none animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
                 <Download className="w-4 h-4 text-white" /> Data Dossier
@@ -965,7 +965,7 @@ export default function UserSettings() {
       {showBlockedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowBlockedModal(false)} />
-          <div className="relative flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200 rounded-none">
+          <div className="relative flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in zoom-in-95 duration-200 rounded-none">
             <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
                 <Shield className="w-4 h-4 text-white" /> Blocked Users
@@ -1010,7 +1010,7 @@ export default function UserSettings() {
       {showLogoutModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowLogoutModal(false)} />
-          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 p-6 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200 rounded-none">
+          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 p-6 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in zoom-in-95 duration-200 rounded-none">
             <h3 className="text-sm font-bold uppercase tracking-widest text-white mb-2">Log out of Account?</h3>
             <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-6 leading-relaxed">
               You will continue to be seen by other users unless you enable Incognito Mode or delete your account.
@@ -1039,7 +1039,7 @@ export default function UserSettings() {
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => setShowDeleteModal(false)} />
-          <div className="relative w-full max-w-sm bg-black border-2 border-red-900 p-6 shadow-[8px_8px_0px_rgba(239,68,68,0.1)] animate-in zoom-in-95 duration-200 rounded-none">
+          <div className="relative w-full max-w-sm bg-black border-2 border-red-900 p-6 shadow-[8px_8px_0px_rgba(var(--danger-rgb), 0.1)] animate-in zoom-in-95 duration-200 rounded-none">
             <div className="w-12 h-12 bg-black border-2 border-red-500 flex items-center justify-center mb-4">
               <AlertTriangle className="w-5 h-5 text-red-500" />
             </div>

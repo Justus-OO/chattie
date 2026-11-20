@@ -121,7 +121,7 @@ export default function UploadExplicitModal({ isOpen, onClose, onSuccess }) {
   return createPortal((
     <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/85 p-3 backdrop-blur-sm sm:p-6">
       <button type="button" className="absolute inset-0 cursor-default" aria-label="Close create post" onClick={handleClose} />
-      <section role="dialog" aria-modal="true" aria-labelledby="create-post-title" className="relative z-10 flex max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden border-2 border-zinc-700 bg-black font-mono shadow-[8px_8px_0px_rgba(255,255,255,0.08)]">
+      <section role="dialog" aria-modal="true" aria-labelledby="create-post-title" className="relative z-10 flex max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden border-2 border-zinc-700 bg-black font-mono shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.08)]">
         <header className="flex shrink-0 items-center justify-between border-b-2 border-zinc-800 bg-zinc-950 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center border border-yellow-400/60 bg-yellow-400/10 text-yellow-300">

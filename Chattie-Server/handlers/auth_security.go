@@ -90,6 +90,18 @@ func (h *AuthHandler) RequestTwoFactorChange(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Could not load account security details", http.StatusInternalServerError)
 		return
 	}
+	if !req.Enabled {
+		user, err := h.Repo.GetUserByID(r.Context(), userID)
+		if err != nil {
+			log.Printf("[AUTH] Could not verify role before disabling two-factor for %s: %v", userID, err)
+			http.Error(w, "Could not verify account security settings", http.StatusInternalServerError)
+			return
+		}
+		if user.Role == "admin" {
+			http.Error(w, "Administrator accounts must keep two-factor authentication enabled", http.StatusForbidden)
+			return
+		}
+	}
 	channel := strings.ToLower(strings.TrimSpace(req.Channel))
 	purpose := "enable_2fa"
 	if !req.Enabled {
@@ -156,6 +168,18 @@ func (h *AuthHandler) VerifyTwoFactorChange(w http.ResponseWriter, r *http.Reque
 	if _, err := h.verifyAuthCode(r, req.ChallengeID, purpose, req.Code, userID); err != nil {
 		http.Error(w, "Invalid or expired verification code", http.StatusUnauthorized)
 		return
+	}
+	if !req.Enabled {
+		user, err := h.Repo.GetUserByID(r.Context(), userID)
+		if err != nil {
+			log.Printf("[AUTH] Could not verify role before disabling two-factor for %s: %v", userID, err)
+			http.Error(w, "Could not verify account security settings", http.StatusInternalServerError)
+			return
+		}
+		if user.Role == "admin" {
+			http.Error(w, "Administrator accounts must keep two-factor authentication enabled", http.StatusForbidden)
+			return
+		}
 	}
 	if err := h.Repo.SetTwoFactor(r.Context(), userID, req.Enabled, challenge.Channel); err != nil {
 		log.Printf("[AUTH] Failed to save two-factor setting for %s: %v", userID, err)

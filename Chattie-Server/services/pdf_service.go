@@ -1,31 +1,46 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
-	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
+var ErrPDFBrowserUnavailable = errors.New("PDF browser unavailable")
+
 // GeneratePDF takes raw HTML, provisions a headless Chrome instance with server-safe flags,
 // waits for the DOM and styles to stabilize, and returns high-resolution PDF bytes.
 func GeneratePDF(htmlContent string) ([]byte, error) {
-	// 1. Strict timeout context to prevent hung Chrome processes from leaking RAM
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// 2. Production-grade Allocator Options (Crucial for running inside Docker/Linux servers)
-	dir, err := osTempDir() // Safe temporary profile dir
+	if len(htmlContent) == 0 {
+		return nil, fmt.Errorf("PDF template output is empty")
+	}
+	if len(htmlContent) > 10<<20 {
+		return nil, fmt.Errorf("PDF template output exceeds 10 MB")
+	}
+	chromePath, err := resolveChromeExecutable()
 	if err != nil {
-		log.Printf("[PDF WARNING] Could not create temp dir, falling back to default allocator: %v", err)
+		return nil, err
 	}
 
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+	// 1. Strict timeout context to prevent hung Chrome processes from leaking RAM
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	var chromeOutput bytes.Buffer
+	opts := append([]chromedp.ExecAllocatorOption{}, chromedp.DefaultExecAllocatorOptions[:]...)
+	opts = append(opts,
+		chromedp.ExecPath(chromePath),
+		chromedp.CombinedOutput(&chromeOutput),
 		chromedp.Flag("headless", true),
 		chromedp.Flag("no-sandbox", true), // Mandatory for Docker/Linux root execution
 		chromedp.Flag("disable-gpu", true),
@@ -33,11 +48,8 @@ func GeneratePDF(htmlContent string) ([]byte, error) {
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("hide-scrollbars", true),
 		chromedp.Flag("disable-translate", true),
+		chromedp.Flag("remote-debugging-port", "0"),
 	)
-
-	if dir != "" {
-		opts = append(opts, chromedp.UserDataDir(dir))
-	}
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
 	defer allocCancel()
@@ -86,13 +98,8 @@ func GeneratePDF(htmlContent string) ([]byte, error) {
 		}),
 	)
 
-	// Cleanup temp dir
-	if dir != "" {
-		defer os.RemoveAll(dir)
-	}
-
 	if err != nil {
-		return nil, fmt.Errorf("pdf generation pipeline failed: %w", err)
+		return nil, fmt.Errorf("pdf generation pipeline failed: %w; Chrome output: %s", err, chromeOutput.String())
 	}
 
 	if len(pdfBuffer) == 0 {
@@ -102,11 +109,52 @@ func GeneratePDF(htmlContent string) ([]byte, error) {
 	return pdfBuffer, nil
 }
 
-// Helper to safely provision a temporary user data directory for Chrome
-func osTempDir() (string, error) {
-	dir, err := os.MkdirTemp("", "chromedp-profile-*")
-	if err != nil {
-		return "", err
+func resolveChromeExecutable() (string, error) {
+	for _, key := range []string{"CHROME_BIN", "CHROME_PATH"} {
+		configuredPath := os.Getenv(key)
+		if configuredPath == "" {
+			continue
+		}
+		path, err := exec.LookPath(configuredPath)
+		if err != nil {
+			return "", fmt.Errorf("%w: %s points to an unavailable executable: %v", ErrPDFBrowserUnavailable, key, err)
+		}
+		return path, nil
 	}
-	return dir, nil
+
+	for _, candidate := range []string{
+		"chrome", "chrome.exe", "chromium", "chromium-browser",
+		"google-chrome", "google-chrome-stable", "google-chrome-beta",
+		"google-chrome-unstable", "headless_shell", "headless-shell",
+	} {
+		if path, err := exec.LookPath(candidate); err == nil {
+			return path, nil
+		}
+	}
+
+	locations := []string{
+		"/usr/bin/google-chrome",
+		"/usr/local/bin/chrome",
+		"/snap/bin/chromium",
+	}
+	if runtime.GOOS == "windows" {
+		locations = append(locations,
+			filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
+			filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+			filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "Application", "chrome.exe"),
+			filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local", "Chromium", "Application", "chrome.exe"),
+		)
+	} else if runtime.GOOS == "darwin" {
+		locations = append(locations,
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+		)
+	}
+	for _, location := range locations {
+		if info, err := os.Stat(location); err == nil && !info.IsDir() {
+			return location, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: install Chrome or Chromium, or set CHROME_BIN to its executable path", ErrPDFBrowserUnavailable)
 }

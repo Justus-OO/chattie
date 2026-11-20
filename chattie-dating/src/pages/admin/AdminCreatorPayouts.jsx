@@ -220,7 +220,7 @@ export default function AdminCreatorPayouts() {
 
       {activeReview && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <section className="w-full max-w-xl border-2 border-white bg-zinc-950 shadow-[12px_12px_0px_0px_rgba(255,255,255,0.1)]">
+          <section className="w-full max-w-xl border-2 border-white bg-zinc-950 shadow-[12px_12px_0px_0px_rgba(var(--highlight-rgb), 0.1)]">
             <header className="flex items-center justify-between border-b-2 border-zinc-800 bg-white p-4 text-black">
               <h2 className="text-xs font-black uppercase tracking-widest">{activeReview.action} payout request</h2>
               <button type="button" disabled={isSubmitting} onClick={closeReview} aria-label="Close review dialog">

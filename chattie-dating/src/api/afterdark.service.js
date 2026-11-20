@@ -351,6 +351,7 @@ export const afterDarkService = {
   },
 
   startPayment: async (paymentData) => {
+    // PPV checkouts may set use_wallet to apply available balance before charging the provider remainder.
     const response = await apiClient.post('/afterdark/payments/checkout', paymentData);
     return response.data;
   },

@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ErrPlaidNotConfigured                     = errors.New("Plaid Identity Verification is not configured")
+	ErrPlaidNotConfigured                    = errors.New("Plaid Identity Verification is not configured")
 	ErrPlaidIdentityVerificationUserMismatch = errors.New("Plaid verification session does not belong to this user")
 )
 
@@ -80,11 +80,11 @@ func (s *PlaidIdentityVerificationService) CreateLinkToken(ctx context.Context, 
 	}
 
 	payload := struct {
-		ClientName    string   `json:"client_name"`
-		Language      string   `json:"language"`
-		CountryCodes  []string `json:"country_codes"`
-		Products      []string `json:"products"`
-		User          struct {
+		ClientName   string   `json:"client_name"`
+		Language     string   `json:"language"`
+		CountryCodes []string `json:"country_codes"`
+		Products     []string `json:"products"`
+		User         struct {
 			ClientUserID string `json:"client_user_id"`
 		} `json:"user"`
 		IdentityVerification struct {

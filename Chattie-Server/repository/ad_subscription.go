@@ -60,7 +60,6 @@ func (r *ADSubscriptionRepository) Subscribe(ctx context.Context, subscriberID s
 	if err != nil {
 		return err
 	}
-
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description) 
 		VALUES ($1, $2, 'subscription_purchase', $3, 'Creator Subscription (30 Days)')
@@ -76,6 +75,9 @@ func (r *ADSubscriptionRepository) Subscribe(ctx context.Context, subscriberID s
 		ON CONFLICT (user_id) DO UPDATE SET pending_balance_cents = ad_wallets.pending_balance_cents + $2
 	`, creatorID, creatorCut)
 	if err != nil {
+		return err
+	}
+	if err := addADPendingEarning(ctx, tx, creatorID, "subscriptions", creatorCut); err != nil {
 		return err
 	}
 

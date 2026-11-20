@@ -121,3 +121,9 @@ func MaskBadWords(text string) (string, bool) {
 	}
 	return text, flagged
 }
+
+func HasBadWords(text string) bool {
+	filterMutex.RLock()
+	defer filterMutex.RUnlock()
+	return badWordsRegex.MatchString(text)
+}

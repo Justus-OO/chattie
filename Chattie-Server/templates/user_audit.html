@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><style>
+@page{size:A4;margin:14mm}body{margin:0;font-family:Arial,sans-serif;background:#f7f8fa;color:#1f2937}header{border-bottom:3px solid #d24f74;padding-bottom:12px;margin-bottom:20px}h1{font-size:26px;margin:0;color:#111827}.meta{color:#6b7280;font-size:11px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-bottom:14px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.label{font-size:9px;text-transform:uppercase;color:#6b7280;font-weight:bold}.value{font-size:13px;margin-top:3px}table{width:100%;border-collapse:collapse;background:#fff}th{background:#f3f4f6;text-align:left;font-size:9px;text-transform:uppercase;color:#4b5563;padding:8px;border-bottom:1px solid #d1d5db}td{font-size:11px;padding:8px;border-bottom:1px solid #e5e7eb}.risk{color:#b45309;font-weight:bold}.footer{margin-top:18px;font-size:9px;color:#9ca3af}
+</style></head><body>
+<header><h1>{{.Title}}</h1><div class="meta">Generated {{.GeneratedAt}} · Requested by {{.RequestedBy}}</div></header>
+<section class="card"><div class="grid">
+<div><div class="label">User ID</div><div class="value">{{.User.ID}}</div></div>
+<div><div class="label">Username</div><div class="value">{{.User.Username}}</div></div>
+<div><div class="label">Email</div><div class="value">{{.User.Email}}</div></div>
+<div><div class="label">Role / Status</div><div class="value">{{.User.Role}} / {{.User.Status}}</div></div>
+<div><div class="label">Risk score</div><div class="value risk">{{.User.RiskScore}}</div></div>
+<div><div class="label">Lifetime spend</div><div class="value">{{.User.LifetimeSpend}}</div></div>
+</div></section>
+<section class="card"><div class="label">Recent account activity</div><table><thead><tr><th>Time</th><th>Action</th><th>IP address</th></tr></thead><tbody>{{range .ActionLogs}}<tr><td>{{.Time}}</td><td>{{.Action}}</td><td>{{.IP}}</td></tr>{{else}}<tr><td colspan="3">No activity recorded</td></tr>{{end}}</tbody></table></section>
+<section class="card"><div class="label">Moderation history</div><table><thead><tr><th>Date</th><th>Type</th><th>Reason</th></tr></thead><tbody>{{range .ModHistory}}<tr><td>{{.Date}}</td><td>{{.Type}}</td><td>{{.Reason}}</td></tr>{{else}}<tr><td colspan="3">No moderation events recorded</td></tr>{{end}}</tbody></table></section>
+<div class="footer">Confidential administrative report · Chattie</div>
+</body></html>

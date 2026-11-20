@@ -41,6 +41,7 @@ type PerformerProfile struct {
 type PerformerApplication struct {
 	ID                 string     `json:"id"`
 	UserID             string     `json:"user_id"`
+	IsCreator          bool       `json:"is_creator"`
 	CreatorAlias       string     `json:"creator_alias"`
 	Status             string     `json:"status"`
 	VerificationRef    string     `json:"verification_ref"`
@@ -61,6 +62,11 @@ type AdminPerformerApplication struct {
 	PolicyVersion       string    `json:"policy_version"`
 	DecisionReasonCode  string    `json:"decision_reason_code,omitempty"`
 	AISummary           string    `json:"ai_triage_summary"`
+	IdentityVerified    bool      `json:"identity_verified"`
+	AgeVerified         bool      `json:"age_verified"`
+	ConsentsVerified    bool      `json:"consents_verified"`
+	ProfileComplete     bool      `json:"profile_complete"`
+	HasExistingApproval bool      `json:"has_existing_approval"`
 	EligibleForApproval bool      `json:"eligible_for_approval"`
 	SubmittedAt         time.Time `json:"submitted_at"`
 }

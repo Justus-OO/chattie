@@ -266,3 +266,33 @@ func RequireRole(requiredRole string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+func RequireAdminTwoFactor(db *sql.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID, ok := r.Context().Value(UserIDKey).(string)
+			if !ok || userID == "" {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			var enabled bool
+			err := db.QueryRowContext(r.Context(), `
+				SELECT COALESCE(settings.two_factor_enabled, FALSE)
+				FROM users user_account
+				LEFT JOIN user_settings settings ON settings.user_id = user_account.id
+				WHERE user_account.id = $1 AND user_account.role = 'admin'
+			`, userID).Scan(&enabled)
+			if err != nil {
+				http.Error(w, "Could not verify administrator security settings", http.StatusInternalServerError)
+				return
+			}
+			if !enabled {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"Enable two-factor authentication before using admin controls.","code":"admin_two_factor_required"}`))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

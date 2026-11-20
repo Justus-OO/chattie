@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
 
+	"chattie-backend/middlewares"
 	"chattie-backend/repository"
 
 	"github.com/go-chi/chi/v5"
@@ -47,6 +50,35 @@ func (h *AdminRoomHandler) TerminateRoom(w http.ResponseWriter, r *http.Request)
 	}
 
 	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Space terminated successfully"})
+}
+
+func (h *AdminRoomHandler) UpdateRoomStatus(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || adminID == "" {
+		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&payload); err != nil {
+		sendAdminError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if payload.Status != "ACTIVE" && payload.Status != "WARNING" && payload.Status != "SUSPENDED" {
+		sendAdminError(w, http.StatusBadRequest, "Invalid room status")
+		return
+	}
+	if err := h.Repo.UpdateAdminRoomStatus(r.Context(), chi.URLParam(r, "id"), adminID, payload.Status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			sendAdminError(w, http.StatusNotFound, "Room not found")
+			return
+		}
+		log.Printf("Failed to update room %s status: %v", chi.URLParam(r, "id"), err)
+		sendAdminError(w, http.StatusInternalServerError, "Failed to update room status")
+		return
+	}
+	sendAdminJSON(w, http.StatusOK, map[string]string{"status": payload.Status})
 }
 
 func (h *AdminRoomHandler) GetParticipants(w http.ResponseWriter, r *http.Request) {

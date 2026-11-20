@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,11 +21,11 @@ func TestPlaidCreateLinkTokenUsesIdentityVerificationTemplate(t *testing.T) {
 		}
 
 		var request struct {
-			ClientName    string   `json:"client_name"`
-			Language      string   `json:"language"`
-			CountryCodes  []string `json:"country_codes"`
-			Products      []string `json:"products"`
-			User          struct {
+			ClientName   string   `json:"client_name"`
+			Language     string   `json:"language"`
+			CountryCodes []string `json:"country_codes"`
+			Products     []string `json:"products"`
+			User         struct {
 				ClientUserID string `json:"client_user_id"`
 			} `json:"user"`
 			IdentityVerification struct {
@@ -86,8 +87,8 @@ func TestPlaidGetIdentityVerificationRequiresMatchingUser(t *testing.T) {
 	if verification.Status != "success" {
 		t.Fatalf("status = %q, want success", verification.Status)
 	}
-	if _, err := service.GetIdentityVerification(context.Background(), "idv-123", "another-user"); err == nil {
-		t.Fatal("GetIdentityVerification() accepted a session belonging to another user")
+	if _, err := service.GetIdentityVerification(context.Background(), "idv-123", "another-user"); !errors.Is(err, ErrPlaidIdentityVerificationUserMismatch) {
+		t.Fatalf("GetIdentityVerification() error = %v, want user mismatch", err)
 	}
 }
 

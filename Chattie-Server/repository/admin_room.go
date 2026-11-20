@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 
 	"chattie-backend/models"
@@ -63,6 +65,39 @@ func (r *Repository) TerminateRoom(ctx context.Context, roomID string) error {
 		return err
 	}
 
+	return tx.Commit()
+}
+
+func (r *Repository) UpdateAdminRoomStatus(ctx context.Context, roomID, adminID, status string) error {
+	if status != "ACTIVE" && status != "WARNING" && status != "SUSPENDED" {
+		return errors.New("invalid room status")
+	}
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE rooms SET status = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2
+	`, status, roomID)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO admin_audit_logs (admin_id, action, target_id, reason)
+		VALUES ($1, 'ROOM_STATUS_UPDATED', $2, $3)
+	`, adminID, roomID, status); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

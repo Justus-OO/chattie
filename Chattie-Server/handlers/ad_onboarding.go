@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -37,14 +38,40 @@ func (h *ADPerformerHandler) GetMyApplication(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	isCreator, err := h.Repo.IsActiveCreator(r.Context(), userID)
+	if err != nil {
+		log.Printf("[AFTER DARK ONBOARDING] Failed to fetch creator status for user %s: %v", userID, err)
+		http.Error(w, "Failed to fetch creator status", http.StatusInternalServerError)
+		return
+	}
+	canManageCreatorProfile, err := h.Repo.CanManageCreatorProfile(r.Context(), userID)
+	if err != nil {
+		log.Printf("[AFTER DARK ONBOARDING] Failed to fetch creator profile access for user %s: %v", userID, err)
+		http.Error(w, "Failed to fetch creator profile access", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"application": application})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"application":  application,
+		"is_creator":   isCreator,
+		"creator_mode": canManageCreatorProfile,
+	})
 }
 
 func (h *ADPerformerHandler) SubmitApplication(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	existingApplication, err := h.Repo.GetApplicationByUserID(r.Context(), userID)
+	if err != nil {
+		log.Printf("[AFTER DARK ONBOARDING] Failed to check existing application for user %s: %v", userID, err)
+		http.Error(w, "Failed to check creator application", http.StatusInternalServerError)
+		return
+	}
+	if existingApplication != nil && (existingApplication.Status == "pending" || existingApplication.Status == "approved") {
+		http.Error(w, "A creator application is already pending or approved", http.StatusConflict)
 		return
 	}
 
@@ -99,6 +126,14 @@ func (h *ADPerformerHandler) SubmitApplication(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.Repo.SubmitApplication(r.Context(), app, consents); err != nil {
+		if errors.Is(err, repository.ErrCreatorApplicationIncomplete) {
+			http.Error(w, "Complete identity verification and confirm you are 18 or older before submitting", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, repository.ErrCreatorApplicationPending) || errors.Is(err, repository.ErrCreatorApplicationAlreadyApproved) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "Failed to submit application", http.StatusInternalServerError)
 		return
 	}

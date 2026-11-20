@@ -99,6 +99,7 @@ export default function Onboarding() {
     interests: [],
     // Step 4: Preferences
     location: '',
+    countryCode: '',
     locationCoordinates: null,
     intent: 'dating',
     showMe: 'Everyone',
@@ -275,7 +276,9 @@ export default function Onboarding() {
 
     // Step 4 Validation & Backend Submission
     if (step === 4) {
+      const countryCode = profileData.countryCode.trim().toUpperCase();
       if (!profileData.location.trim()) return toast.error(t('locationRequired'));
+      if (!/^[A-Z]{2}$/.test(countryCode) || countryCode === 'XX' || countryCode === 'T1') return toast.error(t('countryCodeRequired'));
       if (!profileData.locationCoordinates) return toast.error(t('locationCoordinatesRequired'));
       const minAge = Number(profileData.minAge);
       const maxAge = Number(profileData.maxAge);
@@ -310,7 +313,8 @@ export default function Onboarding() {
           latitude: profileData.locationCoordinates.latitude,
           longitude: profileData.locationCoordinates.longitude,
           city: profileData.location,
-          country: ''
+          country: '',
+          country_code: countryCode
         }, appToken);
 
         // 4. Submit Preferences
@@ -361,7 +365,7 @@ export default function Onboarding() {
             <style>{`
               @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
             `}</style>
-            <div className="absolute left-0 w-full h-[2px] bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,1)] animate-[scan_1.5s_linear_infinite] z-20"></div>
+            <div className="absolute left-0 w-full h-[2px] bg-blue-400 shadow-[0_0_10px_rgba(var(--info-rgb), 1)] animate-[scan_1.5s_linear_infinite] z-20"></div>
           </div>
           <h3 className="text-white font-bold uppercase tracking-widest text-sm mb-2 animate-pulse">{t('analyzingBiometrics')}</h3>
           <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest text-center max-w-xs">
@@ -403,7 +407,7 @@ export default function Onboarding() {
       {/* =====================================================================
           MAIN ONBOARDING CARD
           ===================================================================== */}
-      <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-zinc-600 bg-black p-6 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] md:p-8 rounded-none">
+      <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-zinc-600 bg-black p-6 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] md:p-8 rounded-none">
         
         {/* Progress Stepper */}
         <div className="flex gap-2 mb-8 shrink-0">
@@ -628,6 +632,25 @@ export default function Onboarding() {
                     {profileData.locationCoordinates
                       ? t('locationCoordinatesCaptured')
                       : t('locationCoordinatesHelp')}
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="onboarding-country-code" className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block">{t('countryCodeLabel')}</label>
+                  <input
+                    id="onboarding-country-code"
+                    type="text"
+                    inputMode="text"
+                    autoComplete="off"
+                    maxLength={2}
+                    value={profileData.countryCode}
+                    onChange={(event) => setProfileData((previous) => ({ ...previous, countryCode: event.target.value.toUpperCase().replace(/[^A-Z]/g, '') }))}
+                    placeholder="KE"
+                    aria-describedby="onboarding-country-help"
+                    className="w-full bg-black border-2 border-zinc-800 rounded-none px-4 py-3 text-xs text-white font-bold uppercase tracking-widest focus:outline-none focus:border-white transition-colors placeholder:text-zinc-700"
+                  />
+                  <p id="onboarding-country-help" className="mt-2 text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                    {t('countryCodeHelp')}
                   </p>
                 </div>
 

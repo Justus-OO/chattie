@@ -161,7 +161,7 @@ export default function Guidelines() {
                 </nav>
               </div>
 
-              <div className="bg-black border-2 border-red-500 p-4 text-center shadow-[4px_4px_0px_rgba(239,68,68,0.2)]">
+              <div className="bg-black border-2 border-red-500 p-4 text-center shadow-[4px_4px_0px_rgba(var(--danger-rgb), 0.2)]">
                 <AlertOctagon className="w-8 h-8 text-red-500 mx-auto mb-3" />
                   <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-2">{t('seeViolation')}</h3>
                 <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-4 leading-relaxed font-bold">
@@ -304,7 +304,7 @@ export default function Guidelines() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => setShowReportModal(false)} />
           
-          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col rounded-none">
+          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col rounded-none">
             
             <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
               <h2 className="font-bold text-xs text-white uppercase tracking-widest flex items-center gap-2">

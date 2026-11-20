@@ -115,10 +115,14 @@ func main() {
 	paystackGateway := services.NewPaystackGateway()
 	mpesaGateway := services.NewMpesaGateway()
 	billingRouter := services.NewBillingRouter(stripeGateway, paystackGateway, mpesaGateway)
+	fxRateWorker := services.NewFXRateWorker(db, mpesaGateway)
+	fxRateWorker.Start(context.Background())
 
 	// Notification Engine & Event Handler
 	notifService := services.NewNotificationService(repo, emailClient, chatHub)
 	eventHandler := services.NewEventHandler(repo, notifService)
+	chatHub.Events = eventHandler
+	supportHandler.Events = eventHandler
 
 	// =======================================================
 	// 4. START BACKGROUND WORKERS
@@ -175,7 +179,7 @@ func main() {
 	adFinanceHandler := handlers.NewADFinanceHandler(adFinanceRepo, mpesaGateway, paystackGateway)
 	adSubscriptionHandler := handlers.NewADSubscriptionHandler(adSubscriptionRepo)
 	adLiveHandler := handlers.NewADLiveHandler(adLiveRepo, adFinanceRepo, uploadService)
-	adPaymentsHandler := handlers.NewADPaymentsHandler(adFinanceRepo, repo, eventHandler, stripeGateway, paystackGateway, mpesaGateway, adLiveHandler.RoomClient)
+	adPaymentsHandler := handlers.NewADPaymentsHandler(adFinanceRepo, adBillingRepo, repo, eventHandler, stripeGateway, paystackGateway, mpesaGateway, adLiveHandler.RoomClient)
 	adSettingsHandler := handlers.NewADSettingsHandler(adSettingsRepo)
 	// adMediaHandler := handlers.NewADMediaHandler(adMediaRepo, uploadService) // Ready for Phase 2 completion
 
@@ -186,7 +190,7 @@ func main() {
 	adminRoomHandler := handlers.NewAdminRoomHandler(repo, chatHub)
 	pdfHandler := handlers.NewPDFHandler(repo)
 	adminTSHandler := handlers.NewAdminHandler(adminTSRepo, eventHandler)
-	adminAfterDarkHandler := handlers.NewAdminAfterDarkHandler(adminTSRepo, uploadService)
+	adminAfterDarkHandler := handlers.NewAdminAfterDarkHandler(adminTSRepo, uploadService, geminiService)
 
 	// =======================================================
 	// 6. SETUP ROUTER & MIDDLEWARES
@@ -335,6 +339,7 @@ func main() {
 			r.Get("/{ticket_id}/messages", supportHandler.GetTicketMessages)
 			r.Post("/{ticket_id}/messages", supportHandler.AddUserMessage)
 			r.Post("/{ticket_id}/handoff", supportHandler.RequestHuman)
+			r.Patch("/{ticket_id}", supportHandler.UpdateUserTicketStatus)
 		})
 
 		// Profile & Onboarding Routes
@@ -443,6 +448,7 @@ func main() {
 		// Admin Routes
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(middlewares.RequireRole("admin"))
+			r.Use(middlewares.RequireAdminTwoFactor(db))
 
 			r.Route("/support/tickets", func(r chi.Router) {
 				r.Get("/", supportHandler.ListAdminTickets)
@@ -466,10 +472,13 @@ func main() {
 			r.Delete("/settings/regions/countries/{code}", adminTSHandler.UnblockRegionalCountry)
 			r.Get("/afterdark/earnings-clearance", adFinanceHandler.GetPendingEarningsClearance)
 			r.Post("/afterdark/earnings-clearance/{userId}", adFinanceHandler.ClearCreatorEarnings)
+			r.Post("/afterdark/earnings-clearance/{userId}/auto", adFinanceHandler.AutoClearPPEarnings)
 			r.Get("/finance", adminTSHandler.GetFinanceAnalytics)
 			r.Get("/afterdark/posts", adminAfterDarkHandler.ListPosts)
 			r.Get("/afterdark/posts/{postId}/media-url", adminAfterDarkHandler.GetPostMediaURL)
 			r.Patch("/afterdark/posts/{postId}/moderation", adminAfterDarkHandler.ModeratePost)
+			r.Post("/afterdark/posts/{postId}/ai-score", adminAfterDarkHandler.ScorePostSafety)
+			r.Post("/afterdark/posts/ai-auto-approve", adminAfterDarkHandler.AutoApproveSafePosts)
 
 			r.Route("/media", func(r chi.Router) {
 				r.Get("/vaults", adminMediaHandler.GetVaults)
@@ -484,6 +493,7 @@ func main() {
 				r.Get("/", adminRoomHandler.GetRooms)
 				r.Get("/knocks", adminRoomHandler.GetKnocks)
 				r.Post("/knocks/{knockId}/resolve", adminRoomHandler.ResolveKnock)
+				r.Patch("/{id}/status", adminRoomHandler.UpdateRoomStatus)
 				r.Delete("/{id}", adminRoomHandler.TerminateRoom)
 				r.Get("/{id}/participants", adminRoomHandler.GetParticipants)
 				r.Delete("/{id}/participants/{userId}", adminRoomHandler.KickParticipant)
@@ -526,6 +536,8 @@ func main() {
 				r.Get("/user/{userId}", pdfHandler.GenerateUserReport)
 				r.Get("/financial", pdfHandler.GenerateFinancialLedger)
 				r.Get("/security", pdfHandler.GenerateSecurityReport)
+				r.Get("/moderation", pdfHandler.GenerateModerationReport)
+				r.Get("/overview", pdfHandler.GeneratePlatformOverview)
 			})
 		})
 

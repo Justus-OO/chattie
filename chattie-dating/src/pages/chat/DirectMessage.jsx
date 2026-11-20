@@ -52,6 +52,7 @@ const FALLBACK_PARTNER = {
 export default function DirectMessage() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const fallbackPartnerBio = t('fallbackPartnerBio');
   const { userId } = useParams(); // DM Room ID or Target User ID
   
   // --- STORE & WEBSOCKET ---
@@ -66,7 +67,13 @@ export default function DirectMessage() {
   // --- CORE STATE ---
   const [messageInput, setMessageInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [chatPartner, setChatPartner] = useState(FALLBACK_PARTNER);
+  const [chatPartner, setChatPartner] = useState(() => ({ ...FALLBACK_PARTNER, bio: fallbackPartnerBio }));
+
+  useEffect(() => {
+    setChatPartner((current) => current.id === FALLBACK_PARTNER.id
+      ? { ...current, bio: fallbackPartnerBio }
+      : current);
+  }, [fallbackPartnerBio]);
   
   // --- UI TOGGLES ---
   const [showDrawer, setShowDrawer] = useState(false);
@@ -180,7 +187,7 @@ export default function DirectMessage() {
         setMessages(formatted);
       } catch (error) {
         console.error("Failed to load DM history:", error);
-        toast.error("COULD NOT FETCH CHAT HISTORY");
+        toast.error(t('chatHistoryFetchFailed'));
       }
     };
     
@@ -188,7 +195,7 @@ export default function DirectMessage() {
 
     // Clear messages when leaving DM
     return () => setMessages([]);
-  }, [userId, currentUser, setMessages]);
+  }, [userId, currentUser, setMessages, t]);
 
   // Scroll to bottom on new message
   useEffect(() => {
@@ -237,10 +244,10 @@ export default function DirectMessage() {
 
       setCallToken(response.data.token);
       setCallStartedAt(Date.now());
-      toast.success(mode === 'video' ? 'Video call connected' : 'Audio call connected');
+      toast.success(t('callConnected', { type: t(mode === 'video' ? 'video' : 'audio') }));
     } catch (error) {
       console.error('Failed to start call:', error);
-      toast.error('Could not connect call. Please try again.');
+      toast.error(t('callConnectFailed'));
       setCallMode(null);
       setCallToken('');
       setCallStartedAt(null);
@@ -365,14 +372,14 @@ export default function DirectMessage() {
                   <button onClick={() => { setShowDrawer(true); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
                     <Info className="w-4 h-4" /> {t('viewProfile')}
                   </button>
-                  <button onClick={() => { toast('Notifications muted'); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
+                  <button onClick={() => { toast(t('notificationsMuted')); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
                     <BellOff className="w-4 h-4" /> {t('muteChat')}
                   </button>
                   <div className="h-0.5 bg-zinc-800 my-1" />
-                  <button onClick={() => { toast.error('User Reported'); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
+                  <button onClick={() => { toast.error(t('userReported')); setShowOptions(false); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-zinc-300 hover:bg-zinc-900 hover:text-white transition-colors flex items-center gap-2">
                     <ShieldAlert className="w-4 h-4" /> {t('reportUser')}
                   </button>
-                  <button onClick={() => { toast.error('User Blocked'); navigate(-1); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2 border-none">
+                  <button onClick={() => { toast.error(t('userBlocked')); navigate(-1); }} className="w-full text-left px-4 py-3 text-xs uppercase tracking-widest text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2 border-none">
                     <Ban className="w-4 h-4" /> {t('block')}
                   </button>
                 </div>
@@ -407,16 +414,16 @@ export default function DirectMessage() {
                       
                       {/* Avatar for their messages (only on last message of block) */}
                       {!group.isMe && isLast && (
-                        <img src={chatPartner.avatar} alt="Avatar" className="w-6 h-6 rounded-none object-cover grayscale border-2 border-zinc-700 shrink-0 mb-1" />
+                        <img src={chatPartner.avatar} alt={t('profilePhotoAlt')} className="w-6 h-6 rounded-none object-cover grayscale border-2 border-zinc-700 shrink-0 mb-1" />
                       )}
                       {!group.isMe && !isLast && (
                         <div className="w-6 h-6 shrink-0" /> // Spacer
                       )}
 
-                      <div className={`px-4 py-2.5 text-[10px] md:text-xs uppercase tracking-widest leading-relaxed border-2 shadow-sm rounded-none
+                      <div className={`chat-bubble ${group.isMe ? 'chat-bubble--mine' : 'chat-bubble--other'} max-w-full border px-4 py-2.5 text-xs leading-relaxed shadow-lg md:text-sm
                         ${group.isMe 
-                          ? 'bg-white text-black border-white' 
-                          : 'bg-black text-zinc-300 border-zinc-800'
+                          ? 'border-white/80 bg-gradient-to-br from-white to-zinc-100 text-zinc-950 shadow-white/5'
+                          : 'border-zinc-700 bg-gradient-to-br from-zinc-900 to-black text-zinc-100 shadow-black/30'
                         }
                       `}>
                         {msg.text}
@@ -442,8 +449,8 @@ export default function DirectMessage() {
           {/* Incoming Typing Indicator */}
           {isTyping && (
             <div className="flex items-end gap-2">
-              <img src={chatPartner.avatar} alt="Avatar" className="w-6 h-6 rounded-none grayscale object-cover shrink-0 mb-1 border-2 border-zinc-700" />
-              <div className="bg-black text-zinc-300 border-2 border-zinc-800 rounded-none px-4 py-3.5 flex items-center gap-1">
+              <img src={chatPartner.avatar} alt={t('profilePhotoAlt')} className="w-6 h-6 rounded-none grayscale object-cover shrink-0 mb-1 border-2 border-zinc-700" />
+              <div className="chat-bubble chat-bubble--other flex items-center gap-1 border border-zinc-800 bg-gradient-to-br from-zinc-900 to-black px-4 py-3.5 text-zinc-300">
                 <span className="w-1.5 h-1.5 bg-zinc-500 rounded-none animate-bounce" style={{ animationDelay: '0ms' }}></span>
                 <span className="w-1.5 h-1.5 bg-zinc-500 rounded-none animate-bounce" style={{ animationDelay: '150ms' }}></span>
                 <span className="w-1.5 h-1.5 bg-zinc-500 rounded-none animate-bounce" style={{ animationDelay: '300ms' }}></span>
@@ -542,19 +549,19 @@ export default function DirectMessage() {
                   <div className="w-12 h-12 rounded-none bg-zinc-950 group-hover:bg-zinc-900 border-2 border-zinc-800 group-hover:border-zinc-700 flex items-center justify-center text-zinc-300 transition-colors">
                     <MessageSquare className="w-5 h-5" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Message</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{t('messageSingular')}</span>
                 </button>
                 <button onClick={() => startCall('audio')} className="flex flex-col items-center gap-2 group border-none">
                   <div className="w-12 h-12 rounded-none bg-zinc-950 group-hover:bg-green-500/10 border-2 border-zinc-800 group-hover:border-green-700 flex items-center justify-center text-zinc-300 group-hover:text-green-400 transition-colors">
                     <Phone className="w-5 h-5" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-green-400">Audio</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-green-400">{t('audio')}</span>
                 </button>
                 <button onClick={() => startCall('video')} className="flex flex-col items-center gap-2 group border-none">
                   <div className="w-12 h-12 rounded-none bg-zinc-950 group-hover:bg-blue-500/10 border-2 border-zinc-800 group-hover:border-blue-700 flex items-center justify-center text-zinc-300 group-hover:text-blue-400 transition-colors">
                     <Video className="w-5 h-5" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-blue-400">Video</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-blue-400">{t('video')}</span>
                 </button>
               </div>
 
@@ -569,13 +576,13 @@ export default function DirectMessage() {
               {/* Shared Media */}
               <div>
                 <div className="flex justify-between items-center mb-3">
-                  <h3 className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">SHARED MEDIA</h3>
-                  <button className="text-[10px] text-white font-bold hover:text-zinc-300 border-none uppercase tracking-widest">See All</button>
+                  <h3 className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">{t('sharedMedia')}</h3>
+                  <button className="text-[10px] text-white font-bold hover:text-zinc-300 border-none uppercase tracking-widest">{t('seeAll')}</button>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {chatPartner.sharedMedia.map((url, i) => (
                     <div key={i} className="aspect-square rounded-none overflow-hidden border-2 border-zinc-800 cursor-pointer hover:opacity-80 transition-opacity">
-                      <img src={url} alt="Shared" className="w-full h-full object-cover grayscale rounded-none" />
+                      <img src={url} alt={t('sharedMedia')} className="w-full h-full object-cover grayscale rounded-none" />
                     </div>
                   ))}
                 </div>
@@ -591,7 +598,7 @@ export default function DirectMessage() {
       {(callMode || isConnectingCall) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950 rounded-none">
           <div className="absolute inset-0 z-0 border-none rounded-none">
-            <img src={chatPartner.avatar} alt="Background" className="w-full h-full object-cover grayscale opacity-10 blur-sm rounded-none border-none" />
+            <img src={chatPartner.avatar} alt="" className="w-full h-full object-cover grayscale opacity-10 blur-sm rounded-none border-none" />
             <div className="absolute inset-0 bg-black/70 rounded-none border-none" />
           </div>
 
@@ -639,7 +646,7 @@ export default function DirectMessage() {
                     className="w-14 h-14 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200 hover:border-white hover:text-white transition-colors"
                   />
                   <div className="flex items-center gap-2">
-                    <label className="text-[10px] text-zinc-400">Mic</label>
+                    <label className="text-[10px] text-zinc-400">{t('mic')}</label>
                     <input
                       type="range"
                       min="0.1"
@@ -648,7 +655,7 @@ export default function DirectMessage() {
                       value={micGain}
                       onChange={(e) => setMicGain(parseFloat(e.target.value))}
                       className="w-[clamp(7rem,15vw,9rem)]"
-                      aria-label="Microphone gain"
+                      aria-label={t('microphoneGain')}
                     />
                   </div>
                   {callMode === 'video' && (
@@ -661,7 +668,7 @@ export default function DirectMessage() {
                   <button
                     onClick={() => { setIsScreenSharing(!isScreenSharing); toast(isScreenSharing ? 'Screen share stopped' : 'Screen share started (placeholder)'); }}
                     className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${isScreenSharing ? 'bg-green-500 text-black border-green-500' : 'border-zinc-700 text-zinc-200'}`}
-                    title="Toggle Screen Share"
+                    title={t('toggleScreenShare')}
                   >
                     <ImageIcon className="w-5 h-5" />
                   </button>
@@ -669,7 +676,7 @@ export default function DirectMessage() {
                   <button
                     onClick={() => { setSwappedCamera(!swappedCamera); toast('Camera switched'); }}
                     className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200"
-                    title="Swap Camera"
+                    title={t('swapCamera')}
                   >
                     <ArrowLeft className="w-4 h-4" />
                   </button>
@@ -677,7 +684,7 @@ export default function DirectMessage() {
                   <button
                     onClick={() => { setSpeakerOn(!speakerOn); toast(speakerOn ? 'Speaker off' : 'Speaker on'); }}
                     className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${speakerOn ? 'border-white text-white' : 'border-zinc-700 text-zinc-200'}`}
-                    title="Toggle Speaker"
+                    title={t('toggleSpeaker')}
                   >
                     <Headphones className="w-5 h-5" />
                   </button>
@@ -685,7 +692,7 @@ export default function DirectMessage() {
                   <button
                     onClick={() => { setShowReactions(!showReactions); }}
                     className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200"
-                    title="Reactions"
+                    title={t('reactions')}
                   >
                     <Smile className="w-5 h-5" />
                   </button>
@@ -697,7 +704,7 @@ export default function DirectMessage() {
                       toast('Requested to mute all (server must enforce)');
                     }}
                     className="w-12 h-12 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-200"
-                    title="Mute All"
+                    title={t('muteAll')}
                   >
                     <MicOff className="w-5 h-5" />
                   </button>
@@ -713,7 +720,7 @@ export default function DirectMessage() {
                   {showReactions && (
                     <div className="absolute bottom-20 right-12 bg-black border-2 border-zinc-800 p-2 rounded-xl flex gap-2 z-40">
                       {['👍','❤️','🔥','😂','🎉'].map((emo) => (
-                        <button key={emo} onClick={() => { publishMessage && publishMessage(emo); toast.success('Reacted ' + emo); setShowReactions(false); }} className="p-2 text-xl">{emo}</button>
+                        <button key={emo} onClick={() => { publishMessage && publishMessage(emo); toast.success(t('reacted', { emoji: emo })); setShowReactions(false); }} className="p-2 text-xl">{emo}</button>
                       ))}
                     </div>
                   )}
@@ -750,7 +757,7 @@ function DirectMessageCallStage({ chatPartner, callMode, callElapsedSec }) {
         {callMode === 'video' && localCameraTrack ? (
           <>
             <VideoTrack trackRef={localCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.7), transparent)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(var(--shadow-rgb), 0.7), transparent)' }} />
           </>
         ) : (
           <div className="w-24 h-24 rounded-full border-2 border-zinc-700 bg-black flex items-center justify-center text-2xl text-zinc-400 font-bold z-10">
@@ -758,7 +765,7 @@ function DirectMessageCallStage({ chatPartner, callMode, callElapsedSec }) {
           </div>
         )}
         <div className="text-center z-10 px-3 py-1.5 bg-black/50 border border-zinc-700">
-          <p className="text-xs font-black uppercase tracking-widest text-white">You</p>
+          <p className="text-xs font-black uppercase tracking-widest text-white">{t('you')}</p>
           <p className="text-[10px] uppercase tracking-widest text-zinc-300">Microphone {localParticipant?.isMicrophoneEnabled ? 'on' : 'off'}</p>
           <div className="mt-2 inline-block h-2 w-[clamp(6rem,15vw,9rem)] overflow-hidden bg-zinc-800 rounded">
             <span className="block h-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round((localParticipant?.audioLevel ?? localParticipant?.audio_level ?? 0) * 200))}%`, transition: 'width 120ms linear' }} />
@@ -776,7 +783,7 @@ function DirectMessageCallStage({ chatPartner, callMode, callElapsedSec }) {
         {primaryRemote ? (
           <>
             {(!remoteCameraTrack || callMode !== 'video') && (
-              <div className="w-24 h-24 rounded-full border-2 bg-black flex items-center justify-center text-2xl font-bold z-10" style={{ borderColor: primaryRemote.isSpeaking ? 'rgba(34,197,94,0.9)' : undefined, boxShadow: primaryRemote.isSpeaking ? '0 0 30px rgba(34,197,94,0.25)' : undefined, transform: primaryRemote.isSpeaking ? 'scale(1.04)' : undefined }}>
+              <div className="w-24 h-24 rounded-full border-2 bg-black flex items-center justify-center text-2xl font-bold z-10" style={{ borderColor: primaryRemote.isSpeaking ? 'rgba(var(--success-rgb), 0.9)' : undefined, boxShadow: primaryRemote.isSpeaking ? '0 0 30px rgba(var(--success-rgb), 0.25)' : undefined, transform: primaryRemote.isSpeaking ? 'scale(1.04)' : undefined }}>
                 {(primaryRemote.name || chatPartner.name || 'U').charAt(0).toUpperCase()}
               </div>
             )}
@@ -795,7 +802,7 @@ function DirectMessageCallStage({ chatPartner, callMode, callElapsedSec }) {
             <img src={chatPartner.avatar} alt={chatPartner.name} className="w-24 h-24 rounded-full border-2 border-zinc-700 object-cover grayscale z-10" />
             <div className="text-center z-10 px-3 py-1.5 bg-black/50 border border-zinc-700">
               <p className="text-xs font-black uppercase tracking-widest text-white">{chatPartner.name}</p>
-              <p className="text-[10px] uppercase tracking-widest text-zinc-300">Ringing...</p>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-300">{t('ringing')}</p>
             </div>
           </>
         )}

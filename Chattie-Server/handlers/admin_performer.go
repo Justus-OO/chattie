@@ -59,6 +59,10 @@ func (h *AdminPerformerHandler) ReviewApplication(w http.ResponseWriter, r *http
 	}
 	if err := h.Repo.ReviewApplication(r.Context(), adminID, applicationID, request.Decision); err != nil {
 		switch {
+		case errors.Is(err, repository.ErrCreatorApplicationAlreadyApproved):
+			sendAdminError(w, http.StatusConflict, "This user already has an approved creator application")
+		case errors.Is(err, repository.ErrCreatorApplicationPending):
+			sendAdminError(w, http.StatusConflict, "This user already has a pending creator application")
 		case errors.Is(err, repository.ErrCreatorApplicationNotEligible):
 			sendAdminError(w, http.StatusConflict, "Application does not meet the age, identity, and consent requirements for approval")
 		case errors.Is(err, sql.ErrNoRows):

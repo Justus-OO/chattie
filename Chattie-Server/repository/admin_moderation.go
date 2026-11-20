@@ -13,6 +13,25 @@ type AdminRepository struct {
 
 var ErrModerationTargetMismatch = errors.New("moderation target does not match the report")
 
+type rowQueryer interface {
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
+func firewallRuleActive(ctx context.Context, db rowQueryer, ruleID string) (bool, error) {
+	var active bool
+	err := db.QueryRowContext(ctx, `
+		SELECT is_active FROM firewall_rules WHERE id = $1
+	`, ruleID).Scan(&active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return active, err
+}
+
+func (r *Repository) IsFirewallRuleActive(ctx context.Context, ruleID string) (bool, error) {
+	return firewallRuleActive(ctx, r.DB, ruleID)
+}
+
 func NewAdminRepository(db *sql.DB) *AdminRepository {
 	return &AdminRepository{DB: db}
 }

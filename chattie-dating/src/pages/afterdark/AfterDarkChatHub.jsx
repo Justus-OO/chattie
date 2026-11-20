@@ -82,7 +82,7 @@ function MessageBubble({ message, isMine, revealExplicitByDefault, fontSize, the
   return (
     <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
       <article
-        className={`group relative max-w-[min(82%,560px)] border-2 px-3 py-2 ${isMine ? 'border-zinc-600' : 'border-zinc-800'}`}
+        className={`chat-bubble ${isMine ? 'chat-bubble--mine border-zinc-600' : 'chat-bubble--other border-zinc-800'} group relative max-w-[min(82%,560px)] border-2 px-3 py-2`}
         style={{ backgroundColor: isMine ? theme.mine : theme.other, color: theme.text }}
       >
         {message.replyToMessageId && (

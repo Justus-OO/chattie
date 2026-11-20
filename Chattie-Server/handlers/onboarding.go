@@ -68,6 +68,12 @@ func (h *OnboardingHandler) SetupProfile(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Profile saved successfully"})
 }
 
+func isValidCountryCode(code string) bool {
+	return len(code) == 2 && code != "XX" && code != "T1" &&
+		code[0] >= 'A' && code[0] <= 'Z' &&
+		code[1] >= 'A' && code[1] <= 'Z'
+}
+
 // SetupLocation handles Step 3
 func (h *OnboardingHandler) SetupLocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -87,7 +93,16 @@ func (h *OnboardingHandler) SetupLocation(w http.ResponseWriter, r *http.Request
 	loc.UserID = userID
 	loc.City = strings.TrimSpace(loc.City)
 	loc.Country = strings.TrimSpace(loc.Country)
-	loc.CountryCode, _ = r.Context().Value(middlewares.CountryCodeKey).(string)
+	trustedCountryCode := middlewares.CountryCodeFromContext(r.Context())
+	if trustedCountryCode != "" {
+		loc.CountryCode = trustedCountryCode
+	} else {
+		loc.CountryCode = strings.ToUpper(strings.TrimSpace(loc.CountryCode))
+		if !isValidCountryCode(loc.CountryCode) {
+			http.Error(w, `{"error":"A valid two-letter country code is required."}`, http.StatusBadRequest)
+			return
+		}
+	}
 	if strings.TrimSpace(loc.City) == "" ||
 		math.IsNaN(loc.Latitude) || math.IsInf(loc.Latitude, 0) || loc.Latitude < -90 || loc.Latitude > 90 ||
 		math.IsNaN(loc.Longitude) || math.IsInf(loc.Longitude, 0) || loc.Longitude < -180 || loc.Longitude > 180 {

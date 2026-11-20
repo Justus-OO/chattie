@@ -1,6 +1,12 @@
 import { apiClient } from './client';
 
 export const adminService = {
+  downloadReport: async (type, userId) => {
+    const path = type === 'user' ? `/admin/reports/user/${encodeURIComponent(userId)}`
+      : `/admin/reports/${encodeURIComponent(type)}`;
+    const res = await apiClient.get(path, { responseType: 'blob' });
+    return res.data;
+  },
   getDashboardTelemetry: async () => {
     const res = await apiClient.get('/admin/dashboard');
     return res.data;
@@ -68,6 +74,16 @@ export const adminService = {
     return res.data;
   },
 
+  scoreAfterDarkPostSafety: async (postId) => {
+    const res = await apiClient.post(`/admin/afterdark/posts/${encodeURIComponent(postId)}/ai-score`);
+    return res.data;
+  },
+
+  autoApproveSafeAfterDarkPosts: async () => {
+    const res = await apiClient.post('/admin/afterdark/posts/ai-auto-approve');
+    return res.data;
+  },
+
   getPendingAfterDarkEarnings: async () => {
     const res = await apiClient.get('/admin/afterdark/earnings-clearance');
     return res.data;
@@ -75,6 +91,11 @@ export const adminService = {
 
   clearAfterDarkEarnings: async (userId, payload) => {
     const res = await apiClient.post(`/admin/afterdark/earnings-clearance/${userId}`, payload);
+    return res.data;
+  },
+
+  autoClearAfterDarkPPEarnings: async (userId) => {
+    const res = await apiClient.post(`/admin/afterdark/earnings-clearance/${encodeURIComponent(userId)}/auto`);
     return res.data;
   },
 
@@ -214,6 +235,11 @@ export const adminService = {
 
   terminateRoom: async (roomId) => {
     const res = await apiClient.delete(`/admin/rooms/${roomId}`);
+    return res.data;
+  },
+
+  updateRoomStatus: async (roomId, status) => {
+    const res = await apiClient.patch(`/admin/rooms/${encodeURIComponent(roomId)}/status`, { status });
     return res.data;
   },
 

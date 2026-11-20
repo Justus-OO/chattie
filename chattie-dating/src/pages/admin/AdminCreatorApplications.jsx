@@ -33,7 +33,9 @@ export default function AdminCreatorApplications() {
   const review = async (application, decision) => {
     if (processingId) return;
     if (decision === 'approve' && !application.eligible_for_approval) {
-      toast.error('This application does not meet the age, identity, and consent requirements.');
+      toast.error(application.has_existing_approval
+        ? 'This user already has an approved creator application.'
+        : 'This application does not meet the age, identity, and consent requirements.');
       return;
     }
     const confirmed = window.confirm(
@@ -69,15 +71,15 @@ export default function AdminCreatorApplications() {
         </button>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-4">
+      <main className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex justify-center p-10"><Loader2 className="h-6 w-6 animate-spin text-yellow-400" /></div>
         ) : applications.length === 0 ? (
           <div className="border border-zinc-800 bg-zinc-950 p-8 text-center text-sm text-zinc-500">There are no pending creator applications.</div>
         ) : (
-          <div className="mx-auto max-w-5xl space-y-4">
+          <div className="w-full space-y-0">
             {applications.map((application) => (
-              <article key={application.id} className="border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
+              <article key={application.id} className="w-full border-b border-zinc-800 bg-zinc-950 p-4 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <h2 className="text-base font-black text-white">{application.creator_alias}</h2>
@@ -88,9 +90,17 @@ export default function AdminCreatorApplications() {
                   </div>
                   <span className={`flex items-center gap-1 border px-2 py-1 text-[10px] font-black uppercase ${application.eligible_for_approval ? 'border-green-900 text-green-400' : 'border-amber-900 text-amber-400'}`}>
                     {application.eligible_for_approval ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />}
-                    {application.eligible_for_approval ? 'Requirements met' : 'Requirements incomplete'}
+                    {application.has_existing_approval
+                      ? 'Already approved'
+                      : application.eligible_for_approval ? 'Requirements met' : 'Requirements incomplete'}
                   </span>
                 </div>
+
+                {application.has_existing_approval && (
+                  <p className="mt-3 border border-blue-900/70 bg-blue-950/20 p-3 text-xs text-blue-200">
+                    This user already has an approved creator application. This pending duplicate cannot be approved again.
+                  </p>
+                )}
 
                 <div className="mt-4 border border-yellow-900/70 bg-yellow-950/20 p-3">
                   <h3 className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-yellow-400">
@@ -99,6 +109,22 @@ export default function AdminCreatorApplications() {
                   <p className="whitespace-pre-wrap text-sm text-zinc-300">
                     {application.ai_triage_summary || 'Summary is pending. Review the application details and verification records directly.'}
                   </p>
+                </div>
+
+                <div className="mt-4 grid gap-2 border border-zinc-800 bg-black p-3 sm:grid-cols-2">
+                  {[
+                    ['Identity verified', application.identity_verified],
+                    ['Age 18+', application.age_verified],
+                    ['Required consents', application.consents_verified],
+                    ['Profile details', application.profile_complete],
+                  ].map(([label, complete]) => (
+                    <div key={label} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest">
+                      {complete
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
+                        : <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />}
+                      <span className={complete ? 'text-zinc-300' : 'text-amber-300'}>{label}: {complete ? 'Complete' : 'Incomplete'}</span>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="mt-4 flex flex-wrap justify-end gap-2">

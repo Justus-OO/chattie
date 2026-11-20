@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Flame, Filter, Search, TrendingUp, Crown, Lock, 
   Unlock, Star, ChevronRight, Loader2, AlertTriangle,
-  RefreshCcw, ShieldCheck, SlidersHorizontal, Plus, Radio, Video,
+  RefreshCcw, SlidersHorizontal, Plus, Radio, Video,
   VideoOff, Mic, MicOff, X, Users
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -1113,7 +1113,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
         role="dialog" 
         aria-modal="true" 
         aria-labelledby="live-studio-title" 
-        className="relative flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden border-2 border-yellow-400 bg-black shadow-[8px_8px_0px_rgba(250,204,21,0.2)] rounded-none animate-in zoom-in-95 duration-200 z-10"
+        className="relative flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden border-2 border-yellow-400 bg-black shadow-[8px_8px_0px_rgba(var(--warning-rgb), 0.2)] rounded-none animate-in zoom-in-95 duration-200 z-10"
       >
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <div className="flex items-center gap-3">
@@ -1167,7 +1167,7 @@ const LiveStudioModal = ({ isOpen, onClose, creator, initialLiveSession, onLiveS
                 </span>
               )}
               {tipAlert && (
-                <div role="status" className="absolute left-1/2 top-16 z-20 w-[min(90%,24rem)] -translate-x-1/2 border-2 border-black bg-yellow-400 p-3 text-black shadow-[4px_4px_0px_rgba(0,0,0,0.6)]">
+                <div role="status" className="absolute left-1/2 top-16 z-20 w-[min(90%,24rem)] -translate-x-1/2 border-2 border-black bg-yellow-400 p-3 text-black shadow-[4px_4px_0px_rgba(var(--shadow-rgb), 0.6)]">
                   <p className="text-xs font-extrabold uppercase">
                     {tipAlert.sender_name || 'A viewer'} tipped KES {(Number(tipAlert.amount_cents) / 100).toLocaleString()}
                   </p>
@@ -1765,7 +1765,7 @@ export default function AfterDarkFeed() {
     setIsPaymentModalOpen(true);
   };
 
-  const handlePaymentSuccess = (payment) => {
+  const handlePaymentSuccess = async (payment) => {
     if (payment?.payment_type === 'live_tip') {
       toast.success(`KES ${(payment.amount_cents / 100).toLocaleString()} live tip sent.`);
       return;
@@ -1779,10 +1779,20 @@ export default function AfterDarkFeed() {
       grantAfterDarkLivePass(selectedLiveCreator.id, selectedLiveCreator.liveSession.sessionId);
       return;
     }
-    const postId = payment?.target_id || payment?.targetId || payment;
+    const paymentPostId = payment?.target_id || payment?.targetId || payment?.post_id || payment?.postId;
+    const postId = String(paymentPostId || selectedPaymentPost?.id || '');
+    if (!postId || !posts.some(post => String(post.id) === postId)) return;
     setPosts(prev => prev.map(p => 
-      p.id === postId ? { ...p, isUnlocked: true } : p
+      String(p.id) === postId ? { ...p, isUnlocked: true } : p
     ));
+    try {
+      const mediaResponse = await afterDarkService.getPostMediaUrl(postId);
+      const mediaUrl = mediaResponse?.url || mediaResponse?.media_url;
+      if (!mediaUrl) throw new Error('The server did not return authorized post media.');
+      setPosts(prev => prev.map(post => String(post.id) === postId ? { ...post, mediaUrl } : post));
+    } catch (error) {
+      toast.error(error?.response?.data?.error || 'Payment is confirmed, but the post media could not be opened. Refresh the feed to retry.');
+    }
   };
 
   const openCreator = (creator) => {
@@ -1926,8 +1936,8 @@ export default function AfterDarkFeed() {
         {/* TOP STICKY HEADER (Matches UserSettings Header) */}
         <header className="border-b-2 border-zinc-800 bg-zinc-950 flex flex-col shrink-0 z-20 rounded-none">
           
-          <div className="p-4 md:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="p-2 md:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+            <div className="hidden items-center gap-3 md:flex">
               <div className="p-2 border-2 border-zinc-600 bg-black rounded-none">
                 <Flame className="w-5 h-5 text-white" />
               </div>
@@ -1950,7 +1960,8 @@ export default function AfterDarkFeed() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="SEARCH CREATORS, TAGS..."
+                  aria-label="Search creators, posts, or tags"
+                  placeholder="Search posts..."
                   className="w-full bg-black border-2 border-zinc-800 rounded-none pl-9 pr-3 py-2 text-xs font-bold text-white uppercase tracking-widest placeholder:text-zinc-600 focus:outline-none focus:border-white transition-colors"
                 />
               </div>
@@ -2030,10 +2041,10 @@ export default function AfterDarkFeed() {
           {/* Sharp Segmented Filter Tabs (Exact match to UserSettings 'Show Me' group) */}
           <div className="flex border-t-2 border-zinc-800 bg-black rounded-none">
             {[
-              { id: 'all', label: 'All Content', icon: Filter },
-              { id: 'subscriber', label: 'Subscriber', icon: Crown },
-              { id: 'ppv', label: 'One-Time Unlocks', icon: Lock },
-              { id: 'free', label: 'Free Teasers', icon: Unlock },
+              { id: 'all', label: 'All Content', mobileLabel: 'All', icon: Filter },
+              { id: 'subscriber', label: 'Subscriber', mobileLabel: 'VIP', icon: Crown },
+              { id: 'ppv', label: 'One-Time Unlocks', mobileLabel: 'PPV', icon: Lock },
+              { id: 'free', label: 'Free Teasers', mobileLabel: 'Free', icon: Unlock },
             ].map(tab => {
               const Icon = tab.icon;
               const isSelected = activeFilter === tab.id;
@@ -2049,7 +2060,8 @@ export default function AfterDarkFeed() {
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{tab.label}</span>
+                  <span className="hidden truncate sm:inline">{tab.label}</span>
+                  <span className="truncate sm:hidden">{tab.mobileLabel}</span>
                 </button>
               );
             })}
@@ -2076,43 +2088,7 @@ export default function AfterDarkFeed() {
 
         {/* SCROLLABLE FEED BODY */}
         <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar bg-black">
-          <div className="flex min-h-full w-full flex-col p-2 pb-4 sm:p-3 lg:p-4 space-y-4">
-            
-            {/* Info Notice Box */}
-            <section className="bg-black border-2 border-zinc-800 p-4 flex items-center justify-between rounded-none">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 leading-relaxed">
-                <span className="text-yellow-400">One-Time Post Unlocks</span> are separate purchases for individual feed posts. To get ongoing subscriber access, open a creator profile and subscribe there.
-              </p>
-            </section>
-            {!showExplicitContent && (
-              <section role="note" className="flex flex-col items-start justify-between gap-3 border-2 border-yellow-900 bg-zinc-950 p-4 sm:flex-row sm:items-center">
-                <p className="text-[10px] font-bold uppercase leading-relaxed tracking-widest text-zinc-300">
-                  Explicit posts are hidden by your current viewing preference. If expected posts are missing, enable explicit content in After Dark Settings. Posts awaiting moderation remain hidden.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => navigate('/afterdark/settings?tab=viewing')}
-                  className="shrink-0 border-2 border-yellow-700 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-yellow-300 hover:border-yellow-400 hover:text-white"
-                >
-                  Viewing settings
-                </button>
-              </section>
-            )}
-
-            {/* Encryption Status Box */}
-            <section className="bg-zinc-950 border-2 border-zinc-800 p-4 flex items-center gap-4 rounded-none">
-              <div className="w-10 h-10 bg-black border-2 border-green-500 flex items-center justify-center shrink-0 rounded-none">
-                <ShieldCheck className="w-5 h-5 text-green-500" />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-green-500 mb-0.5">
-                  Privacy Shield Active
-                </h2>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 leading-relaxed">
-                  Payment details are concealed when this window loses focus. Web browsers cannot block device screenshots.
-                </p>
-              </div>
-            </section>
+          <div className="flex min-h-full w-full flex-col p-0 pb-4 sm:p-3 lg:p-4 space-y-4 sm:space-y-6">
 
             {/* Feed Posts or States */}
             {loading && posts.length === 0 ? (
@@ -2156,7 +2132,7 @@ export default function AfterDarkFeed() {
                 </button>
               </div>
             ) : (
-              <div className="space-y-8">
+              <div className="space-y-4 sm:space-y-6">
                 {visiblePosts.map(post => (
                   <LockedPostCard 
                     key={post.id} 
@@ -2249,7 +2225,7 @@ export default function AfterDarkFeed() {
 
           {/* Creator Studio Banner (Matches Chattie Gold VIP Banner in UserSettings) */}
           {isCreator && (
-            <section className="bg-black border-2 border-yellow-400 p-5 flex flex-col justify-between group shadow-[4px_4px_0px_rgba(250,204,21,0.1)] hover:shadow-[6px_6px_0px_rgba(250,204,21,0.2)] transition-all rounded-none">
+            <section className="bg-black border-2 border-yellow-400 p-5 flex flex-col justify-between group shadow-[4px_4px_0px_rgba(var(--warning-rgb), 0.1)] hover:shadow-[6px_6px_0px_rgba(var(--warning-rgb), 0.2)] transition-all rounded-none">
               <div className="flex items-start gap-3 mb-4">
                 <div className="w-10 h-10 bg-black border-2 border-yellow-400 flex items-center justify-center shrink-0 rounded-none">
                   <Crown className="w-5 h-5 text-yellow-400" />

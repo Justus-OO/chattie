@@ -9,7 +9,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background-image: linear-gradient(rgba(92, 74, 61, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(92, 74, 61, 0.045) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(var(--border-rgb), 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(var(--border-rgb), 0.045) 1px, transparent 1px);
   background-size: 32px 32px;
   mask-image: linear-gradient(to bottom, black, transparent 82%);
 }
@@ -95,9 +95,9 @@
 .discovery-primary {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
-  color: #fff !important;
+  color: var(--text-on-accent) !important;
   border-radius: 0.8rem !important;
-  box-shadow: 0 10px 24px rgba(210, 79, 116, 0.2);
+  box-shadow: 0 10px 24px rgba(var(--accent-rgb), 0.2);
 }
 
 .discovery-primary:hover {
@@ -115,12 +115,35 @@
 .discovery-swipe-card {
   border: 1px solid var(--border) !important;
   border-radius: 1.5rem !important;
-  box-shadow: 0 28px 70px rgba(67, 51, 36, 0.2) !important;
+  box-shadow: 0 28px 70px rgba(var(--shadow-rgb), 0.2) !important;
 }
 
 .discovery-swipe-profile-accent {
-  color: var(--warning);
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
+  color: var(--accent-strong);
+  text-shadow: 0 1px 5px rgba(var(--shadow-rgb), 0.18);
+}
+
+.discovery-swipe-card-caption {
+  padding: 2rem 0.75rem 0.75rem;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 1.4rem 1.4rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 0%, transparent),
+    color-mix(in srgb, var(--surface) 90%, transparent) 42%,
+    color-mix(in srgb, var(--surface) 96%, transparent)
+  );
+  color: var(--text-primary);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.discovery-swipe-card-caption .text-white {
+  color: var(--accent) !important;
+}
+
+.discovery-swipe-card-caption button:hover {
+  color: var(--accent-strong) !important;
 }
 
 .discovery-swipe-card > div:first-child {

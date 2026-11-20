@@ -41,6 +41,7 @@ export default function AdminFinance() {
   const [finance, setFinance] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -113,6 +114,25 @@ export default function AdminFinance() {
     URL.revokeObjectURL(url);
   };
 
+  const exportPdf = async () => {
+    setIsExportingPdf(true);
+    try {
+      const blob = await adminService.downloadReport('financial');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `financial-ledger-${new Date().toISOString().slice(0, 7)}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setLoadError(getErrorMessage(error));
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   const activeSubscriptions = Number(finance?.activeMainSubscriptions || 0)
     + Number(finance?.activeAfterDarkSubscriptions || 0);
 
@@ -158,6 +178,14 @@ export default function AdminFinance() {
               className="flex items-center gap-2 border-2 border-white bg-white px-4 py-2 text-[9px] font-black uppercase tracking-widest text-black hover:bg-zinc-200 disabled:opacity-50"
             >
               <Download className="h-4 w-4" /> Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={exportPdf}
+              disabled={isExportingPdf}
+              className="flex items-center gap-2 border-2 border-emerald-700 px-4 py-2 text-[9px] font-black uppercase tracking-widest text-emerald-200 hover:border-emerald-400 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" /> {isExportingPdf ? 'Generating PDF…' : 'Export monthly PDF'}
             </button>
           </div>
         </header>

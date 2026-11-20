@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import {
   X, MessageSquare, Activity, ArrowLeft, Send, Image as ImageIcon, Video,
   Sparkles, Loader2, RefreshCw, Smile, Phone, PhoneOff, Pin, PinOff, Ban, Flag
 } from 'lucide-react';
 import { toast } from 'sonner';
-import EmojiPicker from 'emoji-picker-react';
 import { useAppStore } from '../../store/useAppStore';
 
 import { 
@@ -25,6 +24,7 @@ import { chatService } from '../../api/chat.service';
 import { apiClient } from '../../api/client';
 import { useI18n } from '../../i18n';
 import { useAppDialogs } from '../../components/modals/useAppDialogs';
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880";
 
@@ -167,11 +167,11 @@ export default function ModelChatQueue() {
   }
 
   return (
-    <div className="chat-theme-sharp flex h-full min-h-0 min-w-0 flex-col text-zinc-300 font-mono" style={{ backgroundColor: 'var(--app-bg)', color: 'var(--text-primary)', fontFamily: 'Roboto, sans-serif' }}>
+    <div className="chat-theme-sharp flex h-full min-h-0 min-w-0 flex-col text-zinc-300 font-mono" style={{ backgroundColor: 'var(--app-bg)', color: 'var(--text-primary)', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       <div className="border-b p-3 md:p-4 shrink-0" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))', color: '#fff' }}>
+            <div className="p-2 rounded-xl" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))', color: 'var(--text-on-accent)' }}>
               <MessageSquare className="w-4 h-4" />
             </div>
             <div>
@@ -181,7 +181,7 @@ export default function ModelChatQueue() {
           </div>
 
           <div className="flex items-center flex-wrap gap-3">
-            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5" style={{ background: 'rgba(42,156,107,0.08)', borderColor: 'rgba(42,156,107,0.35)', color: 'var(--success)' }}>
+            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5" style={{ background: 'rgba(var(--success-rgb), 0.08)', borderColor: 'rgba(var(--success-rgb), 0.35)', color: 'var(--success)' }}>
               <span className="inline-block h-2 w-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }} />
               <span className="text-[9px] font-black uppercase tracking-[0.18em]">Sync live</span>
             </div>
@@ -189,7 +189,7 @@ export default function ModelChatQueue() {
               onClick={() => fetchQueue(true)}
               disabled={isRefreshing}
               className="flex items-center gap-2 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] border transition-all disabled:opacity-50"
-              style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)', color: 'var(--text-primary)' }}
+              style={{ borderColor: 'var(--border)', background: 'rgba(var(--highlight-rgb), 0.02)', color: 'var(--text-primary)' }}
             >
               <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
               {isRefreshing ? 'Refreshing' : 'Refresh'}
@@ -222,7 +222,7 @@ export default function ModelChatQueue() {
               className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.18em] border transition-all"
               style={{
                 backgroundColor: activeFilter === f ? 'var(--accent)' : 'var(--surface-strong)',
-                color: activeFilter === f ? '#ffffff' : 'var(--text-primary)',
+                color: activeFilter === f ? 'var(--text-on-accent)' : 'var(--text-primary)',
                 borderColor: activeFilter === f ? 'var(--accent)' : 'var(--border)'
               }}
             >
@@ -235,7 +235,7 @@ export default function ModelChatQueue() {
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-3 lg:p-4">
         <div className="w-full space-y-3">
           {filteredQueue.length === 0 ? (
-            <div className="p-16 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center text-center" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.02)' }}>
+            <div className="p-16 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center text-center" style={{ borderColor: 'var(--border)', background: 'rgba(var(--highlight-rgb), 0.02)' }}>
               <Activity className="w-12 h-12 mb-4" style={{ color: 'var(--text-muted)' }} />
               <h3 className="text-xl font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-primary)' }}>
                 {activeFilter === 'UNREAD' ? 'You are all caught up' : 'No conversations yet'}
@@ -267,7 +267,7 @@ export default function ModelChatQueue() {
                     {req.avatar ? (
                       <img src={req.avatar} alt="" className="w-14 h-14 object-cover border" style={{ borderColor: 'var(--border)' }} />
                     ) : (
-                      <span className="w-14 h-14 flex items-center justify-center border text-lg font-black" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                      <span className="w-14 h-14 flex items-center justify-center border text-lg font-black" style={{ background: 'rgba(var(--highlight-rgb), 0.03)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
                         {req.user.charAt(0).toUpperCase()}
                       </span>
                     )}
@@ -281,7 +281,7 @@ export default function ModelChatQueue() {
                       <span className="mt-1 flex items-center justify-between gap-3">
                         <span className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{req.lastMessage || 'Open conversation'}</span>
                         {req.unreadCount > 0 && (
-                          <span className="min-w-5 h-5 px-1 flex items-center justify-center text-[10px] font-black" style={{ background: 'var(--accent)', color: '#fff' }}>
+                          <span className="min-w-5 h-5 px-1 flex items-center justify-center text-[10px] font-black" style={{ background: 'var(--accent)', color: 'var(--text-on-accent)' }}>
                             {req.unreadCount > 99 ? '99+' : req.unreadCount}
                           </span>
                         )}
@@ -1289,10 +1289,10 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
   const latestPinnedMessage = [...messages].reverse().find((message) => message.isPinned);
 
   return (
-    <div className="chat-theme-sharp flex flex-col h-full bg-black text-zinc-300 font-mono absolute inset-0 z-50 animate-in slide-in-from-right-10" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="chat-theme-sharp flex flex-col h-full bg-black text-zinc-300 font-mono absolute inset-0 z-50 animate-in slide-in-from-right-10" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* Chat Header */}
-      <div className="flex items-center justify-between p-4 border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(0,0,0,0.5)] z-20">
+      <div className="flex items-center justify-between p-4 border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(var(--shadow-rgb), 0.5)] z-20">
         <div className="flex items-center gap-4">
           <button onClick={onBack} disabled={isInCall || Boolean(outgoingCallData)} className="p-2 border-2 border-zinc-800 hover:border-white hover:text-white transition-colors bg-zinc-950 disabled:opacity-40">
             <ArrowLeft className="w-5 h-5" />
@@ -1369,7 +1369,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
       {/* INCOMING CALL OVERLAY */}
       {incomingCallData && !isInCall && (
         <div className="absolute inset-0 z-60 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-md p-6 bg-zinc-950 border-2 border-white shadow-[8px_8px_0px_rgba(255,255,255,0.2)] text-center">
+          <div className="w-full max-w-md p-6 bg-zinc-950 border-2 border-white shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.2)] text-center">
             <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">Incoming {incomingCallData.mode} Call</h3>
             <p className="text-xs text-zinc-400 uppercase font-bold mb-6">From {incomingCallData.fromName}</p>
             <div className="flex gap-4">
@@ -1424,10 +1424,10 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
                 const isSystem = msg.sender === 'system';
                 const isModel = msg.sender === 'model';
                 const bubbleStyle = isSystem
-                  ? 'rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-2 text-center text-xs font-medium text-zinc-400'
+                  ? 'chat-bubble chat-bubble--system border border-zinc-800 bg-zinc-900/80 px-4 py-2 text-center text-xs font-medium text-zinc-400'
                   : isModel
-                    ? 'rounded-2xl rounded-br-md border border-amber-200/50 bg-gradient-to-br from-amber-200 to-amber-100 px-4 py-3 text-zinc-950 shadow-sm'
-                    : 'rounded-2xl rounded-bl-md border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-100 shadow-sm';
+                    ? 'chat-bubble chat-bubble--mine border border-amber-200/60 bg-gradient-to-br from-amber-200 to-amber-100 px-4 py-3 text-zinc-950 shadow-amber-950/20'
+                    : 'chat-bubble chat-bubble--other border border-zinc-700 bg-gradient-to-br from-zinc-800 to-zinc-900 px-4 py-3 text-zinc-100 shadow-black/30';
 
                 return (
                   <div id={`creator-message-${msg.id}`} key={msg.id} className={`flex flex-col max-w-[min(88%,42rem)] ${isSystem ? 'self-center' : isModel ? 'self-end items-end ml-auto' : 'self-start items-start'}`}>
@@ -1518,15 +1518,17 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
           {/* Chat Input */}
           <div className="p-4 bg-zinc-950 border-t-2 border-zinc-800 shrink-0 relative z-30">
             {showEmojiPicker && (
-              <div className="absolute bottom-[calc(100%+10px)] left-16 z-50 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] border-2 border-zinc-700 bg-black">
-                <EmojiPicker 
-                  theme={theme}
-                  onEmojiClick={handleEmojiSelect}
-                  searchDisabled={true}
-                  skinTonesDisabled={true}
-                  height={350}
-                  width={300}
-                />
+              <div className="absolute bottom-[calc(100%+10px)] left-16 z-50 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] border-2 border-zinc-700 bg-black">
+                <Suspense fallback={<div className="p-4 text-xs text-zinc-400">Loading emoji...</div>}>
+                  <EmojiPicker
+                    theme={theme}
+                    onEmojiClick={handleEmojiSelect}
+                    searchDisabled={true}
+                    skinTonesDisabled={true}
+                    height={350}
+                    width={300}
+                  />
+                </Suspense>
               </div>
             )}
 
@@ -1599,7 +1601,7 @@ function LiveChatInterface({ chatData, activeProfileId, profileChatUserId, onBac
       {showMediaVault && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowMediaVault(false)} />
-          <div className="relative flex h-[80dvh] min-h-0 w-full max-w-2xl flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200">
+          <div className="relative flex h-[80dvh] min-h-0 w-full max-w-2xl flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <ImageIcon className="w-4 h-4 text-zinc-400" /> [{modelName.toUpperCase()}] APPROVED MEDIA VAULT
@@ -1693,7 +1695,7 @@ function InboxCallStage({ activeChat, callMode, callElapsedSec, localStream, mic
                       className="inline-block h-2 rounded-full transition-all duration-150" 
                       style={{ 
                         width: `${6 + index * 4}px`, 
-                        backgroundColor: active ? '#22c55e' : 'rgba(100,116,139,0.3)' 
+                        backgroundColor: active ? 'var(--success)' : 'rgba(var(--text-muted-rgb), 0.3)'
                       }} 
                     />
                   );

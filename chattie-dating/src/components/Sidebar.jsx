@@ -87,14 +87,15 @@ export default function Sidebar() {
     // 3. BACKGROUND POLLER: Fetch live participant counts every 10 seconds
     // ========================================================================
     const intervalId = setInterval(async () => {
+      if (document.visibilityState !== 'visible') return;
       try {
         setRooms(await chatService.getAllRooms());
         setRoomsLoadError(false);
-      } catch {
+      } catch (error) {
         setRoomsLoadError(true);
         console.warn('Could not refresh sidebar rooms; keeping the last available list.', error);
       }
-    }, 10000);
+    }, 60000);
 
     return () => clearInterval(intervalId); // Cleanup on unmount
   }, []);
@@ -137,7 +138,7 @@ export default function Sidebar() {
               <Bell className="w-4 h-4" />
               <span className="absolute top-1 right-1 w-1.5 h-1.5" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
             </button>
-            <Link to="/upgrade" className="px-2 py-1 text-xs flex items-center gap-1 font-bold transition-colors uppercase" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--warning)', border: '1px solid rgba(197, 138, 24, 0.35)' }}>
+            <Link to="/upgrade" className="px-2 py-1 text-xs flex items-center gap-1 font-bold transition-colors uppercase" style={{ backgroundColor: 'var(--surface-strong)', color: 'var(--warning)', border: '1px solid rgba(var(--warning-rgb), 0.35)' }}>
               <Zap className="w-3 h-3" /> {t('vip')}
             </Link>
           </div>
@@ -250,10 +251,11 @@ export default function Sidebar() {
               </div>
             ) : (
               matches.map((match) => (
-                <NavLink 
-                  key={match.id} 
-                  to={`/messages/${match.id}`} 
-                  className={({isActive}) => `w-full flex items-center justify-between p-2 border transition-colors ${isActive ? 'text-white' : 'text-zinc-400'}`}
+                <button
+                  key={match.id}
+                  type="button"
+                  onClick={() => navigate('/messages', { state: { selectedUserId: match.id, selectedMatchName: match.name || match.display_name } })}
+                  className="w-full flex items-center justify-between p-2 border transition-colors text-zinc-400 hover:text-white"
                   style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}
                 >
                   <div className="flex items-center gap-3">
@@ -280,7 +282,7 @@ export default function Sidebar() {
                       </p>
                     </div>
                   </div>
-                </NavLink>
+                </button>
               ))
             )
           )}

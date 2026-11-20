@@ -223,32 +223,16 @@ export default function ChatArea({
 
             {/* Individual Bubbles in Group */}
             <div className={`flex flex-col gap-1 w-full max-w-[85%] md:max-w-[70%] ${group.isMe ? 'items-end' : 'items-start'}`}>
-              {group.msgs.map((msg, msgIdx) => {
-                const isFirst = msgIdx === 0;
-                const isLast = msgIdx === group.msgs.length - 1;
-                
-                // Dynamic border radius for consecutive grouping
-                let roundedClass = 'rounded-2xl';
-                if (group.isMe) {
-                  if (!isFirst && !isLast) roundedClass = 'rounded-2xl rounded-tr-sm rounded-br-sm';
-                  else if (!isFirst) roundedClass = 'rounded-2xl rounded-tr-sm';
-                  else if (!isLast) roundedClass = 'rounded-2xl rounded-br-sm';
-                } else {
-                  if (!isFirst && !isLast) roundedClass = 'rounded-2xl rounded-tl-sm rounded-bl-sm';
-                  else if (!isFirst) roundedClass = 'rounded-2xl rounded-tl-sm';
-                  else if (!isLast) roundedClass = 'rounded-2xl rounded-bl-sm';
-                }
-
+              {group.msgs.map((msg) => {
                 return (
                   <div key={msg.id} className={`group/msg flex items-center gap-2 w-full ${group.isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     
                     {/* The Bubble */}
-                    <div className={`relative px-4 py-2.5 text-sm leading-relaxed shadow-sm transition-all
+                    <div className={`chat-bubble ${group.isMe ? 'chat-bubble--mine' : 'chat-bubble--other'} relative max-w-full px-4 py-2.5 text-sm leading-relaxed
                       ${group.isMe 
-                        ? 'bg-gradient-to-r from-rose-600 to-violet-600 text-white' 
-                        : 'bg-slate-900 border border-slate-800 text-slate-200'
+                        ? 'border border-rose-300/20 bg-gradient-to-br from-rose-600 via-rose-600 to-violet-600 text-white shadow-rose-950/25'
+                        : 'border border-slate-700/80 bg-gradient-to-br from-slate-800 to-slate-900 text-slate-100 shadow-black/25'
                       }
-                      ${roundedClass}
                     `}>
                       {msg.text}
                     </div>

@@ -120,6 +120,30 @@ func (r *SupportRepository) ListAdminTickets(ctx context.Context) ([]models.Supp
 	return tickets, nil
 }
 
+func (r *SupportRepository) ListAdminIDs(ctx context.Context) ([]string, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT id::text FROM users
+		WHERE role = 'admin' AND LOWER(status) NOT IN ('banned', 'suspended')
+		ORDER BY id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list support notification recipients: %w", err)
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan support notification recipient: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate support notification recipients: %w", err)
+	}
+	return ids, nil
+}
+
 func scanSupportTickets(rows *sql.Rows) ([]models.SupportTicket, error) {
 	var tickets []models.SupportTicket
 	for rows.Next() {
@@ -351,10 +375,22 @@ func (r *SupportRepository) SetTicketStatus(ctx context.Context, ticketID, statu
 	default:
 		return errors.New("support ticket status is invalid")
 	}
-	result, err := r.DB.ExecContext(ctx, `
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin support ticket status update: %w", err)
+	}
+	defer tx.Rollback()
+
+	var oldStatus string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status FROM support_tickets WHERE id = $1 FOR UPDATE
+	`, ticketID).Scan(&oldStatus); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE support_tickets
-		SET status = $2, updated_at = CURRENT_TIMESTAMP,
-		    human_requested = CASE WHEN $2 = 'resolved' THEN human_requested ELSE FALSE END
+		SET status = $2::varchar, updated_at = CURRENT_TIMESTAMP,
+		    human_requested = CASE WHEN $2::varchar = 'resolved' THEN human_requested ELSE FALSE END
 		WHERE id = $1
 	`, ticketID, status)
 	if err != nil {
@@ -366,6 +402,104 @@ func (r *SupportRepository) SetTicketStatus(ctx context.Context, ticketID, statu
 	}
 	if updated != 1 {
 		return sql.ErrNoRows
+	}
+	if oldStatus != status {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO support_messages (ticket_id, sender_type, content)
+			VALUES ($1, 'system', $2)
+		`, ticketID, "Ticket status changed to "+strings.ReplaceAll(status, "_", " ")+"."); err != nil {
+			return fmt.Errorf("record support ticket status change: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit support ticket status update: %w", err)
+	}
+	return nil
+}
+
+func (r *SupportRepository) SetUserTicketStatus(ctx context.Context, ticketID, userID, status string) error {
+	if status != "open" && status != "resolved" {
+		return errors.New("user support ticket status is invalid")
+	}
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin user support status update: %w", err)
+	}
+	defer tx.Rollback()
+
+	var oldStatus string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT status FROM support_tickets WHERE id = $1 AND user_id = $2 FOR UPDATE
+	`, ticketID, userID).Scan(&oldStatus); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE support_tickets SET status = $3, human_requested = FALSE, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND user_id = $2
+	`, ticketID, userID, status); err != nil {
+		return fmt.Errorf("update user support ticket status: %w", err)
+	}
+	if oldStatus != status {
+		content := "You closed this support ticket."
+		if status == "open" {
+			content = "You reopened this support ticket."
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO support_messages (ticket_id, sender_id, sender_type, content)
+			VALUES ($1, $2, 'system', $3)
+		`, ticketID, userID, content); err != nil {
+			return fmt.Errorf("record user support ticket status change: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit user support ticket status update: %w", err)
+	}
+	return nil
+}
+
+func (r *SupportRepository) ResolveTicketByAI(ctx context.Context, ticketID string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin AI ticket resolution: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE support_tickets
+		SET status = 'resolved', updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status = 'open' AND human_requested = FALSE
+	`, ticketID)
+	if err != nil {
+		return fmt.Errorf("resolve safe FAQ ticket: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check AI ticket resolution: %w", err)
+	}
+	if updated != 1 {
+		return sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO support_messages (ticket_id, sender_type, content)
+		VALUES ($1, 'system', 'Chattie AI marked this FAQ as resolved. You can reopen it if you still need help.')
+	`, ticketID); err != nil {
+		return fmt.Errorf("record AI ticket resolution: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit AI ticket resolution: %w", err)
+	}
+	return nil
+}
+
+func (r *SupportRepository) SetTicketCategory(ctx context.Context, ticketID, category string) error {
+	switch category {
+	case "product_help", "account", "billing", "safety", "other":
+	default:
+		return errors.New("support ticket category is invalid")
+	}
+	if _, err := r.DB.ExecContext(ctx, `
+		UPDATE support_tickets SET category = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1
+	`, ticketID, category); err != nil {
+		return fmt.Errorf("categorize support ticket: %w", err)
 	}
 	return nil
 }

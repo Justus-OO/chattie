@@ -317,7 +317,7 @@ func (h *ADChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			WSEventType: "AFTER_DARK_MESSAGE",
 			WSPayload: map[string]interface{}{
 				"title": "New After Dark message", "message": "You received a new message.",
-				"conversation_id": convID,
+				"conversation_id": convID, "action_url": "/afterdark/chats", "action_label": "Open conversation", "category": "messages",
 			},
 			EmailTemplate: "afterdark_notification",
 			EmailData: map[string]interface{}{

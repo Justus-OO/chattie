@@ -14,12 +14,21 @@ func (r *Repository) CreateNotification(userID, eventType, title, message, icon 
 		return "", err
 	}
 
+	actionURL := ""
+	actionLabel := ""
+	category := ""
+	if data, ok := payload.(map[string]interface{}); ok {
+		actionURL, _ = data["action_url"].(string)
+		actionLabel, _ = data["action_label"].(string)
+		category, _ = data["category"].(string)
+	}
+
 	var id string
 	err = r.DB.QueryRowContext(context.TODO(), `
-       INSERT INTO notifications (user_id, event_type, title, message, icon, payload)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       INSERT INTO notifications (user_id, event_type, title, message, icon, payload, action_url, action_label, category)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''))
        RETURNING id
-    `, userID, eventType, title, message, icon, payloadJSON).Scan(&id)
+    `, userID, eventType, title, message, icon, payloadJSON, actionURL, actionLabel, category).Scan(&id)
 
 	return id, err
 }
@@ -27,7 +36,8 @@ func (r *Repository) CreateNotification(userID, eventType, title, message, icon 
 // GetNotifications retrieves the user's latest notifications, INCLUDING the payload
 func (r *Repository) GetNotifications(userID string) ([]models.Notification, error) {
 	rows, err := r.DB.QueryContext(context.TODO(), `
-       SELECT id, event_type, title, message, icon, payload, is_read, created_at
+       SELECT id, event_type, title, message, icon, payload, is_read, created_at,
+              COALESCE(action_url, ''), COALESCE(action_label, ''), COALESCE(category, '')
        FROM notifications
        WHERE user_id = $1
        ORDER BY created_at DESC
@@ -52,6 +62,9 @@ func (r *Repository) GetNotifications(userID string) ([]models.Notification, err
 			&rawPayload, // FIX: Scan the payload
 			&n.Read,
 			&n.CreatedAt,
+			&n.ActionURL,
+			&n.ActionLabel,
+			&n.Category,
 		); err != nil {
 			return nil, err
 		}

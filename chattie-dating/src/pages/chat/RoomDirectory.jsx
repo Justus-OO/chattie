@@ -313,10 +313,10 @@ export default function RoomDirectory() {
   // RENDER
   // ============================================================================
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-black w-full relative overflow-hidden font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* HEADER SECTION */}
-      <header className="flex flex-col border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(0,0,0,0.5)] z-20">
+      <header className="flex flex-col border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(var(--shadow-rgb), 0.5)] z-20">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 border-2 bg-zinc-900 border-zinc-500 flex items-center justify-center font-black text-white text-xl">
@@ -549,7 +549,7 @@ export default function RoomDirectory() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setPreviewRoom(null)} />
           
-          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col animate-in zoom-in-95 duration-200">
             
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-start">
               <div className="flex items-center gap-3">
@@ -640,7 +640,7 @@ export default function RoomDirectory() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowCreateModal(false)} />
           
-          <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200">
+          <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in zoom-in-95 duration-200">
             
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="font-black text-sm uppercase tracking-widest text-white flex items-center gap-2">

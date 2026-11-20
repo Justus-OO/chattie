@@ -186,7 +186,7 @@ export default function ModelEarnings() {
   }
 
   return (
-    <div className="relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-black font-mono text-zinc-300 custom-scrollbar rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-black font-mono text-zinc-300 custom-scrollbar rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* =========================================================
           HEADER & METRICS
@@ -227,7 +227,7 @@ export default function ModelEarnings() {
           <div className="relative z-10 flex flex-col gap-3">
             <button 
               onClick={() => setIsPayoutModalOpen(true)}
-              className="flex items-center justify-center gap-2 px-8 py-4 bg-white border-2 border-white text-black text-xs font-black uppercase tracking-widest hover:bg-black hover:text-white transition-all rounded-none shadow-[8px_8px_0px_0px_rgba(255,255,255,0.1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1"
+              className="flex items-center justify-center gap-2 px-8 py-4 bg-white border-2 border-white text-black text-xs font-black uppercase tracking-widest hover:bg-black hover:text-white transition-all rounded-none shadow-[8px_8px_0px_0px_rgba(var(--highlight-rgb), 0.1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1"
             >
               Request USDT payout <ArrowRight className="w-4 h-4" />
             </button>
@@ -415,7 +415,7 @@ export default function ModelEarnings() {
           ========================================================= */}
       {isPayoutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col overflow-y-auto border-2 border-white bg-zinc-950 shadow-[12px_12px_0px_0px_rgba(255,255,255,0.1)] rounded-none">
+          <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col overflow-y-auto border-2 border-white bg-zinc-950 shadow-[12px_12px_0px_0px_rgba(var(--highlight-rgb), 0.1)] rounded-none">
             
             {payoutSuccess ? (
               <div className="p-12 flex flex-col items-center justify-center text-center">

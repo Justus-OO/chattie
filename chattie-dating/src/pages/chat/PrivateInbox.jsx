@@ -1,26 +1,14 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   MessageSquare, Search, MoreVertical, BellOff, 
-  Trash2, Archive, CheckCircle2, Flame, AlertTriangle, Clock,
+  Trash2, CheckCircle2, Flame,
   Loader2, RefreshCw, Send, ArrowLeft, Bot, Sparkles, Check, CheckCheck, X, Heart,
-  Image as ImageIcon, Smile, Upload, Video, Mic, MicOff, PhoneOff, Phone, Headphones,
+  Image as ImageIcon, Smile, Upload, Video, PhoneOff, Phone,
   Pin, PinOff, PhoneCall
 } from 'lucide-react';
 import { toast } from 'sonner';
-import EmojiPicker from 'emoji-picker-react';
 import { useAppStore } from '../../store/useAppStore';
-
-import { 
-  LiveKitRoom, 
-  RoomAudioRenderer, 
-  useParticipants, 
-  useLocalParticipant,
-  TrackToggle,
-  useTracks,
-  VideoTrack
-} from '@livekit/components-react';
-import { Track, LocalAudioTrack } from 'livekit-client';
 
 // Services
 import { chatService } from '../../api/chat.service'; 
@@ -30,128 +18,11 @@ import { ChattieService } from '../../api/chattie.service';
 import { MediaVaultModal, DeleteConfirmModal, BlockUserModal } from '../../components/chat/ChatModals';
 import { useI18n } from '../../i18n';
 
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || "ws://localhost:7880"; 
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
+const PrivateInboxCall = lazy(() => import('../../components/chat/PrivateInboxCall'));
 
 const getPrivateCallRoomId = (firstUserId, secondUserId) =>
   `dm_call_${[String(firstUserId), String(secondUserId)].sort().join('_')}`;
-
-function AutoPublishMic({ micGain, setMicEnabled, setMicLevel }) {
-  const { localParticipant } = useLocalParticipant();
-  const publishedRef = useRef(null);
-  const srcStreamRef = useRef(null);
-  const analyserRef = useRef(null);
-  const gainNodeRef = useRef(null);
-  const micGainRef = useRef(micGain);
-
-  useEffect(() => {
-    micGainRef.current = micGain;
-  }, [micGain]);
-
-  useEffect(() => {
-    if (!localParticipant) return undefined;
-    let mounted = true;
-    let animationFrame = null;
-    let lastLevelUpdate = 0;
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-    const setup = async () => {
-      try {
-        await audioContext.resume();
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (!mounted) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        srcStreamRef.current = stream;
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        analyserRef.current = analyser;
-        const gainNode = audioContext.createGain();
-        gainNode.gain.value = micGainRef.current ?? 1;
-        gainNodeRef.current = gainNode;
-        const destination = audioContext.createMediaStreamDestination();
-        source.connect(analyser);
-        analyser.connect(gainNode);
-        gainNode.connect(destination);
-
-        const updateLevel = () => {
-          if (!mounted || !analyserRef.current) return;
-          const data = new Uint8Array(analyserRef.current.fftSize);
-          analyserRef.current.getByteTimeDomainData(data);
-          const mean = data.reduce((sum, value) => sum + value, 0) / data.length;
-          const rms = Math.sqrt(data.reduce((sum, value) => sum + (value - mean) ** 2, 0) / data.length) / 128;
-          const now = performance.now();
-          if (now - lastLevelUpdate >= 100) {
-            setMicLevel(Math.min(1, Math.max(0, rms)));
-            lastLevelUpdate = now;
-          }
-          animationFrame = requestAnimationFrame(updateLevel);
-        };
-        updateLevel();
-
-        if (LocalAudioTrack && localParticipant.publishTrack) {
-          const localAudioTrack = new LocalAudioTrack(destination.stream.getAudioTracks()[0]);
-          try {
-            const publication = await localParticipant.publishTrack(localAudioTrack);
-            if (!mounted) {
-              await localParticipant.unpublishTrack(localAudioTrack);
-              return;
-            }
-            publishedRef.current = { publication, localAudioTrack };
-            setMicEnabled(true);
-            return;
-          } catch (error) {
-            console.warn('Processed microphone publish failed; falling back to LiveKit microphone:', error);
-          }
-        }
-
-        if (localParticipant.setMicrophoneEnabled) {
-          await localParticipant.setMicrophoneEnabled(true);
-          setMicEnabled(true);
-        }
-      } catch (error) {
-        if (mounted) {
-          setMicEnabled(false);
-          console.error('Private call microphone setup failed:', error);
-          toast.error('Could not access your microphone. Check browser permissions and try again.');
-        }
-      }
-    };
-
-    setup();
-
-    return () => {
-      mounted = false;
-      if (publishedRef.current) {
-        localParticipant.unpublishTrack(publishedRef.current.localAudioTrack).catch((error) => {
-          console.warn('Could not unpublish the private call microphone:', error);
-        });
-        publishedRef.current = null;
-      }
-      if (srcStreamRef.current) {
-        srcStreamRef.current.getTracks().forEach((track) => track.stop());
-        srcStreamRef.current = null;
-      }
-      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
-      analyserRef.current?.disconnect();
-      analyserRef.current = null;
-      gainNodeRef.current?.disconnect();
-      gainNodeRef.current = null;
-      audioContext.close().catch((error) => {
-        console.warn('Could not close private call audio context:', error);
-      });
-      setMicEnabled(false);
-      setMicLevel(0);
-    };
-  }, [localParticipant, setMicEnabled, setMicLevel]);
-
-  useEffect(() => {
-    if (gainNodeRef.current) gainNodeRef.current.gain.value = micGain;
-  }, [micGain]);
-
-  return null;
-}
 
 // --- ROBUST WS URL BUILDER ---
 const getWsUrl = (queryParameters) => {
@@ -172,11 +43,11 @@ const CANNED_REPLIES = [
   "Hey VIP! Let's take this to a private video call?"
 ];
 
-const getUserTier = (spend, flagged) => {
-  if (flagged) return { label: 'Flagged', color: 'border-red-500', text: 'text-red-500', bg: 'bg-red-500/10' };
-  if (spend >= 1000) return { label: 'Whale', color: 'border-yellow-400', text: 'text-yellow-400', bg: 'bg-yellow-400/10' };
-  if (spend >= 100) return { label: 'Premium', color: 'border-blue-400', text: 'text-blue-400', bg: 'bg-blue-400/10' };
-  return { label: 'Standard', color: 'border-zinc-500', text: 'text-zinc-400', bg: 'bg-zinc-900' };
+const getUserTier = (spend, flagged, t) => {
+  if (flagged) return { label: t('tierFlagged'), color: 'border-red-500', text: 'text-red-500', bg: 'bg-red-500/10' };
+  if (spend >= 1000) return { label: t('tierWhale'), color: 'border-yellow-400', text: 'text-yellow-400', bg: 'bg-yellow-400/10' };
+  if (spend >= 100) return { label: t('tierPremium'), color: 'border-blue-400', text: 'text-blue-400', bg: 'bg-blue-400/10' };
+  return { label: t('tierStandard'), color: 'border-zinc-500', text: 'text-zinc-400', bg: 'bg-zinc-900' };
 };
 
 // ============================================================================
@@ -184,6 +55,7 @@ const getUserTier = (spend, flagged) => {
 // ============================================================================
 export default function PrivateInbox() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useI18n();
   const theme = useAppStore((state) => state.userPreferences.theme);
 
@@ -261,7 +133,7 @@ export default function PrivateInbox() {
   const [partnerPresence, setPartnerPresence] = useState('offline');
   const [replyingTo, setReplyingTo] = useState(null);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
-  const currentUser = useAppStore((s) => s.user) || { id: 'me', name: 'You' };
+  const currentUser = useAppStore((s) => s.user) || { id: 'me', name: t('you') };
   const appToken = useAppStore((state) => state.token);
   const currentUserRef = useRef(currentUser);
   activeChatRef.current = activeChat;
@@ -288,7 +160,7 @@ export default function PrivateInbox() {
       })
       .catch((error) => {
         if (!cancelled) {
-          toast.error(error.response?.data?.error || 'Could not load AI auto-reply setting.');
+          toast.error(error.response?.data?.error || t('aiAutoReplyLoadFailed'));
         }
       })
       .finally(() => {
@@ -296,7 +168,7 @@ export default function PrivateInbox() {
       });
 
     return () => { cancelled = true; };
-  }, [activeChat?.id, activeChat?.type]);
+  }, [activeChat?.id, activeChat?.type, t]);
 
   const handleGenerateAISuggestions = async () => {
     if (!activeChat?.id || activeChat.type !== 'dm' || isGeneratingAISuggestions) return;
@@ -310,7 +182,7 @@ export default function PrivateInbox() {
     } catch (error) {
       const message = typeof error.response?.data === 'string'
         ? error.response.data
-        : error.response?.data?.error || 'AI suggestions are unavailable right now.';
+        : error.response?.data?.error || t('aiSuggestionsUnavailable');
       toast.error(message);
     } finally {
       setIsGeneratingAISuggestions(false);
@@ -327,13 +199,11 @@ export default function PrivateInbox() {
       if (activeChatRef.current?.id === targetId) {
         setAIAutoReplyEnabled(Boolean(response.enabled));
       }
-      toast.success(enabled
-        ? 'AI replies are enabled for this chat after 5 hours without your reply.'
-        : 'AI replies are disabled for this chat.');
+      toast.success(t(enabled ? 'aiAutoReplyEnabled' : 'aiAutoReplyDisabled'));
     } catch (error) {
       const message = typeof error.response?.data === 'string'
         ? error.response.data
-        : error.response?.data?.error || 'Could not update AI auto-reply setting.';
+        : error.response?.data?.error || t('aiAutoReplyUpdateFailed');
       toast.error(message);
     } finally {
       setIsUpdatingAIAutoReply(false);
@@ -423,7 +293,7 @@ export default function PrivateInbox() {
     setActiveChat((current) => current?.id === callerId ? current : {
       id: callerId,
       type: 'dm',
-      name: incoming.from_name || incoming.sender_name || caller?.name || 'Caller',
+      name: incoming.from_name || incoming.sender_name || caller?.name || t('caller'),
       avatar: caller?.avatar || '',
       lifetimeSpend: caller?.lifetimeSpend || 0,
       flagged: caller?.flagged || false,
@@ -431,7 +301,7 @@ export default function PrivateInbox() {
     });
     setIncomingCallData({
       fromId: callerId,
-      fromName: incoming.from_name || incoming.sender_name || caller?.name || 'Caller',
+      fromName: incoming.from_name || incoming.sender_name || caller?.name || t('caller'),
       roomId: incoming.room_id,
       mode: incoming.mode === 'audio' ? 'audio' : 'video'
     });
@@ -463,7 +333,7 @@ export default function PrivateInbox() {
     recordCallEvent(pending.targetId, 'connected', pending.mode)
       .catch((error) => {
         console.error('Could not save call history:', error);
-        toast.error('The call connected, but its history could not be saved.');
+        toast.error(t('callHistorySaveFailed'));
       });
     ensureAudioPlayback();
   };
@@ -482,7 +352,7 @@ export default function PrivateInbox() {
       console.warn('Could not clear active call state:', error);
     }
     stopRingtone();
-    toast.error(incoming.reason === 'busy' ? 'This person is already on another call.' : t('callRejectedInbox'));
+    toast.error(incoming.reason === 'busy' ? t('otherCallBusy') : t('callRejectedInbox'));
   };
 
   const finishCallFromSignal = (incoming) => {
@@ -539,9 +409,9 @@ export default function PrivateInbox() {
   };
 
   const getPresenceText = (status) => {
-    if (status === 'online' || status === 'active') return 'Active now';
-    if (status === 'away') return 'Away';
-    return 'Offline';
+    if (status === 'online' || status === 'active') return t('activeNow');
+    if (status === 'away') return t('away');
+    return t('offline');
   };
 
   // ============================================================================
@@ -568,8 +438,8 @@ export default function PrivateInbox() {
           const partnerId = chat.partner_id || chat.id;
           const matchRecord = matchesList.find(m => (m.id || m.user_id) === partnerId);
 
-          let finalName = chat.name || chat.partner_name || 'Unknown User';
-          if (finalName === 'Unknown' || finalName === 'Unknown User') {
+          let finalName = chat.name || chat.partner_name || t('unknownUser');
+          if (finalName === 'Unknown' || finalName === 'Unknown User' || finalName === t('unknownUser')) {
             finalName = matchRecord?.name || matchRecord?.display_name || finalName;
           }
 
@@ -583,10 +453,10 @@ export default function PrivateInbox() {
             type: chat.type || 'dm',
             name: finalName,
             avatar: finalAvatar,
-            lastMessage: chat.last_message || chat.content || 'No messages yet.',
+            lastMessage: chat.last_message || chat.content || t('noMessagesYet'),
             timestamp: chat.last_message_time || chat.created_at
               ? new Date(chat.last_message_time || chat.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-              : 'Just now',
+              : t('justNow'),
             unreadCount: chat.unread_count || chat.unreadCount || 0,
             isTyping: false,
             status: chat.status || 'offline',
@@ -608,6 +478,23 @@ export default function PrivateInbox() {
   useEffect(() => {
     fetchInboxData();
   }, []);
+
+  useEffect(() => {
+    const selectedUserId = location.state?.selectedUserId;
+    if (!selectedUserId || isLoading) return;
+
+    const existing = conversations.find((chat) => chat.id === selectedUserId);
+    const match = newMatches.find((item) => (item.id || item.user_id) === selectedUserId);
+    setActiveChat(existing || {
+      id: selectedUserId,
+      type: 'dm',
+      name: location.state?.selectedMatchName || match?.name || match?.display_name || t('matchedUser'),
+      avatar: match?.avatar || match?.avatar_url || '',
+      lifetimeSpend: match?.lifetime_spend || match?.lifetimeSpend || 0,
+      flagged: false,
+      bio: ''
+    });
+  }, [conversations, isLoading, location.state, newMatches, t]);
 
   useEffect(() => {
     if (!showMediaVault) return;
@@ -804,7 +691,7 @@ export default function PrivateInbox() {
           messageKind: msg.message_kind || 'chat',
           callMode: msg.call_mode || '',
           status: (msg.status || (msg.read === false ? 'unread' : undefined)) || 'delivered',
-          time: formatChatTimestamp(msg.created_at || msg.timestamp || msg.createdAt || msg.sent_at || Date.now()) || 'Just now'
+          time: formatChatTimestamp(msg.created_at || msg.timestamp || msg.createdAt || msg.sent_at || Date.now()) || t('justNow')
         }));
         const initialMessages = formatted;
         setMessages(initialMessages);
@@ -844,7 +731,7 @@ export default function PrivateInbox() {
       });
       if (socketRef.current && chatSockets.has(socketRef.current)) socketRef.current = null;
     };
-  }, [activeChat, appToken]);
+  }, [activeChat, appToken, t]);
 
   // ============================================================================
   // GLOBAL NOTIFICATION SOCKET (WITH EXPONENTIAL BACKOFF)
@@ -932,7 +819,7 @@ export default function PrivateInbox() {
         notificationSocketRef.current = null;
       }
     };
-  }, [appToken, currentUser?.id]);
+  }, [appToken, currentUser?.id, t]);
 
   // Rehydrate persisted active call on mount
   useEffect(() => {
@@ -1011,7 +898,7 @@ export default function PrivateInbox() {
       setOutgoingCallData(outgoingCallRef.current);
       recordCallEvent(activeChat.id, 'started', mode).catch((error) => {
         console.error('Could not save call history:', error);
-        toast.error('The call started, but its history could not be saved.');
+        toast.error(t('callHistorySaveFailedStarted'));
       });
       sendCallSignal('incoming_call', activeChat.id, {
         from_name: currentUser?.name || 'Caller',
@@ -1031,9 +918,9 @@ export default function PrivateInbox() {
         }
         recordCallEvent(activeChat.id, 'no_answer', mode).catch((error) => {
           console.error('Could not save unanswered call history:', error);
-          toast.error('The unanswered call could not be added to chat history.');
+          toast.error(t('unansweredCallHistoryFailed'));
         });
-        toast.info(`${activeChat.name} did not answer.`);
+        toast.info(t('callUnanswered', { name: activeChat.name }));
       }, 45000);
     } catch (err) {
       outgoingCallRef.current = null;
@@ -1053,7 +940,7 @@ export default function PrivateInbox() {
     if (peerId) {
       recordCallEvent(peerId, 'ended', mode).catch((error) => {
         console.error('Could not save ended call history:', error);
-        toast.error('Call ended, but its history could not be saved.');
+        toast.error(t('endedCallHistoryFailed'));
       });
       try {
         sendCallSignal('call_ended', peerId, { room_id: roomId });
@@ -1122,7 +1009,7 @@ export default function PrivateInbox() {
     recordCallEvent(incoming.fromId, reason === 'rejected' ? 'declined' : 'missed', incoming.mode || 'audio')
       .catch((error) => {
         console.error('Could not save declined call history:', error);
-        toast.error('The call was declined, but its history could not be saved.');
+        toast.error(t('declinedCallHistoryFailed'));
       });
     try {
       sendCallSignal('call_rejected', incoming.fromId, {
@@ -1131,11 +1018,11 @@ export default function PrivateInbox() {
       });
     } catch (error) {
       console.error('Could not notify the caller that the call was declined:', error);
-      toast.error('Could not send the decline notice. Check your connection.');
+      toast.error(t('declineNoticeFailed'));
     }
     recordCallEvent(incoming.fromId, 'missed', incoming.mode || 'audio').catch((error) => {
       console.error('Could not save missed call history:', error);
-      toast.error('The missed call could not be added to chat history.');
+      toast.error(t('missedCallHistoryFailed'));
     });
     setIncomingCallData(null);
     lastIncomingCallRef.current = null;
@@ -1245,10 +1132,10 @@ export default function PrivateInbox() {
       setMessages((previous) => previous.map((item) => item.id === message.id
         ? { ...item, isPinned: pinned }
         : item));
-      toast.success(pinned ? 'Message pinned' : 'Message unpinned');
+      toast.success(t(pinned ? 'messagePinned' : 'messageUnpinned'));
     } catch (error) {
       console.error('Failed to update direct message pin:', error);
-      toast.error('Could not update the message pin.');
+      toast.error(t('pinUpdateFailed'));
     } finally {
       setPinningMessageId(null);
     }
@@ -1260,7 +1147,7 @@ export default function PrivateInbox() {
     setActiveChat({
       id,
       type,
-      name: name || 'User',
+      name: name || t('tierUser'),
       avatar: avatar || '',
       lifetimeSpend: extraData.lifetimeSpend || extraData.lifetime_spend || 0,
       flagged: extraData.flagged || false,
@@ -1385,10 +1272,10 @@ export default function PrivateInbox() {
     try { setAttachedMediaType(f.type || null); } catch (e) {}
     try {
       await uploadChatFile(f);
-      toast.success('File attached');
+      toast.success(t('fileAttached'));
     } catch (e) {
       setAttachedFile(null);
-      toast.error('Failed to upload file');
+      toast.error(t('fileUploadFailed'));
     }
     try { e.target.value = ''; } catch (e) {}
   };
@@ -1423,9 +1310,9 @@ export default function PrivateInbox() {
       setConversations(prev => prev.filter(chat => chat.id !== showDeleteModal.id));
       if (activeChat?.id === showDeleteModal.id) setActiveChat(null);
       setShowDeleteModal(null);
-      toast.success('Conversation deleted.');
+      toast.success(t('conversationDeletedToast'));
     } catch (err) {
-      toast.error('Unable to delete conversation.');
+      toast.error(t('deleteConversationFailedToast'));
     }
   };
 
@@ -1447,9 +1334,9 @@ export default function PrivateInbox() {
     try {
       await ChattieService.uploadVaultMedia(file);
       await fetchVaultImages();
-      toast.success('Photo uploaded to vault.');
+      toast.success(t('vaultPhotoUploadedToast'));
     } catch (err) {
-      toast.error('Upload failed.');
+      toast.error(t('uploadFailedToast'));
     } finally {
       setIsLoadingVault(false);
     }
@@ -1462,9 +1349,9 @@ export default function PrivateInbox() {
       setConversations(prev => prev.filter(chat => chat.id !== activeChat.id));
       if (activeChat?.id) setActiveChat(null);
       setShowBlockModal(false);
-      toast.success(`${activeChat.name} has been blocked.`);
+      toast.success(t('blockedUser', { name: activeChat.name }));
     } catch (err) {
-      toast.error(err.message || 'Failed to block user.');
+      toast.error(err.message || t('blockFailedToast'));
     }
   };
 
@@ -1477,7 +1364,7 @@ export default function PrivateInbox() {
 
   if (isLoading) {
     return (
-      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center p-6 text-center bg-black text-zinc-300" style={{ fontFamily: 'Roboto, sans-serif' }}>
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center p-6 text-center bg-black text-zinc-300" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
         <Loader2 className="w-8 h-8 animate-spin mb-4 text-yellow-400" />
         <h2 className="text-sm font-bold uppercase tracking-widest">{t('loadingConversations')}</h2>
       </div>
@@ -1485,7 +1372,7 @@ export default function PrivateInbox() {
   }
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col w-full relative overflow-hidden bg-black text-zinc-300" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="private-inbox flex h-full min-h-0 min-w-0 flex-1 flex-col w-full relative overflow-hidden bg-black text-zinc-300" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* HEADER */}
       <header className="p-4 md:p-6 shrink-0 flex flex-col gap-4 z-10 bg-zinc-950 border-b-2 border-zinc-800">
@@ -1497,11 +1384,11 @@ export default function PrivateInbox() {
             <div>
               <h1 className="font-black text-xl md:text-2xl uppercase tracking-widest text-white">{t('inbox')}</h1>
               <p className="text-[10px] mt-1 font-bold uppercase tracking-widest text-zinc-500">
-                {totalUnread > 0 ? `You have ${totalUnread} unread messages` : "You're all caught up!"}
+                {totalUnread > 0 ? t('unreadMessages', { count: totalUnread }) : t('caughtUp')}
               </p>
             </div>
           </div>
-          <button onClick={fetchInboxData} aria-label="Refresh inbox" className="p-2.5 border-2 border-zinc-800 bg-black text-zinc-400 hover:border-white hover:text-white transition-colors">
+          <button onClick={fetchInboxData} aria-label={t('refreshInbox')} className="p-2.5 border-2 border-zinc-800 bg-black text-zinc-400 hover:border-white hover:text-white transition-colors">
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
@@ -1524,7 +1411,7 @@ export default function PrivateInbox() {
         {!searchQuery && (
           <div className="shrink-0 pb-2 border-b border-zinc-800 bg-zinc-950">
             <h2 className="text-[10px] font-black px-6 pt-5 pb-3 flex items-center gap-2 tracking-widest uppercase text-zinc-400">
-              <Flame className="w-4 h-4 text-yellow-400" /> New Matches
+              <Flame className="w-4 h-4 text-yellow-400" /> {t('newMatches')}
             </h2>
             <div className="flex gap-5 overflow-x-auto px-6 pb-2 custom-scrollbar">
               <div onClick={() => navigate('/likes')} className="flex min-w-[clamp(4rem,9vw,5rem)] shrink-0 cursor-pointer flex-col items-center gap-2 group">
@@ -1549,7 +1436,7 @@ export default function PrivateInbox() {
                     >
                       <div className="relative">
                         {match.avatar || match.avatar_url ? (
-                          <img src={match.avatar || match.avatar_url} alt="match" className="size-[clamp(3.5rem,9vw,4rem)] object-cover border-2 border-transparent group-hover:border-white transition-all" />
+                          <img src={match.avatar || match.avatar_url} alt={t('match')} className="size-[clamp(3.5rem,9vw,4rem)] object-cover border-2 border-transparent group-hover:border-white transition-all" />
                         ) : (
                           <div className="flex size-[clamp(3.5rem,9vw,4rem)] items-center justify-center border-2 border-zinc-700 bg-black text-lg font-bold text-white transition-all group-hover:border-white">
                             {(match.name || match.display_name || 'U').charAt(0).toUpperCase()}
@@ -1574,9 +1461,9 @@ export default function PrivateInbox() {
               onClick={() => setActiveTab(tab)}
               className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 
                 ${activeTab === tab ? 'border-white text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}
-              style={activeTab === tab ? { color: '#ffffff', borderBottomColor: '#facc15' } : { color: '#71717a' }}
+              style={activeTab === tab ? { color: 'var(--text-primary)', borderBottomColor: 'var(--accent)' } : { color: 'var(--text-muted)' }}
             >
-              {tab} Messages
+              {tab === 'All' ? t('allMessages') : t('unreadMessagesLabel')}
             </button>
           ))}
         </div>
@@ -1606,7 +1493,7 @@ export default function PrivateInbox() {
                       <div className="flex items-center gap-4 overflow-hidden">
                         <div className="relative shrink-0 shadow-sm">
                           {chat.avatar ? (
-                            <img src={chat.avatar} alt="avatar" className="w-14 h-14 object-cover border border-zinc-700" />
+                            <img src={chat.avatar} alt={t('profilePhotoAlt')} className="w-14 h-14 object-cover border border-zinc-700" />
                           ) : (
                             <div className="w-14 h-14 flex items-center justify-center text-lg font-bold border border-zinc-700 bg-black text-white">
                               {chat.name.charAt(0).toUpperCase()}
@@ -1663,7 +1550,7 @@ export default function PrivateInbox() {
       {/* FULL FEATURED LIVE CHAT INTERFACE & CALL OVERLAY */}
       {/* ================================================================== */}
       {activeChat && (() => {
-        const tier = getUserTier(activeChat.lifetimeSpend, activeChat.flagged);
+        const tier = getUserTier(activeChat.lifetimeSpend, activeChat.flagged, t);
         return (
           <div className="absolute inset-0 z-50 flex flex-col animate-in slide-in-from-right-8 duration-300 bg-black">
             
@@ -1673,7 +1560,7 @@ export default function PrivateInbox() {
                 <button
                   onClick={() => setActiveChat(null)}
                   disabled={isInCall || Boolean(outgoingCallData)}
-                  aria-label="Back to inbox"
+                  aria-label={t('backToInbox')}
                   className="p-2 border-2 border-zinc-800 bg-black text-zinc-300 hover:border-white hover:text-white disabled:opacity-40 transition-colors"
                 >
                   <ArrowLeft className="w-5 h-5" />
@@ -1681,7 +1568,7 @@ export default function PrivateInbox() {
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="relative">
                     {activeChat.avatar ? (
-                      <img src={activeChat.avatar} alt="avatar" className="w-11 h-11 border border-zinc-700 object-cover" />
+                      <img src={activeChat.avatar} alt={t('profilePhotoAlt')} className="w-11 h-11 border border-zinc-700 object-cover" />
                     ) : (
                       <div className="w-11 h-11 border border-zinc-700 bg-black flex items-center justify-center text-lg font-bold text-white">
                         {activeChat.name.charAt(0).toUpperCase()}
@@ -1697,7 +1584,7 @@ export default function PrivateInbox() {
                       </span>
                     </h2>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                      {isPartnerTyping ? 'Typing…' : getPresenceText(partnerPresence)}
+                      {isPartnerTyping ? t('typing') : getPresenceText(partnerPresence)}
                     </span>
                   </div>
                 </div>
@@ -1709,14 +1596,14 @@ export default function PrivateInbox() {
                   disabled={isConnectingCall || isInCall || Boolean(outgoingCallData)}
                   className="px-2.5 md:px-4 py-2 border-2 border-zinc-700 bg-black text-zinc-200 font-black uppercase tracking-wider text-[9px] md:text-[10px] flex items-center gap-2 hover:border-white hover:text-white disabled:opacity-50 transition-colors"
                 >
-                  <Phone className="w-4 h-4 text-green-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'audio' ? 'Connecting...' : outgoingCallData?.mode === 'audio' ? 'Calling...' : 'Audio'}</span>
+                  <Phone className="w-4 h-4 text-green-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'audio' ? t('connecting') : outgoingCallData?.mode === 'audio' ? t('calling') : t('audio')}</span>
                 </button>
                 <button 
                   onClick={() => startCall('video')}
                   disabled={isConnectingCall || isInCall || Boolean(outgoingCallData)}
                   className="px-2.5 md:px-4 py-2 border-2 border-zinc-700 bg-black text-zinc-200 font-black uppercase tracking-wider text-[9px] md:text-[10px] flex items-center gap-2 hover:border-white hover:text-white disabled:opacity-50 transition-colors"
                 >
-                  <Video className="w-4 h-4 text-yellow-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'video' ? 'Connecting...' : outgoingCallData?.mode === 'video' ? 'Calling...' : 'Video'}</span>
+                  <Video className="w-4 h-4 text-yellow-400" /> <span className="hidden md:inline">{isConnectingCall && callMode === 'video' ? t('connecting') : outgoingCallData?.mode === 'video' ? t('calling') : t('video')}</span>
                 </button>
               </div>
             </div>
@@ -1729,9 +1616,9 @@ export default function PrivateInbox() {
               >
                 <Pin className="h-4 w-4 shrink-0 text-yellow-400" />
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-yellow-400">
-                  {pinnedMessages.length > 1 ? `${pinnedMessages.length} pinned` : 'Pinned'}
+                  {pinnedMessages.length > 1 ? t('pinnedCount', { count: pinnedMessages.length }) : t('pinned')}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{latestPinnedMessage.text || 'Attachment'}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{latestPinnedMessage.text || t('attachment')}</span>
               </button>
             )}
 
@@ -1739,7 +1626,7 @@ export default function PrivateInbox() {
               <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
                 <div className="flex items-center gap-3 text-white">
                   {outgoingCallData.mode === 'video' ? <Video className="h-4 w-4 text-yellow-400" /> : <Phone className="h-4 w-4 text-green-400" />}
-                  <span className="text-xs font-black uppercase tracking-widest">Calling {outgoingCallData.targetName}…</span>
+                  <span className="text-xs font-black uppercase tracking-widest">{t('callingUser', { name: outgoingCallData.targetName })}</span>
                 </div>
                 <button
                   type="button"
@@ -1758,7 +1645,7 @@ export default function PrivateInbox() {
                   }}
                   className="border-2 border-zinc-700 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-red-500 hover:text-red-400"
                 >
-                  Cancel
+                  {t('cancelCall')}
                 </button>
               </div>
             )}
@@ -1767,13 +1654,13 @@ export default function PrivateInbox() {
             {/* INCOMING CALL RINGING UI */}
             {incomingCallData && !isInCall && (
               <div className="absolute inset-0 z-[80] flex items-center justify-center p-4 bg-black/80">
-                <div className="w-full max-w-md border-2 border-zinc-600 bg-zinc-950 p-6 shadow-[8px_8px_0px_rgba(255,255,255,0.12)]">
+                <div className="w-full max-w-md border-2 border-zinc-600 bg-zinc-950 p-6 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.12)]">
                   <div className="flex items-center gap-4">
                     <div className="h-14 w-14 border-2 border-yellow-400 bg-black flex items-center justify-center text-xl font-black text-white">
                       {(incomingCallData.fromName || 'C').charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400">Incoming {incomingCallData.mode === 'video' ? 'video' : 'voice'} call</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400">{t(incomingCallData.mode === 'video' ? 'incomingVideoCallLabel' : 'incomingAudioCallLabel')}</p>
                       <p className="mt-1 truncate text-sm font-black uppercase tracking-widest text-white">{incomingCallData.fromName}</p>
                     </div>
                   </div>
@@ -1790,7 +1677,7 @@ export default function PrivateInbox() {
                       className="flex items-center justify-center gap-2 border-2 border-green-500 bg-green-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-green-400 disabled:opacity-50"
                     >
                       {isConnectingCall ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneCall className="h-4 w-4" />}
-                      {isConnectingCall ? 'Connecting…' : t('answer')}
+                      {isConnectingCall ? t('connecting') : t('answer')}
                     </button>
                   </div>
                 </div>
@@ -1798,50 +1685,22 @@ export default function PrivateInbox() {
             )}
             
             {isInCall && callToken && (
-              <div className="absolute inset-0 z-50 flex flex-col animate-in fade-in duration-300 bg-black">
-                <LiveKitRoom
-                  serverUrl={LIVEKIT_URL}
+              <Suspense fallback={<div className="absolute inset-0 z-50 flex items-center justify-center bg-black text-xs uppercase text-zinc-400">{t('connecting')}</div>}>
+                <PrivateInboxCall
                   token={callToken}
-                  connect={true}
-                  audio={false}
-                  video={callMode === 'video'}
-                  onConnected={() => toast.success(`${callMode === 'video' ? 'Video' : 'Audio'} call connected`)}
-                  onError={(error) => {
-                    console.error('Private LiveKit call failed:', error);
-                    toast.error(error.message || 'The call connection failed.');
-                    endCall();
-                  }}
-                  className="flex-1 flex flex-col"
-                >
-                    <RoomAudioRenderer />
-                      <AutoPublishMic micGain={micGain} setMicEnabled={setMicEnabled} setMicLevel={setMicLevel} />
-                      <InboxCallStage activeChat={activeChat} callMode={callMode} callElapsedSec={callElapsedSec} micEnabled={micEnabled} micLevel={micLevel} />
-                  <div className="flex flex-wrap items-center justify-center gap-3 border-t-2 border-zinc-800 bg-black px-4 py-5 shrink-0 relative">
-                    <TrackToggle source={Track.Source.Microphone} aria-label="Toggle microphone" className="w-12 h-12 border-2 border-zinc-700 bg-zinc-950 flex items-center justify-center text-white hover:border-white" />
-                    {callMode === 'video' && <TrackToggle source={Track.Source.Camera} aria-label="Toggle camera" className="w-12 h-12 border-2 border-zinc-700 bg-zinc-950 flex items-center justify-center text-white hover:border-white" />}
-
-                    <div className="flex items-center gap-2">
-                      <label className="text-[10px] text-zinc-400">{t('microphoneGain')}</label>
-                      <input
-                        type="range"
-                        min="0.1"
-                        max="2"
-                        step="0.1"
-                        value={micGain}
-                        onChange={(e) => setMicGain(parseFloat(e.target.value))}
-                        className="w-[clamp(7rem,15vw,9rem)]"
-                        aria-label={t('microphoneGain')}
-                      />
-                    </div>
-
-                    <TrackToggle source={Track.Source.ScreenShare} aria-label="Toggle screen sharing" className="w-12 h-12 border-2 border-zinc-700 bg-zinc-950 flex items-center justify-center text-white hover:border-white" />
-
-                    <button onClick={endCall} className="flex items-center gap-2 border-2 border-red-500 bg-red-500 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-red-400">
-                      <PhoneOff className="w-5 h-5" /> End Call
-                    </button>
-                  </div>
-                </LiveKitRoom>
-              </div>
+                  activeChat={activeChat}
+                  callMode={callMode}
+                  callElapsedSec={callElapsedSec}
+                  micGain={micGain}
+                  setMicGain={setMicGain}
+                  micEnabled={micEnabled}
+                  setMicEnabled={setMicEnabled}
+                  micLevel={micLevel}
+                  setMicLevel={setMicLevel}
+                  endCall={endCall}
+                  onConnected={() => toast.success(t('callConnected', { type: t(callMode === 'video' ? 'video' : 'audio') }))}
+                />
+              </Suspense>
             )}
 
             <div className="flex flex-1 overflow-hidden relative">
@@ -1854,7 +1713,7 @@ export default function PrivateInbox() {
                       <div className="w-20 h-20 border-2 border-zinc-800 bg-zinc-950 flex items-center justify-center mb-4">
                         <MessageSquare className="w-8 h-8 text-zinc-600" />
                       </div>
-                      <h3 className="font-black text-sm uppercase tracking-widest text-white mb-1">Say hello to {activeChat.name}!</h3>
+                      <h3 className="font-black text-sm uppercase tracking-widest text-white mb-1">{t('sayHelloTo', { name: activeChat.name })}</h3>
                       <p className="text-xs text-zinc-500">{t('conversationEmpty')}</p>
                     </div>
                   ) : (
@@ -1871,7 +1730,7 @@ export default function PrivateInbox() {
                           {firstUnreadId === msg.id && (
                             <div className="flex items-center justify-center pt-2">
                               <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-400 bg-zinc-950 border border-zinc-800">
-                                New messages
+                                {t('newMessages')}
                               </div>
                             </div>
                           )}
@@ -1887,41 +1746,41 @@ export default function PrivateInbox() {
                           {!isSystem && !isModel && (
                             <div className="shrink-0 w-8 h-8 mb-1">
                               {showAvatar ? (
-                                <img src={activeChat.avatar} alt="avatar" className="w-8 h-8 border border-zinc-700 object-cover" />
+                                <img src={activeChat.avatar} alt={t('profilePhotoAlt')} className="w-8 h-8 border border-zinc-700 object-cover" />
                               ) : <div className="w-8" />}
                             </div>
                           )}
 
                           <div className={`flex flex-col ${isSystem ? 'items-center' : isModel ? 'items-end' : 'items-start'}`}>
-                            <div className={`px-4 py-3 text-sm leading-relaxed flex flex-col gap-3 border shadow-none ${
+                            <div className={`chat-bubble ${isSystem ? 'chat-bubble--system' : isModel ? 'chat-bubble--mine' : 'chat-bubble--other'} flex max-w-full flex-col gap-3 border px-4 py-3 text-sm leading-relaxed ${
                               isSystem ? 'border-zinc-700 bg-zinc-950 text-zinc-300' :
-                              isModel ? 'border-white bg-white text-black' :
-                              'border-zinc-700 bg-zinc-950 text-zinc-100'
+                              isModel ? 'border-white/80 bg-gradient-to-br from-white to-zinc-100 text-zinc-950' :
+                              'border-zinc-700 bg-gradient-to-br from-zinc-900 to-black text-zinc-100'
                             }`}
                               style={{
-                                borderColor: isMissedCall ? '#ef4444' : undefined
+                                borderColor: isMissedCall ? 'var(--danger)' : undefined
                               }}>
                               {msg.isAIGenerated && (
                                 <span className="text-[9px] font-black uppercase tracking-widest text-yellow-600">
-                                  AI-generated reply
+                                  {t('aiGeneratedReply')}
                                 </span>
                               )}
                               {msg.media && (
                                 <div className="relative overflow-hidden rounded-xl" style={{ backgroundColor: 'var(--surface-muted)' }}>
                                   <img
                                     src={msg.media}
-                                    alt="attachment"
+                                    alt={t('attachment')}
                                     className="h-auto w-full max-w-[min(70vw,16rem)] object-cover rounded-xl"
                                     style={{ filter: (msg.nsfw || msg.flagged) && !revealedMediaIds.has(msg.id) ? 'blur(8px) grayscale(40%)' : 'none' }}
                                   />
                                   {(msg.nsfw || msg.flagged) && (
-                                    <div className="absolute top-2 left-2 px-2 py-1 rounded-full text-xs font-bold" style={{ backgroundColor: 'rgba(0,0,0,0.6)', color: '#ffb86b' }}>
+                                    <div className="absolute top-2 left-2 px-2 py-1 rounded-full text-xs font-bold" style={{ backgroundColor: 'rgba(var(--shadow-rgb), 0.6)', color: 'var(--warning-bright)' }}>
                                       NSFW
                                     </div>
                                   )}
                                   {(msg.nsfw || msg.flagged) && !revealedMediaIds.has(msg.id) && (
                                     <div className="absolute inset-0 flex items-center justify-center">
-                                      <button onClick={() => { setRevealedMediaIds(prev => new Set([...Array.from(prev), msg.id])); }} className="px-3 py-2 rounded-full font-semibold" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface-strong)' }}>{t('reveal')}</button>
+                                      <button onClick={() => { setRevealedMediaIds(prev => new Set([...Array.from(prev), msg.id])); }} className="px-3 py-2 rounded-full font-semibold" style={{ backgroundColor: 'var(--accent)', color: 'var(--text-on-accent)' }}>{t('reveal')}</button>
                                     </div>
                                   )}
                                 </div>
@@ -1951,13 +1810,13 @@ export default function PrivateInbox() {
                                   type="button"
                                   onClick={() => reconnectCall(msg.callMode || 'audio')}
                                   className="self-center inline-flex items-center justify-center border border-zinc-700 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-white hover:text-white transition-colors">
-                                  <RefreshCw className="w-3.5 h-3.5 mr-2" /> Reconnect
+                                  <RefreshCw className="w-3.5 h-3.5 mr-2" /> {t('reconnectCall')}
                                 </button>
                               )}
                             </div>
                             {replyingTo && replyingTo.id === msg.id && (
                               <div className="mb-2 px-3 py-2 rounded-2xl bg-zinc-950 border border-zinc-700 text-xs text-zinc-300">
-                                Replying to {replyingTo.sender === 'me' ? 'yourself' : activeChat.name}
+                                {replyingTo.sender === 'me' ? t('replyingToYourself') : t('replyingToUser', { name: activeChat.name })}
                               </div>
                             )}
                             <div className="mt-1 flex items-center justify-between gap-3">
@@ -1974,14 +1833,14 @@ export default function PrivateInbox() {
                                 type="button"
                                 onClick={() => toggleDirectMessagePin(msg)}
                                 disabled={pinningMessageId === msg.id}
-                                aria-label={msg.isPinned ? 'Unpin message' : 'Pin message'}
-                                title={msg.isPinned ? 'Unpin message' : 'Pin message'}
+                                aria-label={t(msg.isPinned ? 'unpinMessage' : 'pinMessage')}
+                                title={t(msg.isPinned ? 'unpinMessage' : 'pinMessage')}
                                 className={`inline-flex items-center gap-1 px-2 py-1 text-[9px] font-black uppercase tracking-widest transition-colors ${
                                   msg.isPinned ? 'text-yellow-400' : 'text-zinc-600 hover:text-white'
                                 }`}
                               >
                                 {pinningMessageId === msg.id ? <Loader2 className="h-3 w-3 animate-spin" /> : msg.isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-                                {msg.isPinned ? 'Pinned' : ''}
+                                {msg.isPinned ? t('pinned') : ''}
                               </button>
                             )}
                             </div>
@@ -2006,7 +1865,7 @@ export default function PrivateInbox() {
                         {isGeneratingAISuggestions
                           ? <Loader2 className="h-4 w-4 animate-spin" />
                           : <Sparkles className="h-4 w-4" />}
-                        {isGeneratingAISuggestions ? 'Generating…' : 'Draft AI replies'}
+                        {isGeneratingAISuggestions ? t('generatingReplies') : t('draftAiReplies')}
                       </button>
                       <button
                         type="button"
@@ -2021,11 +1880,11 @@ export default function PrivateInbox() {
                       >
                         <Bot className="h-4 w-4" />
                         {isUpdatingAIAutoReply
-                          ? 'Saving…'
-                          : `AI auto-reply ${aiAutoReplyEnabled ? 'on' : 'off'} · 5h`}
+                          ? t('saving')
+                          : t(aiAutoReplyEnabled ? 'aiAutoReplyOn' : 'aiAutoReplyOff')}
                       </button>
                       <span className="text-[10px] text-zinc-500">
-                        Recent messages are sent to Gemini for drafts. Auto-replies are labeled AI.
+                        {t('aiSuggestionContext')}
                       </span>
                     </div>
                     {aiSuggestions.length > 0 && (
@@ -2051,14 +1910,16 @@ export default function PrivateInbox() {
                   {/* Emoji Picker Modal */}
                   {showEmojiPicker && (
                     <div className="absolute bottom-[calc(100%+10px)] left-4 md:left-6 z-50 shadow-2xl border border-zinc-700 overflow-hidden">
-                      <EmojiPicker 
-                        theme={theme}
-                        onEmojiClick={handleEmojiSelect} 
-                        searchDisabled={true} 
-                        skinTonesDisabled={true} 
-                        height={350} 
-                        width={320} 
-                      />
+                      <Suspense fallback={<div className="p-4 text-xs text-zinc-400">{t('loading')}</div>}>
+                        <EmojiPicker
+                          theme={theme}
+                          onEmojiClick={handleEmojiSelect}
+                          searchDisabled={true}
+                          skinTonesDisabled={true}
+                          height={350}
+                          width={320}
+                        />
+                      </Suspense>
                     </div>
                   )}
 
@@ -2071,11 +1932,11 @@ export default function PrivateInbox() {
                           {attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? (
                             <video src={attachedMedia} className="aspect-video w-[clamp(6rem,20vw,8rem)] border border-zinc-700 object-cover" controls muted />
                           ) : (
-                            <img src={attachedMedia} alt="preview" className="size-[clamp(3rem,8vw,3.5rem)] border border-zinc-700 object-cover" />
+                            <img src={attachedMedia} alt={t('preview')} className="size-[clamp(3rem,8vw,3.5rem)] border border-zinc-700 object-cover" />
                           )}
                         </div>
                         <div className="flex flex-col pr-4">
-                          <span className="text-xs font-bold uppercase tracking-wider text-white">{attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? 'Video attached' : 'Photo attached'}</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-white">{t(attachedMediaType && attachedMediaType.startsWith && attachedMediaType.startsWith('video') ? 'videoAttached' : 'photoAttached')}</span>
                           <span className="text-[10px] mt-0.5 text-zinc-500">{t('readyToSend')}</span>
                         </div>
                         <button 
@@ -2096,7 +1957,7 @@ export default function PrivateInbox() {
                         <button onClick={() => setShowMediaVault(true)} className="p-2.5 border border-transparent text-zinc-400 hover:border-zinc-700 hover:text-white transition-colors" style={{ color: 'var(--text-secondary)' }} title={t('vault')} aria-label={t('vault')}>
                           <Upload className="w-5 h-5" />
                         </button>
-                        <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} aria-label="Choose emoji" className="hidden md:block p-2.5 border border-transparent text-zinc-400 hover:border-zinc-700 hover:text-white transition-colors">
+                        <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} aria-label={t('chooseEmoji')} className="hidden md:block p-2.5 border border-transparent text-zinc-400 hover:border-zinc-700 hover:text-white transition-colors">
                           <Smile className="w-5 h-5" />
                         </button>
                       </div>
@@ -2108,7 +1969,7 @@ export default function PrivateInbox() {
                         placeholder={t('typeMessage')}
                         className="flex-1 bg-transparent py-3.5 px-2 font-normal text-sm resize-none outline-none custom-scrollbar disabled:opacity-50 placeholder:text-zinc-500"
                         rows="1"
-                        style={{ color: '#ffffff', minHeight: '48px', maxHeight: '120px' }}
+                        style={{ color: 'var(--text-primary)', minHeight: '48px', maxHeight: '120px' }}
                       />
                       
                       <button 
@@ -2130,14 +1991,14 @@ export default function PrivateInbox() {
                   <div className="relative mb-4">
                     <img 
                       src={activeChat.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'} 
-                      alt="User" 
+                      alt={t('profilePhotoAlt')}
                       className="size-[clamp(6rem,14vw,8rem)] border-4 border-yellow-400 bg-black object-cover"
                     />
                     <div className={`absolute bottom-1 right-3 h-4 w-4 border-2 border-black ${partnerPresence === 'online' ? 'bg-green-400' : 'bg-zinc-600'}`} />
                   </div>
                   <h2 className="text-xl font-black uppercase tracking-wide text-white">{activeChat.name}</h2>
                   <span className={`px-3 py-1 border text-[10px] font-black uppercase tracking-widest mt-3 ${tier.bg} ${tier.text} ${tier.color}`}>
-                    {tier.label} User
+                    {tier.label} {t('tierUser')}
                   </span>
                 </div>
                 
@@ -2145,7 +2006,7 @@ export default function PrivateInbox() {
                   <div>
                     <h3 className="text-[10px] font-black uppercase tracking-widest mb-2 text-zinc-500">{t('about')}</h3>
                     <p className="text-sm leading-relaxed p-4 border border-zinc-800 bg-black text-zinc-300">
-                      {activeChat.bio ? `"${activeChat.bio}"` : "No bio provided yet."}
+                      {activeChat.bio ? `"${activeChat.bio}"` : t('noBio')}
                     </p>
                   </div>
 
@@ -2164,10 +2025,10 @@ export default function PrivateInbox() {
                   
                   <div className="pt-4 space-y-3">
                     <button className="w-full border border-zinc-700 bg-black py-3.5 text-[10px] font-black uppercase tracking-widest text-white transition-colors hover:border-white">
-                      View Full Profile
+                      {t('viewProfile')}
                     </button>
                     <button onClick={() => setShowBlockModal(true)} className="w-full border border-red-500/50 bg-transparent py-3.5 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/10">
-                      Block User
+                      {t('blockUser')}
                     </button>
                   </div>
                 </div>
@@ -2191,14 +2052,14 @@ export default function PrivateInbox() {
 
       <BlockUserModal
         isOpen={showBlockModal}
-        targetName={activeChat?.name || 'this user'}
+        targetName={activeChat?.name || t('thisUser')}
         onClose={() => setShowBlockModal(false)}
         onBlock={handleBlockUser}
       />
 
       <DeleteConfirmModal
         isOpen={Boolean(showDeleteModal)}
-        targetName={showDeleteModal?.name || 'this conversation'}
+        targetName={showDeleteModal?.name || t('thisConversation')}
         onClose={() => setShowDeleteModal(null)}
         onConfirm={handleDeleteChat}
       />
@@ -2206,16 +2067,16 @@ export default function PrivateInbox() {
       {/* CONTEXT MENU */}
       {contextMenuTarget && (
         <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center p-4">
-          <div className="absolute inset-0 md:bg-transparent" onClick={() => setContextMenuTarget(null)} style={{ backgroundColor: 'rgba(24, 19, 16, 0.25)' }} />
+          <div className="absolute inset-0 md:bg-transparent" onClick={() => setContextMenuTarget(null)} style={{ backgroundColor: 'rgba(var(--scrim-rgb), 0.25)' }} />
           <div className="relative flex w-full flex-col border border-zinc-700 bg-zinc-950 p-2 shadow-2xl animate-in zoom-in-95 duration-100 md:w-[clamp(12rem,24vw,18rem)]">
             <div className="p-3 mb-2 border-b border-zinc-800">
               <span className="text-sm font-black uppercase tracking-widest truncate block text-white">{contextMenuTarget.name}</span>
             </div>
             <button onClick={() => handleToggleMute(contextMenuTarget.id)} className="w-full flex items-center gap-3 p-3 text-sm font-bold text-zinc-300 text-left transition-colors hover:bg-zinc-900 hover:text-white">
-              <BellOff className="w-4 h-4 text-zinc-500" /> {contextMenuTarget.isMuted ? 'Unmute Chat' : 'Mute Notifications'}
+              <BellOff className="w-4 h-4 text-zinc-500" /> {contextMenuTarget.isMuted ? t('unmuteChat') : t('muteNotifications')}
             </button>
             <button onClick={() => { setShowDeleteModal(contextMenuTarget); setContextMenuTarget(null); }} className="w-full flex items-center gap-3 p-3 text-sm font-bold text-red-400 text-left transition-colors hover:bg-red-500/10 mt-1">
-              <Trash2 className="w-4 h-4" /> Delete Conversation
+              <Trash2 className="w-4 h-4" /> {t('deleteConversation')}
             </button>
           </div>
         </div>
@@ -2223,101 +2084,4 @@ export default function PrivateInbox() {
 
     </div>
   );
-}
-
-function InboxCallStage({ activeChat, callMode, callElapsedSec, micEnabled, micLevel }) {
-  const { t } = useI18n();
-  const participants = useParticipants();
-  const { localParticipant } = useLocalParticipant();
-  const cameraTracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
-  const remoteParticipants = participants.filter((p) => p.identity !== localParticipant?.identity);
-  const remotePrimary = remoteParticipants[0];
-  const localCameraTrack = cameraTracks.find((t) => t.participant.identity === localParticipant?.identity);
-  const remoteCameraTrack = cameraTracks.find((t) => t.participant.identity !== localParticipant?.identity);
-  const connectedCount = remoteParticipants.length + 1;
-  const microphoneEnabled = localParticipant?.isMicrophoneEnabled ?? micEnabled;
-
-  return (
-    <div className="flex min-h-0 flex-1 grid-cols-1 grid w-full items-center justify-center gap-3 p-2 sm:gap-4 sm:p-3 md:grid-cols-2 lg:p-4">
-      <div className="col-span-full text-center text-[10px] font-black uppercase tracking-widest text-zinc-400">
-        {callMode === 'video' ? 'Video call' : 'Audio call'} · {connectedCount} participant{connectedCount === 1 ? '' : 's'} · {formatDuration(callElapsedSec)}
-      </div>
-      <div className="relative flex h-full w-full min-h-[min(35dvh,18rem)] max-h-full flex-col items-center justify-center gap-4 overflow-hidden border-2 border-zinc-700 bg-zinc-950">
-        {callMode === 'video' && localCameraTrack ? (
-          <>
-            <VideoTrack trackRef={localCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
-          </>
-        ) : (
-          <div className="w-24 h-24 border-2 border-yellow-400 bg-black flex items-center justify-center text-2xl font-black text-white z-10">
-            {(localParticipant?.name || 'You').charAt(0).toUpperCase()}
-          </div>
-        )}
-        <div className="text-[10px] font-black uppercase tracking-widest z-10 px-3 py-1.5 bg-black/70 text-white">{t('you')}</div>
-        <div className="text-xs z-10 flex flex-col gap-2 text-zinc-300">
-          {microphoneEnabled ? (
-            <>
-              <span>Mic on — {micLevel < 0.02 ? 'No sound' : micLevel < 0.1 ? 'Quiet' : micLevel < 0.25 ? 'Speaking softly' : micLevel < 0.5 ? 'Speaking' : 'Loud input'}</span>
-              <div className="flex items-center gap-1">
-                {[0.05, 0.15, 0.3, 0.5].map((threshold, index) => {
-                  const active = micLevel >= threshold;
-                  return (
-                    <span key={index} className={`inline-block h-2 transition-all duration-150 ${active ? 'bg-green-400' : 'bg-zinc-700'}`} style={{ width: `${6 + index * 4}px` }} />
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="inline-flex items-center gap-2">
-              <span className="inline-flex h-2.5 w-2.5 bg-red-500" />
-              <span>{t('micOff')}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="relative flex h-full w-full min-h-[min(35dvh,18rem)] max-h-full flex-col items-center justify-center gap-4 overflow-hidden border-2 border-zinc-700 bg-zinc-950">
-        {callMode === 'video' && remoteCameraTrack && (
-          <>
-            <VideoTrack trackRef={remoteCameraTrack} className="absolute inset-0 w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
-          </>
-        )}
-        {remotePrimary ? (
-          <>
-            {(!remoteCameraTrack || callMode !== 'video') && (
-              <div className="w-24 h-24 border-2 border-green-400 bg-black flex items-center justify-center text-2xl font-black text-white z-10">
-                {(remotePrimary?.name || activeChat?.name || 'U').charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div className="text-[10px] font-black uppercase tracking-widest z-10 px-3 py-1.5 bg-black/70 text-white">{remotePrimary?.name || activeChat?.name}</div>
-            <div className="text-xs z-10 flex items-center gap-2 text-zinc-300">
-              <span>{remotePrimary?.isSpeaking ? 'Speaking' : 'Connected'}</span>
-              <span className="inline-block w-16 h-1 bg-zinc-800 overflow-hidden">
-                <span className="block h-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round(((remotePrimary?.audioLevel ?? remotePrimary?.audio_level) || 0) * 200))}%`, transition: 'width 120ms linear' }} />
-              </span>
-            </div>
-          </>
-        ) : (
-          <>
-            {activeChat?.avatar ? (
-              <img src={activeChat.avatar} alt={activeChat.name} className="w-24 h-24 border-2 border-green-400 object-cover z-10" />
-            ) : (
-              <div className="w-24 h-24 border-2 border-green-400 bg-black flex items-center justify-center text-2xl font-black text-white z-10">
-                {(activeChat?.name || 'U').charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div className="text-[10px] font-black uppercase tracking-widest z-10 px-3 py-1.5 bg-black/70 text-white">{activeChat?.name}</div>
-            <div className="text-xs z-10 text-yellow-400">{t('ringing')}</div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function formatDuration(totalSeconds) {
-  const mins = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-  const secs = (totalSeconds % 60).toString().padStart(2, '0');
-  return `${mins}:${secs}`;
 }

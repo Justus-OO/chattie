@@ -11,4 +11,22 @@ export default defineConfig({
   define: {
     global: 'window',
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'livekit-components',
+              test: /node_modules[\\/].*components-react/,
+              minSize: 20_000,
+              maxSize: 350_000,
+              priority: 20,
+              entriesAware: true,
+            },
+          ],
+        },
+      },
+    },
+  },
 })

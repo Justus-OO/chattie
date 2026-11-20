@@ -62,7 +62,7 @@ export default function MainLayout() {
       <div className={`
         fixed inset-y-0 left-0 z-50 w-[min(85vw,22rem)] bg-black transform transition-transform duration-300 ease-out border-r-2 border-zinc-800
         md:relative md:translate-x-0 md:w-[clamp(14rem,22vw,20rem)] md:flex md:shrink-0
-        ${isMobileMenuOpen ? 'translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.8)]' : '-translate-x-full'}
+        ${isMobileMenuOpen ? 'translate-x-0 shadow-[20px_0_50px_rgba(var(--shadow-rgb), 0.8)]' : '-translate-x-full'}
       `}>
         {/* Mobile Close Button (Inside Sidebar) */}
         <button 

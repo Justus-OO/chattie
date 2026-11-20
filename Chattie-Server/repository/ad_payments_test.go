@@ -30,3 +30,26 @@ func TestUSDMinorFromKESMinor(t *testing.T) {
 		})
 	}
 }
+
+func TestWalletContributionCents(t *testing.T) {
+	tests := []struct {
+		name      string
+		available int64
+		price     int64
+		want      int64
+	}{
+		{name: "no balance", available: 0, price: 2500, want: 0},
+		{name: "partial balance", available: 900, price: 2500, want: 900},
+		{name: "exact balance", available: 2500, price: 2500, want: 2500},
+		{name: "balance exceeds price", available: 4000, price: 2500, want: 2500},
+		{name: "negative balance", available: -1, price: 2500, want: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := walletContributionCents(test.available, test.price); got != test.want {
+				t.Fatalf("walletContributionCents(%d, %d) = %d, want %d", test.available, test.price, got, test.want)
+			}
+		})
+	}
+}

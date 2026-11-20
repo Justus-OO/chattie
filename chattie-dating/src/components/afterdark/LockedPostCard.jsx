@@ -49,14 +49,15 @@ const CustomVideoPlayer = ({ src, poster, isUnlocked, watermark, creatorName }) 
   };
 
   return (
-    <div className="relative w-full aspect-video bg-black group overflow-hidden border-b-2 border-zinc-900">
+    <div className="relative h-full w-full bg-black group overflow-hidden border-b-2 border-zinc-900">
       <video
         ref={videoRef}
         src={src}
         poster={poster}
         onTimeUpdate={handleTimeUpdate}
         onEnded={() => setIsPlaying(false)}
-        className={`w-full h-full object-contain transition-all duration-700 ease-out ${
+        preload="metadata"
+        className={`h-full w-full object-contain transition-all duration-700 ease-out ${
           !isUnlocked ? 'filter blur-[40px] scale-125 pointer-events-none brightness-50' : ''
         }`}
         loop
@@ -117,6 +118,8 @@ const CustomVideoPlayer = ({ src, poster, isUnlocked, watermark, creatorName }) 
 // ============================================================================
 // MAIN COMPONENT: LOCKED POST CARD
 // ============================================================================
+const COMMENTS_PAGE_SIZE = 20;
+
 export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscribe, onMessageCreator, onOpenCreator }) {
   const navigate = useNavigate();
   const { confirm } = useAppDialogs();
@@ -155,6 +158,9 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
   const [comments, setComments] = useState(Array.isArray(post.comments) ? post.comments : []);
   const [commentInput, setCommentInput] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [commentsOffset, setCommentsOffset] = useState(0);
+  const [hasMoreComments, setHasMoreComments] = useState(false);
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
 
   useEffect(() => {
     setIsUnlocked(post.isUnlocked || pricingStrategy === 'free');
@@ -217,7 +223,8 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
     setIsSubmittingComment(true);
     try {
       const newComment = await afterDarkService.addComment(id, commentInput.trim());
-      setComments(current => [newComment, ...current]);
+      setComments(current => [newComment, ...current.filter(comment => comment?.id !== newComment?.id)]);
+      setCommentsOffset(offset => offset + 1);
       setCommentsCount(count => count + 1);
       setCommentInput('');
     } catch (error) {
@@ -239,20 +246,38 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
       .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not submit the report.')));
   };
 
+  const loadComments = async (offset = 0, append = false) => {
+    if (isLoadingComments) return;
+    setIsLoadingComments(true);
+    try {
+      const result = await afterDarkService.getComments(id, { limit: COMMENTS_PAGE_SIZE, offset });
+      const records = Array.isArray(result) ? result : result?.comments || result?.items || [];
+      if (!Array.isArray(records)) throw new Error('The comments service returned an invalid response.');
+      setComments(current => {
+        if (!append) return records;
+        const existingIds = new Set(current.map(comment => comment?.id).filter(Boolean));
+        return [...current, ...records.filter(comment => !comment?.id || !existingIds.has(comment.id))];
+      });
+      setCommentsOffset(offset + records.length);
+      setHasMoreComments(records.length === COMMENTS_PAGE_SIZE);
+      if (result?.total_count !== undefined || result?.total !== undefined) {
+        setCommentsCount(Number(result.total_count ?? result.total));
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load comments.'));
+    } finally {
+      setIsLoadingComments(false);
+    }
+  };
+
   const toggleComments = () => {
     const shouldOpen = !showComments;
     setShowComments(shouldOpen);
     if (!shouldOpen) return;
-    
-    afterDarkService.getComments(id)
-      .then(result => {
-        const records = Array.isArray(result) ? result : result?.comments || result?.items || [];
-        setComments(records);
-        if (result?.total_count !== undefined || result?.total !== undefined) {
-          setCommentsCount(Number(result.total_count ?? result.total));
-        }
-      })
-      .catch(error => toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not load comments.')));
+    setComments([]);
+    setCommentsOffset(0);
+    setHasMoreComments(false);
+    loadComments(0);
   };
 
   const handleFollow = async () => {
@@ -281,11 +306,13 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
   // ==========================================
   // RENDER HELPERS
   // ==========================================
-  const NeedsExplicitAck = isExplicit && !explicitAcknowledged;
+  const NeedsExplicitAck = isExplicit
+    && !explicitAcknowledged
+    && !(isUnlocked && pricingStrategy !== 'free');
   const isBlurred = !isUnlocked || NeedsExplicitAck;
 
   return (
-    <div className="w-full bg-black border-2 border-zinc-800 font-mono flex flex-col mb-8 transition-all hover:border-zinc-600 hover:-translate-y-0.5 shadow-[4px_4px_0px_rgba(255,255,255,0.05)] hover:shadow-[8px_8px_0px_rgba(255,255,255,0.08)] relative duration-200">
+    <div className="w-full bg-black border-2 border-zinc-800 font-mono flex flex-col transition-all hover:border-zinc-600 hover:-translate-y-0.5 shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.05)] hover:shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.08)] relative duration-200">
       
       {/* HEADER */}
       <div className="p-4 flex items-center justify-between border-b-2 border-zinc-900 bg-zinc-950 relative z-20">
@@ -324,7 +351,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 {/* Click-away backdrop */}
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 {/* Menu Dropdown */}
-                <div className="absolute right-0 top-full z-20 mt-2 flex w-[clamp(12rem,24vw,16rem)] flex-col border-2 border-zinc-700 bg-black shadow-[4px_4px_0px_rgba(255,255,255,0.1)] animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 top-full z-20 mt-2 flex w-[clamp(12rem,24vw,16rem)] flex-col border-2 border-zinc-700 bg-black shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in fade-in zoom-in-95 duration-100">
                   <button onClick={handleUnlockClick} className="px-4 py-3 text-left text-[10px] font-black text-white uppercase tracking-widest hover:bg-zinc-900 flex items-center gap-2 transition-colors">
                     <UserPlus className="w-4 h-4" /> Subscribe
                   </button>
@@ -342,7 +369,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
       </div>
 
       {/* MEDIA CONTAINER */}
-      <div className="relative w-full aspect-square sm:aspect-[4/5] md:aspect-video bg-zinc-950 overflow-hidden flex items-center justify-center">
+      <div className={`relative w-full ${mediaType === 'video' ? 'aspect-video' : 'aspect-[4/5] md:aspect-square xl:aspect-[4/3]'} bg-black overflow-hidden flex items-center justify-center`}>
         
         {/* Render Actual Media */}
         {mediaType === 'video' ? (
@@ -364,7 +391,9 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
               <img
                 src={mediaUrl}
                 alt={caption}
-                className={`w-full h-full object-cover transition-all duration-700 ease-out ${
+                loading="lazy"
+                decoding="async"
+                className={`w-full h-full object-contain transition-all duration-700 ease-out ${
                   isBlurred ? 'filter blur-[40px] scale-125 brightness-50 pointer-events-none' : ''
                 }`}
               />
@@ -375,7 +404,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
             )}
             {!isBlurred && watermark && (
               <div className="absolute bottom-4 right-4 opacity-40 pointer-events-none select-none">
-                <span className="text-[10px] font-black text-white uppercase tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] bg-black/30 px-2 py-1 border border-white/20">
+                <span className="text-[10px] font-black text-white uppercase tracking-widest drop-shadow-[0_2px_2px_rgba(var(--shadow-rgb), 0.8)] bg-black/30 px-2 py-1 border border-white/20">
                   @{creator.name} PROTECTED
                 </span>
               </div>
@@ -397,14 +426,14 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 </p>
                 <button 
                   onClick={() => setExplicitAcknowledged(true)}
-                  className="w-full py-3 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.2)]"
+                  className="w-full py-3 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)]"
                 >
                   <Eye className="w-4 h-4 inline mr-2" /> REVEAL MEDIA
                 </button>
               </div>
             ) : pricingStrategy === 'ppv' ? (
               // Pay-Per-View Lock Overlay
-              <div className="bg-black/95 p-8 border-2 border-yellow-500/50 max-w-sm w-full flex flex-col items-center shadow-[8px_8px_0px_rgba(234,179,8,0.1)]">
+              <div className="bg-black/95 p-8 border-2 border-yellow-500/50 max-w-sm w-full flex flex-col items-center shadow-[8px_8px_0px_rgba(var(--warning-rgb), 0.1)]">
                 <div className="w-16 h-16 rounded-full bg-yellow-500/10 border-2 border-yellow-500 flex items-center justify-center mb-4">
                   <Lock className="w-6 h-6 text-yellow-500" />
                 </div>
@@ -414,7 +443,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 </p>
                 <button 
                   onClick={handleUnlockClick}
-                  className="w-full py-4 bg-yellow-500 text-black font-black uppercase text-xs tracking-widest border-2 border-yellow-500 hover:bg-yellow-400 transition-all hover:-translate-y-0.5 shadow-[4px_4px_0px_rgba(234,179,8,0.2)] hover:shadow-[6px_6px_0px_rgba(234,179,8,0.4)]"
+                  className="w-full py-4 bg-yellow-500 text-black font-black uppercase text-xs tracking-widest border-2 border-yellow-500 hover:bg-yellow-400 transition-all hover:-translate-y-0.5 shadow-[4px_4px_0px_rgba(var(--warning-rgb), 0.2)] hover:shadow-[6px_6px_0px_rgba(var(--warning-rgb), 0.4)]"
                 >
                   UNLOCK FOR KES {price}
                 </button>
@@ -422,7 +451,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
               </div>
             ) : pricingStrategy === 'subscriber' ? (
               // Subscriber Only Lock Overlay
-              <div className="bg-black/95 p-8 border-2 border-green-500/50 max-w-sm w-full flex flex-col items-center shadow-[8px_8px_0px_rgba(34,197,94,0.1)]">
+              <div className="bg-black/95 p-8 border-2 border-green-500/50 max-w-sm w-full flex flex-col items-center shadow-[8px_8px_0px_rgba(var(--success-rgb), 0.1)]">
                 <div className="w-16 h-16 rounded-full bg-green-500/10 border-2 border-green-500 flex items-center justify-center mb-4">
                   <Crown className="w-6 h-6 text-green-500" />
                 </div>
@@ -432,7 +461,7 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                 </p>
                 <button 
                   onClick={handleUnlockClick}
-                  className="w-full py-4 bg-green-500 text-black font-black uppercase text-xs tracking-widest border-2 border-green-500 hover:bg-green-400 transition-all hover:-translate-y-0.5 shadow-[4px_4px_0px_rgba(34,197,94,0.2)] hover:shadow-[6px_6px_0px_rgba(34,197,94,0.4)]"
+                  className="w-full py-4 bg-green-500 text-black font-black uppercase text-xs tracking-widest border-2 border-green-500 hover:bg-green-400 transition-all hover:-translate-y-0.5 shadow-[4px_4px_0px_rgba(var(--success-rgb), 0.2)] hover:shadow-[6px_6px_0px_rgba(var(--success-rgb), 0.4)]"
                 >
                   SUBSCRIBE NOW
                 </button>
@@ -541,8 +570,12 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
           </div>
 
           {/* Comment List */}
-          <div className="max-h-[40dvh] overflow-y-auto p-4 space-y-4 custom-scrollbar">
-            {comments.length === 0 ? (
+          <div className="max-h-[min(60dvh,36rem)] overflow-y-auto p-4 space-y-4 custom-scrollbar">
+            {isLoadingComments && comments.length === 0 ? (
+              <div role="status" className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+              </div>
+            ) : comments.length === 0 ? (
               <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest text-center py-4">No comments yet. Be the first.</p>
             ) : (
               comments.filter(Boolean).map((comment, index) => {
@@ -580,6 +613,17 @@ export default function LockedPostCard({ post, onTriggerMpesa, onRequireSubscrib
                   </div>
                 );
               })
+            )}
+            {hasMoreComments && (
+              <button
+                type="button"
+                onClick={() => loadComments(commentsOffset, true)}
+                disabled={isLoadingComments}
+                className="mx-auto flex items-center gap-2 border border-zinc-700 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-zinc-300 hover:border-white hover:text-white disabled:opacity-50"
+              >
+                {isLoadingComments && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {isLoadingComments ? 'Loading comments' : 'Load older comments'}
+              </button>
             )}
           </div>
         </div>

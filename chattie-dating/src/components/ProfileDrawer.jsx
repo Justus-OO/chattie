@@ -216,7 +216,7 @@ export default function ProfileDrawer({ selectedProfile, onClose }) {
         {/* =====================================================================
             STICKY ACTION FOOTER
             ===================================================================== */}
-        <div className="absolute bottom-0 inset-x-0 p-4 md:p-6 bg-slate-900/90 backdrop-blur-xl border-t border-slate-800 shadow-[0_-10px_40px_rgba(0,0,0,0.3)] z-20">
+        <div className="absolute bottom-0 inset-x-0 p-4 md:p-6 bg-slate-900/90 backdrop-blur-xl border-t border-slate-800 shadow-[0_-10px_40px_rgba(var(--shadow-rgb), 0.3)] z-20">
           <div className="flex gap-3">
             <button 
               onClick={() => handleAction('superlike')}

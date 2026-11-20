@@ -52,7 +52,7 @@ func (r *ADInteractionsRepository) GetComments(ctx context.Context, postID strin
 		SELECT id::text, user_id::text, post_id::text, content, created_at, updated_at
 		FROM ad_post_comments
 		WHERE post_id = $1
-		ORDER BY created_at ASC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $2 OFFSET $3
 	`
 	rows, err := r.DB.QueryContext(ctx, query, postID, limit, offset)

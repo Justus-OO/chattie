@@ -159,7 +159,7 @@ export default function Likes() {
             </button>
             
             {showFilterDropdown && (
-              <div className="absolute right-0 top-full z-20 mt-2 w-full overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in fade-in duration-200 md:w-[clamp(12rem,24vw,16rem)]">
+              <div className="absolute right-0 top-full z-20 mt-2 w-full overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in fade-in duration-200 md:w-[clamp(12rem,24vw,16rem)]">
                 {[
                   { id: 'all', label: t('allLikes') },
                   { id: 'new', label: t('newFirst') },
@@ -300,7 +300,7 @@ export default function Likes() {
         <div className="md:hidden absolute bottom-6 inset-x-4 z-20">
           <button 
             onClick={() => setShowUpgradeModal(true)}
-            className="w-full py-4 bg-white text-black border-2 border-white font-bold uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-[8px_8px_0px_rgba(255,255,255,0.1)]"
+            className="w-full py-4 bg-white text-black border-2 border-white font-bold uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)]"
           >
             <Sparkles className="w-4 h-4" /> {t('seeWhoLikes')}
           </button>
@@ -314,7 +314,7 @@ export default function Likes() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm cursor-pointer" onClick={() => setShowUpgradeModal(false)} />
           
-          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col animate-in zoom-in-95 duration-200 rounded-none">
+          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col animate-in zoom-in-95 duration-200 rounded-none">
             
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="font-bold text-sm uppercase tracking-widest text-white flex items-center gap-2">
@@ -359,7 +359,7 @@ export default function Likes() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 lg:p-16">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm cursor-pointer" onClick={() => setSelectedProfile(null)} />
           
-          <div className="relative z-10 w-full h-full sm:h-auto max-h-full max-w-5xl bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col md:flex-row overflow-hidden animate-in zoom-in-95 duration-200 rounded-none">
+          <div className="relative z-10 w-full h-full sm:h-auto max-h-full max-w-5xl bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col md:flex-row overflow-hidden animate-in zoom-in-95 duration-200 rounded-none">
             
             {/* Mobile Close Button */}
             <button 

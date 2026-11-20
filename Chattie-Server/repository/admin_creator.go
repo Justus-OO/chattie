@@ -40,20 +40,94 @@ const creatorPendingRepliesCTE = `
 	)
 `
 
+func formatReplyDuration(seconds int64) string {
+	if seconds <= 0 {
+		return "N/A"
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dh %dm", minutes/60, minutes%60)
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
 // GetOperatorRoster fetches all creators, their live presence, and nested performance/personas
 func (r *Repository) GetOperatorRoster(ctx context.Context) ([]models.OperatorDetail, error) {
 	// 1. Fetch base operators
 	query := `
+		WITH operator_messages AS (
+			SELECT mp.manager_id,
+			       COUNT(m.id) FILTER (WHERE m.sender_id = mp.id)::int AS msgs_sent,
+			       COUNT(DISTINCT CASE
+			           WHEN m.sender_id = mp.id THEN m.recipient_id
+			           ELSE m.sender_id
+			       END) FILTER (WHERE m.created_at >= NOW() - INTERVAL '30 minutes')::int AS active_sessions
+			FROM managed_profiles mp
+			LEFT JOIN messages m
+			  ON m.room_id IS NULL
+			 AND m.recipient_id IS NOT NULL
+			 AND (m.sender_id = mp.id OR m.recipient_id = mp.id)
+			 AND COALESCE(m.message_kind, 'chat') = 'chat'
+			WHERE mp.manager_id IS NOT NULL
+			GROUP BY mp.manager_id
+		),
+		operator_replies AS (
+			SELECT profile.manager_id,
+			       COUNT(*)::int AS inbound_count,
+			       COUNT(reply.created_at)::int AS answered_count,
+			       AVG(EXTRACT(EPOCH FROM (reply.created_at - incoming.created_at))) AS avg_reply_seconds
+			FROM messages incoming
+			JOIN managed_profiles profile ON profile.id = incoming.recipient_id
+			LEFT JOIN LATERAL (
+				SELECT response.created_at
+				FROM messages response
+				WHERE response.sender_id = profile.id
+				  AND response.recipient_id = incoming.sender_id
+				  AND response.room_id IS NULL
+				  AND COALESCE(response.message_kind, 'chat') = 'chat'
+				  AND response.created_at > incoming.created_at
+				ORDER BY response.created_at, response.id
+				LIMIT 1
+			) reply ON TRUE
+			WHERE profile.manager_id IS NOT NULL
+			  AND incoming.room_id IS NULL
+			  AND incoming.recipient_id = profile.id
+			  AND incoming.created_at >= NOW() - INTERVAL '30 days'
+			  AND COALESCE(incoming.message_kind, 'chat') = 'chat'
+			  AND EXISTS (SELECT 1 FROM users client WHERE client.id = incoming.sender_id AND client.role = 'client')
+			GROUP BY profile.manager_id
+		),
+		operator_reports AS (
+			SELECT target_id AS user_id, COUNT(*)::int AS substantiated_reports
+			FROM ad_reports
+			WHERE target_type = 'creator' AND status = 'resolved'
+			GROUP BY target_id
+		)
 		SELECT u.id::text, u.username, u.email, u.role, u.status,
 			   COALESCE(cs.current_balance, 0.00), COALESCE(cs.total_earned, 0.00),
 			   COALESCE(op.commission_rate, 50.00), COALESCE(op.auto_pilot, false),
 			   COALESCE(sec.last_ip, 'Unknown'), COALESCE(sec.mfa_enabled, false),
-			   COALESCE(perf.msgs_sent, 0), COALESCE(perf.active_sessions, 0), COALESCE(perf.rating, 0.0)
+			   COALESCE(metrics.msgs_sent, 0), COALESCE(metrics.active_sessions, 0),
+			   COALESCE(replies.avg_reply_seconds, 0)::bigint,
+			   COALESCE(replies.inbound_count, 0), COALESCE(replies.answered_count, 0),
+			   COALESCE(reports.substantiated_reports, 0)
 		FROM users u
 		LEFT JOIN creator_stats cs ON u.id = cs.user_id
 		LEFT JOIN operator_profiles op ON u.id = op.user_id
 		LEFT JOIN operator_security sec ON u.id = sec.user_id
-		LEFT JOIN operator_performance perf ON u.id = perf.user_id
+		LEFT JOIN operator_messages metrics ON metrics.manager_id = u.id
+		LEFT JOIN operator_replies replies ON replies.manager_id = u.id
+		LEFT JOIN operator_reports reports ON reports.user_id = u.id
 		WHERE u.role IN ('model', 'operator')
 		ORDER BY cs.total_earned DESC
 	`
@@ -67,6 +141,8 @@ func (r *Repository) GetOperatorRoster(ctx context.Context) ([]models.OperatorDe
 	operatorIndices := make(map[string]int)
 	for rows.Next() {
 		var op models.OperatorDetail
+		var replySeconds int64
+		var inboundCount, answeredCount, substantiatedReports int
 
 		// Map the rows to our enriched struct
 		if err := rows.Scan(
@@ -74,14 +150,27 @@ func (r *Repository) GetOperatorRoster(ctx context.Context) ([]models.OperatorDe
 			&op.CurrentBalance, &op.TotalEarned,
 			&op.CommissionRate, &op.AutoPilotActive,
 			&op.Security.LastIP, &op.Security.MfaEnabled,
-			&op.Performance.MsgsSent, &op.Performance.ActiveSessions, &op.Performance.Rating,
+			&op.Performance.MsgsSent, &op.Performance.ActiveSessions, &replySeconds,
+			&inboundCount, &answeredCount, &substantiatedReports,
 		); err != nil {
 			return nil, err
 		}
 
 		op.DisplayName = op.Username // Fallback display name
 		op.Security.Locked = (op.Status == "SUSPENDED")
-		op.Performance.AvgReplyTime = "14s" // Example derived metric
+		op.Performance.AvgReplyTime = formatReplyDuration(replySeconds)
+		op.Performance.AvgReplyTimeSeconds = replySeconds
+		op.Performance.RatingSampleSize = inboundCount
+		op.Performance.AnsweredMessages = answeredCount
+		op.Performance.SubstantiatedReports = substantiatedReports
+		if inboundCount >= 5 {
+			responseRate := float64(answeredCount) / float64(inboundCount)
+			reportFactor := 1 - float64(substantiatedReports)/float64(maxInt(answeredCount, 1))
+			if reportFactor < 0 {
+				reportFactor = 0
+			}
+			op.Performance.Rating = 5 * responseRate * reportFactor
+		}
 		op.Personas = make([]models.PersonaMetric, 0)
 		operatorIndices[op.ID] = len(operators)
 		operators = append(operators, op)

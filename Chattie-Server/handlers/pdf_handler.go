@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -106,6 +108,34 @@ type ThreatAlert struct {
 	Detail    string
 }
 
+type ModerationReport struct {
+	Title           string
+	GeneratedAt     string
+	OpenReports     int
+	ResolvedReports int
+	Recent          []ModerationReportEntry
+}
+
+type ModerationReportEntry struct {
+	ID       string
+	Date     string
+	Target   string
+	Reporter string
+	Status   string
+	Reason   string
+}
+
+type PlatformOverviewReport struct {
+	Title            string
+	GeneratedAt      string
+	TotalUsers       int
+	TotalCreators    int
+	ActiveUsers24h   int
+	PendingReports   int
+	OpenRooms        int
+	PaidCheckouts24h int
+}
+
 // ============================================================================
 // REPORT GENERATORS
 // ============================================================================
@@ -165,7 +195,7 @@ func (h *PDFHandler) GenerateUserReport(w http.ResponseWriter, r *http.Request) 
 			Role:          auditData.Role,
 			Status:        auditData.Status,
 			RiskScore:     auditData.RiskScore,
-			LifetimeSpend: "$0.00",
+			LifetimeSpend: fmt.Sprintf("$%.2f", auditData.LifetimeSpend),
 			JoinedAt:      auditData.JoinedAt.Format("2006-01-02"),
 		},
 		ActionLogs: actionLogs,
@@ -173,7 +203,11 @@ func (h *PDFHandler) GenerateUserReport(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// FIX: Passed 'r' into renderAndStreamPDF
-	h.renderAndStreamPDF(w, r, "user_audit.html", data, fmt.Sprintf("audit_%s.pdf", targetUserID[:8]))
+	shortID := targetUserID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	h.renderAndStreamPDF(w, r, "user_audit.html", data, fmt.Sprintf("audit_%s.pdf", shortID))
 }
 
 // GenerateFinancialLedger builds the platform's revenue and payout statements
@@ -275,12 +309,92 @@ func (h *PDFHandler) GenerateSecurityReport(w http.ResponseWriter, r *http.Reque
 	h.renderAndStreamPDF(w, r, "security_report.html", data, "security_telemetry.pdf")
 }
 
+// GenerateModerationReport summarizes open, resolved, and recent user reports.
+func (h *PDFHandler) GenerateModerationReport(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || adminID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	admin, err := h.Repo.GetUserByID(r.Context(), adminID)
+	if err != nil || admin.Role != "admin" {
+		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		return
+	}
+
+	ctx := r.Context()
+	openReports := 0
+	resolvedReports := 0
+	_ = h.Repo.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM reports WHERE LOWER(COALESCE(status, '')) IN ('open','pending','investigating')`).Scan(&openReports)
+	_ = h.Repo.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM reports WHERE LOWER(COALESCE(status, '')) IN ('resolved','closed','dismissed')`).Scan(&resolvedReports)
+
+	rows, err := h.Repo.DB.QueryContext(ctx, `
+		SELECT id::text, created_at,
+		       COALESCE(reported_id::text, 'Unknown'), COALESCE(reporter_id::text, 'System'),
+		       COALESCE(status, 'open'), COALESCE(reason, 'No reason supplied')
+		FROM reports ORDER BY created_at DESC LIMIT 100`)
+	if err != nil {
+		http.Error(w, "Failed to fetch moderation report", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	entries := make([]ModerationReportEntry, 0)
+	for rows.Next() {
+		var entry ModerationReportEntry
+		var date time.Time
+		if err := rows.Scan(&entry.ID, &date, &entry.Target, &entry.Reporter, &entry.Status, &entry.Reason); err == nil {
+			entry.Date = date.Format("2006-01-02 15:04")
+			entries = append(entries, entry)
+		}
+	}
+
+	data := ModerationReport{
+		Title:           "Moderation & Incident Report",
+		GeneratedAt:     time.Now().Format("January 02, 2006 15:04:05"),
+		OpenReports:     openReports,
+		ResolvedReports: resolvedReports,
+		Recent:          entries,
+	}
+	h.renderAndStreamPDF(w, r, "moderation_report.html", data, "moderation_report.pdf")
+}
+
+// GeneratePlatformOverview provides a concise executive operational snapshot.
+func (h *PDFHandler) GeneratePlatformOverview(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || adminID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	admin, err := h.Repo.GetUserByID(r.Context(), adminID)
+	if err != nil || admin.Role != "admin" {
+		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		return
+	}
+
+	data := PlatformOverviewReport{Title: "Platform Operations Overview", GeneratedAt: time.Now().Format("January 02, 2006 15:04:05")}
+	ctx := r.Context()
+	_ = h.Repo.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&data.TotalUsers)
+	_ = h.Repo.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'model'`).Scan(&data.TotalCreators)
+	_ = h.Repo.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_action_logs WHERE action_type IN ('LOGIN_SUCCESS','WS_CONNECT') AND created_at > NOW() - INTERVAL '24 hours'`).Scan(&data.ActiveUsers24h)
+	_ = h.Repo.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM reports WHERE LOWER(COALESCE(status,'')) IN ('open','pending','investigating')`).Scan(&data.PendingReports)
+	_ = h.Repo.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM chat_rooms WHERE COALESCE(status,'') = 'active'`).Scan(&data.OpenRooms)
+	_ = h.Repo.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM transactions WHERE status = 'COMPLETED' AND created_at > NOW() - INTERVAL '24 hours'`).Scan(&data.PaidCheckouts24h)
+	h.renderAndStreamPDF(w, r, "platform_overview.html", data, "platform_overview.pdf")
+}
+
 // ============================================================================
 // INTERNAL HELPERS
 // ============================================================================
 
 // FIX: Added 'r *http.Request' to the parameter list
 func (h *PDFHandler) renderAndStreamPDF(w http.ResponseWriter, r *http.Request, templateName string, data interface{}, filename string) {
+	if len(filename) == 0 || len(templateName) == 0 {
+		http.Error(w, "Invalid report parameters", http.StatusBadRequest)
+		return
+	}
 	var htmlBuffer bytes.Buffer
 	if err := h.Templates.ExecuteTemplate(&htmlBuffer, templateName, data); err != nil {
 		log.Printf("Template execution error: %v", err)
@@ -291,7 +405,16 @@ func (h *PDFHandler) renderAndStreamPDF(w http.ResponseWriter, r *http.Request, 
 	pdfBytes, err := services.GeneratePDF(htmlBuffer.String())
 	if err != nil {
 		log.Printf("PDF Generation error: %v", err)
-		http.Error(w, localized(r.Context(), "ErrFailedGeneratePdf", "Failed to generate PDF document"), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		message := localized(r.Context(), "ErrFailedGeneratePdf", "Failed to generate PDF document")
+		if errors.Is(err, services.ErrPDFBrowserUnavailable) {
+			status = http.StatusServiceUnavailable
+			message = "PDF generation is unavailable. Install Chrome or Chromium, or configure CHROME_BIN."
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			status = http.StatusGatewayTimeout
+			message = "PDF generation timed out. Retry the report shortly."
+		}
+		http.Error(w, message, status)
 		return
 	}
 

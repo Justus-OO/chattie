@@ -98,10 +98,35 @@ func (h *InteractionHandler) HandleAction(w http.ResponseWriter, r *http.Request
 			go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 				RecipientID:      req.TargetID,
 				WSEventType:      "NEW_INTERACTION",
-				WSPayload:        map[string]interface{}{"type": req.ActionType},
+				WSPayload:        map[string]interface{}{"type": req.ActionType, "action_url": "/discover", "action_label": "View profile", "category": "social"},
 				EmailTemplate:    "new_like",
 				EmailNotifColumn: "notif_likes",
 			})
+
+			if resp.IsMatch {
+				targetMatchPayload := map[string]interface{}{
+					"type": "NEW_MATCH", "match_user_id": userID,
+					"action_url": "/messages", "action_label": "Open messages", "category": "matches",
+					"title": "It's a Match!", "message": "You matched with someone new.",
+				}
+				go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
+					RecipientID: req.TargetID, WSEventType: "NEW_MATCH",
+					WSPayload:     targetMatchPayload,
+					EmailTemplate: "new_match", EmailNotifColumn: "notif_new_matches",
+					EmailData: map[string]interface{}{"Message": "You matched with someone new. Start a conversation when you're ready."},
+				})
+				actorMatchPayload := map[string]interface{}{
+					"type": "NEW_MATCH", "match_user_id": req.TargetID,
+					"action_url": "/messages", "action_label": "Open messages", "category": "matches",
+					"title": "It's a Match!", "message": "You matched with someone new.",
+				}
+				go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
+					RecipientID: userID, WSEventType: "NEW_MATCH",
+					WSPayload:     actorMatchPayload,
+					EmailTemplate: "new_match", EmailNotifColumn: "notif_new_matches",
+					EmailData: map[string]interface{}{"Message": "You matched with someone new. Start a conversation when you're ready."},
+				})
+			}
 		}
 
 		w.WriteHeader(http.StatusOK)

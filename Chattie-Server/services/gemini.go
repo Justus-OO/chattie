@@ -102,6 +102,30 @@ func (s *GeminiService) GenerateJSON(ctx context.Context, systemInstruction, pro
 	return s.generate(ctx, systemInstruction, prompt, maxOutputTokens, schema)
 }
 
+func NormalizeGeminiJSON(response string) (string, error) {
+	response = strings.TrimSpace(response)
+	if strings.HasPrefix(response, "```") {
+		fenced := strings.TrimPrefix(response, "```")
+		newline := strings.IndexByte(fenced, '\n')
+		if newline < 0 {
+			return "", errors.New("Gemini returned an incomplete JSON code fence")
+		}
+		language := strings.TrimSpace(fenced[:newline])
+		if language != "" && !strings.EqualFold(language, "json") {
+			return "", errors.New("Gemini returned a non-JSON code fence")
+		}
+		response = strings.TrimSpace(fenced[newline+1:])
+		if !strings.HasSuffix(response, "```") {
+			return "", errors.New("Gemini returned an incomplete JSON code fence")
+		}
+		response = strings.TrimSpace(strings.TrimSuffix(response, "```"))
+	}
+	if !json.Valid([]byte(response)) {
+		return "", errors.New("Gemini response is not valid JSON")
+	}
+	return response, nil
+}
+
 func (s *GeminiService) generate(ctx context.Context, systemInstruction, prompt string, maxOutputTokens int, responseSchema *geminiSchema) (string, error) {
 	if s == nil || s.apiKey == "" {
 		return "", errors.New("Gemini is not configured")

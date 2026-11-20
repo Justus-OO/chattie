@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   Flame, Users, Wallet, Settings, Sparkles, MessageCircle,
@@ -36,6 +36,27 @@ export default function AfterDarkSidebar() {
   const [isCheckingCreator, setIsCheckingCreator] = useState(false);
   const creatorMode = isCreator;
 
+  useEffect(() => {
+    let active = true;
+    afterDarkService.getMyCreatorApplication()
+      .then((response) => {
+        if (!active) return;
+        const application = response?.application;
+        const status = String(application?.status || '').toLowerCase();
+        const creatorMode = typeof response?.creator_mode === 'boolean'
+          ? response.creator_mode
+          : response?.is_creator === true;
+        setCreatorStatus(creatorMode);
+        setCreatorApplicationStatus(status);
+      })
+      .catch((error) => {
+        if (active) {
+          toast.error(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not verify creator access.'));
+        }
+      });
+    return () => { active = false; };
+  }, [setCreatorApplicationStatus, setCreatorStatus]);
+
   // Navigation structure
   const MAIN_LINKS = [
     { name: t('adFeed'), path: '/afterdark/feed', icon: Flame },
@@ -60,7 +81,7 @@ export default function AfterDarkSidebar() {
 
   const handleUploadClick = async () => {
     if (isCheckingCreator) return;
-    if (!creatorMode && creatorApplicationStatus !== 'pending') {
+    if (!creatorMode && !['pending', 'approved', 'active'].includes(creatorApplicationStatus)) {
       setShowOptIn(true);
       return;
     }
@@ -70,10 +91,17 @@ export default function AfterDarkSidebar() {
       const response = await afterDarkService.getMyCreatorApplication();
       const application = response?.application || response;
       const status = String(application?.status || application?.application_status || application?.creator_status || '').toLowerCase();
-      if (application?.is_creator || ['approved', 'active'].includes(status)) {
+      const activeCreator = typeof response?.is_creator === 'boolean'
+        ? response.is_creator
+        : application?.is_creator === true;
+      if (activeCreator) {
         setCreatorStatus(true);
         setCreatorApplicationStatus('approved');
         setShowUpload(true);
+      } else if (['approved', 'active'].includes(status)) {
+        setCreatorStatus(false);
+        setCreatorApplicationStatus(status);
+        toast.info('Your application is approved, but your creator profile is not active. Check creator settings or contact support.');
       } else {
         setCreatorStatus(false);
         setCreatorApplicationStatus(status || creatorApplicationStatus || 'pending');
@@ -263,7 +291,7 @@ export default function AfterDarkSidebar() {
         onSuccess={({ creatorAlias, ...application }) => {
           setAfterDarkCreatorAlias(creatorAlias);
           const status = String(application.status || application.application_status || '').toLowerCase();
-          if (application.is_creator || ['approved', 'active'].includes(status)) {
+          if (application.is_creator === true) {
             setCreatorStatus(true);
             setCreatorApplicationStatus('approved');
             setShowUpload(true);

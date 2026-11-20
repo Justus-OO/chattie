@@ -8,6 +8,7 @@ import {
 import { toast } from 'sonner';
 import { afterDarkService } from '../../api/afterdark.service';
 import { PagePrivacyShield, usePageFocus } from '../../hooks/usePageFocus';
+import { useAppStore } from '../../store/useAppStore';
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 
@@ -43,6 +44,8 @@ export default function CheckoutModal({
   const isLivePassPurchase = postItem?.id?.startsWith('live-pass-');
   const isLiveSubscriptionPurchase = postItem?.id?.startsWith('live-subscription-');
   const isChatPurchase = postItem?.id?.startsWith('chat-');
+  const isPostPurchase = !isChatPurchase && !isLivePassPurchase && !isLiveSubscriptionPurchase
+    && (!postItem?.paymentType || postItem.paymentType === 'ppv');
   const isWalletPurchase = isChatPurchase;
   
   // --- M-Pesa State ---
@@ -65,17 +68,26 @@ export default function CheckoutModal({
   const [stripeCheckout, setStripeCheckout] = useState(null);
   const [walletBalance, setWalletBalance] = useState(0);
   const [isLoadingWallet, setIsLoadingWallet] = useState(false);
+  const [useWalletBalance, setUseWalletBalance] = useState(false);
+  const [checkoutWalletAmountCents, setCheckoutWalletAmountCents] = useState(0);
+  const setGlobalWalletBalance = useAppStore(state => state.setWalletBalance);
+  const updateUser = useAppStore(state => state.updateUser);
   const pollIntervalRef = useRef(null);
   const timerRef = useRef(null);
   const pollInFlightRef = useRef(false);
 
   // --- Financial Calculation ---
+  const listedPriceCents = Number(postItem?.amountCents ?? postItem?.price_cents ?? Math.round(Number(postItem?.price ?? 0) * 100));
+  const totalAmount = listedPriceCents / 100;
+  const selectedWalletAmountCents = isPostPurchase && useWalletBalance
+    ? Math.min(Math.max(0, Math.round(walletBalance * 100)), listedPriceCents)
+    : 0;
+  const walletAmountCents = step === 'checkout' ? selectedWalletAmountCents : checkoutWalletAmountCents;
   const itemPrice = confirmedAmountCents === null
-    ? Number(postItem?.price ?? (postItem?.amountCents ? postItem.amountCents / 100 : 0))
+    ? Math.max(0, listedPriceCents - selectedWalletAmountCents) / 100
     : confirmedAmountCents / 100;
   const platformFee = 0; // Assuming absorbed
-  const vatAmount = itemPrice * 0.16; // 16% Kenyan VAT for receipt display
-  const totalAmount = itemPrice; 
+  const vatAmount = totalAmount * 0.16; // 16% Kenyan VAT for receipt display
   const estimatedCharge = chargeCurrency === 'USD' && checkoutConfig?.kes_per_usd > 0
     ? itemPrice / checkoutConfig.kes_per_usd
     : itemPrice;
@@ -112,6 +124,8 @@ export default function CheckoutModal({
     setCountdown(180);
     setConfirmedAmountCents(null);
     setConfirmedChargeCents(null);
+    setCheckoutWalletAmountCents(0);
+    setUseWalletBalance(isPostPurchase && walletBalance > 0);
     setChargeCurrency('KES');
     setCheckoutProvider('');
     setStripePromise(null);
@@ -127,6 +141,8 @@ export default function CheckoutModal({
     setCountdown(180);
     setConfirmedAmountCents(null);
     setConfirmedChargeCents(null);
+    setCheckoutWalletAmountCents(0);
+    setUseWalletBalance(false);
     setCheckoutProvider('');
     setStripePromise(null);
     setStripeCheckout(null);
@@ -134,7 +150,7 @@ export default function CheckoutModal({
     clearInterval(timerRef.current);
     setActiveTab(isWalletPurchase ? 'wallet' : defaultProvider === 'paystack' ? 'card' : 'mpesa');
     setPhoneNumber(initialPhoneNumber.replace(/\D/g, '').replace(/^254/, ''));
-    if (!isWalletPurchase) return;
+    if (!isWalletPurchase && !isPostPurchase) return;
 
     let active = true;
     setIsLoadingWallet(true);
@@ -145,6 +161,9 @@ export default function CheckoutModal({
         const balance = Number(wallet.available_balance ?? wallet.available_balance_cents ?? 0) /
           (wallet.available_balance_cents !== undefined ? 100 : 1);
         setWalletBalance(balance);
+        setGlobalWalletBalance(balance);
+        updateUser({ walletBalance: balance });
+        setUseWalletBalance(isPostPurchase && balance > 0);
       })
       .catch(error => {
         if (active) setErrorMessage(error?.response?.data?.error || 'Could not load your wallet balance.');
@@ -154,7 +173,7 @@ export default function CheckoutModal({
       });
 
     return () => { active = false; };
-  }, [defaultProvider, initialPhoneNumber, isOpen, isWalletPurchase, postItem?.id]);
+  }, [defaultProvider, initialPhoneNumber, isOpen, isPostPurchase, isWalletPurchase, postItem?.id, setGlobalWalletBalance, updateUser]);
 
   useEffect(() => {
     if (!isOpen || isWalletPurchase) {
@@ -200,15 +219,34 @@ export default function CheckoutModal({
     const checkout = await afterDarkService.startPayment({
       payment_type: paymentType,
       target_id: targetID,
-      amount_cents: postItem.amountCents ?? Math.round(itemPrice * 100),
+      amount_cents: postItem.amountCents ?? postItem.price_cents ?? Math.round(totalAmount * 100),
+      use_wallet: isPostPurchase && useWalletBalance,
       provider,
       phone_number: phoneNumberValue || undefined,
       message: postItem.message || '',
     });
+    if (checkout?.status === 'completed') {
+      setCheckoutWalletAmountCents(listedPriceCents);
+      setTransactionRef(`WALLET-${targetID}`);
+      setActiveTab('wallet');
+      setStep('success');
+      await refreshWalletBalance();
+      onSuccess?.(checkout);
+      return;
+    }
     const intentId = checkout?.id;
     if (!intentId) throw new Error('The checkout service did not return a valid payment reference.');
     if (Number.isFinite(Number(checkout.settlement_amount_cents))) {
-      setConfirmedAmountCents(Number(checkout.settlement_amount_cents));
+      setConfirmedAmountCents(Number(checkout.provider_settlement_amount_cents ?? checkout.settlement_amount_cents));
+    }
+    const walletContribution = Math.max(0, Number(checkout.wallet_amount_cents) || 0);
+    setCheckoutWalletAmountCents(walletContribution);
+    if (walletContribution > 0) {
+      const nextWalletBalance = Math.max(0, walletBalance - walletContribution / 100);
+      setWalletBalance(nextWalletBalance);
+      setGlobalWalletBalance(nextWalletBalance);
+      updateUser({ walletBalance: nextWalletBalance });
+      void refreshWalletBalance();
     }
     if (Number.isFinite(Number(checkout.amount_cents))) {
       setConfirmedChargeCents(Number(checkout.amount_cents));
@@ -249,12 +287,14 @@ export default function CheckoutModal({
           clearInterval(pollIntervalRef.current);
           clearInterval(timerRef.current);
           setStep('success');
+          await refreshWalletBalance();
           onSuccess?.(result);
         } else if (nextStatus === 'failed') {
           clearInterval(pollIntervalRef.current);
           clearInterval(timerRef.current);
           setStep('failed');
           setErrorMessage('The transaction was cancelled or failed.');
+          await refreshWalletBalance();
         }
       } catch (error) {
         setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Payment status check failed. Retrying.'));
@@ -262,6 +302,23 @@ export default function CheckoutModal({
         pollInFlightRef.current = false;
       }
     }, 5000);
+  };
+
+  const refreshWalletBalance = async () => {
+    try {
+      const response = await afterDarkService.getWallet();
+      const wallet = response?.wallet || response || {};
+      const balance = Number(wallet.available_balance ?? wallet.available_balance_cents ?? 0) /
+        (wallet.available_balance_cents !== undefined ? 100 : 1);
+      setWalletBalance(balance);
+      setGlobalWalletBalance(balance);
+      updateUser({ walletBalance: balance });
+      return balance;
+    } catch (error) {
+      console.error('Could not refresh the After Dark wallet balance.', error);
+      toast.error('Payment status updated, but your wallet balance could not refresh. Reload the wallet to verify it.');
+      return null;
+    }
   };
 
   const handleWalletPostUnlock = async () => {
@@ -276,10 +333,12 @@ export default function CheckoutModal({
           throw new Error('The server did not confirm chat access.');
         }
         setStep('success');
+        await refreshWalletBalance();
         onSuccess?.({ type: 'chat_unlock', conversationId });
       } catch (error) {
         setStep('failed');
         setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not unlock this chat.'));
+        await refreshWalletBalance();
       }
       return;
     }
@@ -290,15 +349,26 @@ export default function CheckoutModal({
     setStep('processing');
     setErrorMessage('');
     try {
-      const result = await afterDarkService.unlockPostWithWallet({ post_id: postId });
-      if (String(result?.status || '').toLowerCase() !== 'success') {
+      const result = await afterDarkService.startPayment({
+        payment_type: 'ppv',
+        target_id: postId,
+        amount_cents: listedPriceCents,
+        use_wallet: true,
+        wallet_only: true,
+      });
+      if (String(result?.status || '').toLowerCase() !== 'completed') {
         throw new Error('The server did not confirm the post unlock.');
       }
+      await refreshWalletBalance();
+      setCheckoutWalletAmountCents(listedPriceCents);
+      setTransactionRef(result.id || `WALLET-${postId}`);
+      setActiveTab('wallet');
       setStep('success');
-      onSuccess?.({ type: 'post_unlock', postId });
+      onSuccess?.(result);
     } catch (error) {
       setStep('failed');
       setErrorMessage(error?.response?.data?.error || (error instanceof Error ? error.message : 'Could not unlock this post.'));
+      await refreshWalletBalance();
     }
   };
 
@@ -359,6 +429,7 @@ export default function CheckoutModal({
     } catch (err) {
       setStep('failed');
       setErrorMessage(err?.response?.data?.error || (err instanceof Error ? err.message : 'Failed to reach Safaricom Daraja API.'));
+      await refreshWalletBalance();
     }
   };
 
@@ -371,6 +442,7 @@ export default function CheckoutModal({
     } catch (err) {
       setStep('failed');
       setErrorMessage(err?.response?.data?.error || (err instanceof Error ? err.message : 'Failed to reach Paystack secure gateway.'));
+      await refreshWalletBalance();
     }
   };
 
@@ -384,7 +456,7 @@ export default function CheckoutModal({
         onClick={() => (step === 'checkout' || step === 'failed' || step === 'success') && handleClose()} 
       />
       
-      <div className="relative flex h-[90dvh] min-h-0 w-full max-w-4xl flex-col border-2 border-zinc-700 bg-black font-mono shadow-[12px_12px_0px_rgba(255,255,255,0.05)] animate-in fade-in zoom-in-95 duration-200 md:flex-row">
+      <div className="relative flex h-[90dvh] min-h-0 w-full max-w-4xl flex-col border-2 border-zinc-700 bg-black font-mono shadow-[12px_12px_0px_rgba(var(--highlight-rgb), 0.05)] animate-in fade-in zoom-in-95 duration-200 md:flex-row">
         
         {/* LEFT PANEL: ORDER SUMMARY */}
         <div className="w-full md:w-[40%] bg-zinc-950 border-b-2 md:border-b-0 md:border-r-2 border-zinc-800 flex flex-col">
@@ -419,6 +491,16 @@ export default function CheckoutModal({
             <div className="space-y-4 bg-black p-5 border-2 border-zinc-900">
               <div className="flex justify-between items-center text-xs font-bold text-zinc-400 uppercase tracking-widest">
                 <span>Subtotal</span>
+                <span className="text-white">KES {totalAmount.toFixed(2)}</span>
+              </div>
+              {walletAmountCents > 0 && (
+                <div className="flex justify-between items-center text-xs font-bold text-yellow-400 uppercase tracking-widest">
+                  <span>Wallet applied</span>
+                  <span>- KES {(walletAmountCents / 100).toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-xs font-bold text-zinc-400 uppercase tracking-widest">
+                <span>Pay with selected method</span>
                 <span className="text-white">KES {itemPrice.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-xs font-bold text-zinc-400 uppercase tracking-widest">
@@ -434,7 +516,9 @@ export default function CheckoutModal({
 
           <div className="p-6 bg-zinc-900 border-t-2 border-zinc-800 shrink-0">
             <div className="flex justify-between items-end">
-              <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest">Total Due</span>
+              <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest">
+                {walletAmountCents > 0 ? 'Remaining Due' : 'Total Due'}
+              </span>
               <div className="text-right">
                 <span className="text-2xl font-black text-yellow-500 tracking-wider">
                   {paymentCurrency} {paymentAmount.toFixed(paymentCurrency === 'USD' ? 2 : 0)}
@@ -470,14 +554,14 @@ export default function CheckoutModal({
               {!isWalletPurchase && checkoutConfig && <div className="flex px-8 gap-4 shrink-0">
                 {checkoutConfig.supported_providers.includes('mpesa') && <button
                   onClick={() => setActiveTab('mpesa')}
-                  className={`flex-1 p-4 border-2 transition-all flex flex-col items-center justify-center gap-3 ${activeTab === 'mpesa' ? 'border-green-500 bg-green-500/10 shadow-[4px_4px_0px_rgba(34,197,94,0.2)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'}`}
+                  className={`flex-1 p-4 border-2 transition-all flex flex-col items-center justify-center gap-3 ${activeTab === 'mpesa' ? 'border-green-500 bg-green-500/10 shadow-[4px_4px_0px_rgba(var(--success-rgb), 0.2)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'}`}
                 >
                   <Smartphone className={`w-7 h-7 ${activeTab === 'mpesa' ? 'text-green-500' : 'text-zinc-500'}`} />
                   <span className={`text-[10px] font-black uppercase tracking-widest ${activeTab === 'mpesa' ? 'text-green-500' : 'text-zinc-500'}`}>M-Pesa Express</span>
                 </button>}
                 {(checkoutConfig.supported_providers.includes('paystack') || checkoutConfig.supported_providers.includes('stripe')) && <button
                   onClick={() => setActiveTab('card')}
-                  className={`flex-1 p-4 border-2 transition-all flex flex-col items-center justify-center gap-3 ${activeTab === 'card' ? 'border-blue-500 bg-blue-500/10 shadow-[4px_4px_0px_rgba(59,130,246,0.2)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'}`}
+                  className={`flex-1 p-4 border-2 transition-all flex flex-col items-center justify-center gap-3 ${activeTab === 'card' ? 'border-blue-500 bg-blue-500/10 shadow-[4px_4px_0px_rgba(var(--info-rgb), 0.2)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'}`}
                 >
                   <CreditCard className={`w-7 h-7 ${activeTab === 'card' ? 'text-blue-500' : 'text-zinc-500'}`} />
                   <span className={`text-[10px] font-black uppercase tracking-widest ${activeTab === 'card' ? 'text-blue-500' : 'text-zinc-500'}`}>
@@ -488,6 +572,51 @@ export default function CheckoutModal({
 
               {/* Tab Content */}
               <div className="p-8 flex-1 flex flex-col">
+                {isPostPurchase && (
+                  <div className="mx-auto mb-6 w-full max-w-md border-2 border-zinc-800 bg-zinc-950 p-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white">
+                        <Wallet className="h-4 w-4 text-yellow-400" /> After Dark balance
+                      </span>
+                      <span className="text-xs font-bold tabular-nums text-zinc-300">
+                        {isLoadingWallet ? 'Loading…' : `KES ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      </span>
+                    </div>
+                    <label className="mt-4 flex cursor-pointer items-start gap-3 text-xs font-bold text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={useWalletBalance}
+                        onChange={event => setUseWalletBalance(event.target.checked)}
+                        disabled={isLoadingWallet || walletBalance <= 0}
+                        className="mt-0.5 accent-yellow-400"
+                      />
+                      <span>
+                        Apply {selectedWalletAmountCents > 0
+                          ? `KES ${(selectedWalletAmountCents / 100).toFixed(2)}`
+                          : 'available balance'} to this post
+                        {selectedWalletAmountCents > 0 && selectedWalletAmountCents < listedPriceCents
+                          ? ` and pay the remaining KES ${itemPrice.toFixed(2)} with the selected method`
+                          : ''}
+                      </span>
+                    </label>
+                    {selectedWalletAmountCents > 0 && selectedWalletAmountCents < listedPriceCents && (
+                      <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+                        The wallet portion is held during checkout and returned automatically if the provider payment fails.
+                      </p>
+                    )}
+                    {isLoadingWallet && <p role="status" className="mt-3 text-[10px] text-zinc-500">Loading wallet balance…</p>}
+                    {!isLoadingWallet && walletBalance >= totalAmount && (
+                      <button
+                        type="button"
+                        onClick={handleWalletPostUnlock}
+                        className="mt-4 flex w-full items-center justify-center gap-2 border-2 border-yellow-400 bg-yellow-400 py-3 text-xs font-black uppercase tracking-widest text-black hover:bg-yellow-300"
+                      >
+                        <Wallet className="h-4 w-4" /> Unlock with balance
+                      </button>
+                    )}
+                    {errorMessage && <p role="alert" className="mt-3 text-xs text-red-400">{errorMessage}</p>}
+                  </div>
+                )}
                 {isWalletPurchase ? (
                   <div className="mx-auto flex w-full max-w-md flex-col gap-5 border-2 border-zinc-800 bg-zinc-950 p-6">
                     <div className="flex items-center justify-between gap-4">
@@ -580,13 +709,19 @@ export default function CheckoutModal({
                       </p>
                     </div>
 
-                    <button
-                      type="submit"
-                      disabled={!phoneNumber || phoneNumber.length < 9}
-                      className="w-full py-5 bg-green-500 text-black border-2 border-green-500 font-black uppercase tracking-widest text-xs hover:bg-green-400 transition-all shadow-[4px_4px_0px_rgba(34,197,94,0.2)] hover:shadow-[6px_6px_0px_rgba(34,197,94,0.4)] disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2 mt-4"
-                    >
-                      PAY KES {totalAmount.toFixed(2)}
-                    </button>
+                    {itemPrice > 0 ? (
+                      <button
+                        type="submit"
+                        disabled={isLoadingWallet || !phoneNumber || phoneNumber.length < 9}
+                        className="w-full py-5 bg-green-500 text-black border-2 border-green-500 font-black uppercase tracking-widest text-xs hover:bg-green-400 transition-all shadow-[4px_4px_0px_rgba(var(--success-rgb), 0.2)] hover:shadow-[6px_6px_0px_rgba(var(--success-rgb), 0.4)] disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2 mt-4"
+                      >
+                        PAY KES {itemPrice.toFixed(2)}
+                      </button>
+                    ) : (
+                      <p role="status" className="text-center text-xs font-bold text-yellow-400">
+                        Your wallet covers the full price. Use the balance button above or uncheck wallet to pay with M-Pesa.
+                      </p>
+                    )}
                   </form>
                 )}
 
@@ -616,12 +751,19 @@ export default function CheckoutModal({
                       </div>
                     </div>
 
-                    <button
-                      type="submit"
-                      className="w-full py-5 bg-blue-500 text-black border-2 border-blue-500 font-black uppercase tracking-widest text-xs hover:bg-blue-400 transition-all shadow-[4px_4px_0px_rgba(59,130,246,0.2)] hover:shadow-[6px_6px_0px_rgba(59,130,246,0.4)] flex items-center justify-center gap-2"
-                    >
-                      PROCEED TO {checkoutConfig.default_provider === 'stripe' ? 'STRIPE' : 'PAYSTACK'} CHECKOUT <ChevronRight className="w-4 h-4" />
-                    </button>
+                    {itemPrice > 0 ? (
+                      <button
+                        type="submit"
+                        disabled={isLoadingWallet}
+                        className="w-full py-5 bg-blue-500 text-black border-2 border-blue-500 font-black uppercase tracking-widest text-xs hover:bg-blue-400 transition-all shadow-[4px_4px_0px_rgba(var(--info-rgb), 0.2)] hover:shadow-[6px_6px_0px_rgba(var(--info-rgb), 0.4)] flex items-center justify-center gap-2"
+                      >
+                        PROCEED TO {checkoutConfig.default_provider === 'stripe' ? 'STRIPE' : 'PAYSTACK'} CHECKOUT <ChevronRight className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <p role="status" className="text-center text-xs font-bold text-yellow-400">
+                        Your wallet covers the full price. Use the balance button above or uncheck wallet to pay by card.
+                      </p>
+                    )}
                   </form>
                 )}
                 </>}
@@ -667,7 +809,7 @@ export default function CheckoutModal({
                   <circle cx="64" cy="64" r="60" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-zinc-900" />
                   <circle 
                     cx="64" cy="64" r="60" stroke="currentColor" strokeWidth="4" fill="transparent" 
-                    className="text-green-500 transition-all duration-1000 ease-linear drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]"
+                    className="text-green-500 transition-all duration-1000 ease-linear drop-shadow-[0_0_8px_rgba(var(--success-rgb), 0.5)]"
                     strokeDasharray={2 * Math.PI * 60}
                     strokeDashoffset={2 * Math.PI * 60 * (1 - countdown / 180)}
                   />
@@ -681,8 +823,8 @@ export default function CheckoutModal({
               <h3 className="text-base font-black text-white uppercase tracking-widest mb-3 animate-pulse">{checkoutProvider === 'mpesa' ? 'CHECK YOUR PHONE' : 'AWAITING PAYMENT'}</h3>
               <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest max-w-xs leading-relaxed mb-8">
                 {checkoutProvider === 'mpesa'
-                  ? <>An STK Push has been sent to <span className="text-white font-black">+{phoneNumber}</span>. Enter your M-Pesa PIN to complete the payment of KES {totalAmount.toFixed(2)}.</>
-                  : <>Complete the payment in the Paystack checkout window for KES {totalAmount.toFixed(2)}. This page will confirm the result automatically.</>}
+                  ? <>An STK Push has been sent to <span className="text-white font-black">+{phoneNumber}</span>. Enter your M-Pesa PIN to pay KES {itemPrice.toFixed(2)}.</>
+                  : <>Complete the payment in the Paystack checkout window for KES {itemPrice.toFixed(2)}. This page will confirm the result automatically.</>}
               </p>
 
               {errorMessage && <p role="status" className="mb-4 max-w-sm text-xs text-amber-400">{errorMessage}</p>}
@@ -696,7 +838,7 @@ export default function CheckoutModal({
           {/* STATE: SUCCESS (Receipt View) */}
           {step === 'success' && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 animate-in slide-in-from-bottom-8 duration-500 bg-green-500/5">
-              <div className="size-[clamp(5rem,12vw,6rem)] bg-green-500/10 border-4 border-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
+              <div className="size-[clamp(5rem,12vw,6rem)] bg-green-500/10 border-4 border-green-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(var(--success-rgb), 0.2)]">
                 <CheckCircle2 className="w-12 h-12 text-green-500" />
               </div>
               <h3 className="text-xl font-black text-white uppercase tracking-widest mb-3">PAYMENT SUCCESSFUL</h3>
@@ -724,6 +866,12 @@ export default function CheckoutModal({
                 </div>
                 {checkoutProvider && (
                   <>
+                    {walletAmountCents > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Wallet contribution</span>
+                        <span className="text-xs font-bold text-yellow-300">KES {(walletAmountCents / 100).toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Customer charge</span>
                       <span className="text-xs font-bold text-white">{chargeCurrency} {paymentAmount.toFixed(chargeCurrency === 'USD' ? 2 : 0)}</span>
@@ -738,7 +886,7 @@ export default function CheckoutModal({
 
               <button 
                 onClick={handleClose} 
-                className="mt-8 px-10 py-5 bg-green-500 text-black font-black uppercase tracking-widest text-xs hover:bg-green-400 transition-all shadow-[4px_4px_0px_rgba(34,197,94,0.2)] hover:-translate-y-1"
+                className="mt-8 px-10 py-5 bg-green-500 text-black font-black uppercase tracking-widest text-xs hover:bg-green-400 transition-all shadow-[4px_4px_0px_rgba(var(--success-rgb), 0.2)] hover:-translate-y-1"
               >
                 PROCEED
               </button>
@@ -761,7 +909,7 @@ export default function CheckoutModal({
               <div className="flex flex-col sm:flex-row gap-4 w-full max-w-sm">
                 <button 
                   onClick={resetModal} 
-                  className="flex-1 py-4 bg-white text-black font-black uppercase tracking-widest text-[10px] border-2 border-white hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 shadow-[4px_4px_0px_rgba(255,255,255,0.2)]"
+                  className="flex-1 py-4 bg-white text-black font-black uppercase tracking-widest text-[10px] border-2 border-white hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)]"
                 >
                   <RefreshCcw className="w-4 h-4" /> TRY AGAIN
                 </button>

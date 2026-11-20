@@ -12,6 +12,7 @@ export default function AdminPayouts() {
   const [creators, setCreators] = useState([]);
   const [amounts, setAmounts] = useState({});
   const [reasons, setReasons] = useState({});
+  const [sources, setSources] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [processingId, setProcessingId] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -45,7 +46,8 @@ export default function AdminPayouts() {
     const rawAmount = amounts[creator.user_id] || '';
     const amount = Number(rawAmount);
     const reason = (reasons[creator.user_id] || '').trim();
-    const availableCents = Number(creator.pending_cents || 0);
+    const source = getManualSource(creator);
+    const availableCents = Number(creator.pending_by_source?.[source] || 0);
     if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) > availableCents) {
       toast.error('Enter a positive amount no greater than the pending earnings.');
       return;
@@ -59,6 +61,7 @@ export default function AdminPayouts() {
       await adminService.clearAfterDarkEarnings(creator.user_id, {
         amount_cents: Math.round(amount * 100),
         reason,
+        source,
       });
       toast.success('Creator earnings cleared to the withdrawable balance.');
       await loadClearanceQueue();
@@ -66,6 +69,29 @@ export default function AdminPayouts() {
       setReasons(current => ({ ...current, [creator.user_id]: '' }));
     } catch (error) {
       toast.error(getErrorMessage(error, 'Could not clear creator earnings.'));
+    } finally {
+      setProcessingId('');
+    }
+  };
+
+  const getManualSource = creator => {
+    const availableSources = Object.entries(creator.pending_by_source || {})
+      .filter(([source, amount]) => source !== 'ppv' && Number(amount) > 0);
+    const selected = sources[creator.user_id];
+    if (availableSources.some(([source]) => source === selected)) return selected;
+    return availableSources.find(([source]) => source === 'tips')?.[0] || availableSources[0]?.[0] || '';
+  };
+
+  const autoClearPPV = async creator => {
+    const eligible = Number(creator.eligible_ppv_cents || 0);
+    if (eligible <= 0) return;
+    setProcessingId(creator.user_id);
+    try {
+      const result = await adminService.autoClearAfterDarkPPEarnings(creator.user_id);
+      toast.success(`${formatKes(result.amount_cents)} in eligible PPV earnings moved to available balance. No payout was sent.`);
+      await loadClearanceQueue();
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not auto-clear eligible PPV earnings.'));
     } finally {
       setProcessingId('');
     }
@@ -81,7 +107,7 @@ export default function AdminPayouts() {
             </p>
             <h1 className="text-xl font-black uppercase tracking-widest text-white">Creator earnings clearance</h1>
             <p className="mt-2 max-w-2xl text-[10px] font-bold uppercase leading-relaxed tracking-widest text-zinc-500">
-              Review held earnings and move approved amounts to creators’ withdrawable balances. Every clearance requires an audit reason.
+              Clear eligible settled PPV to available balance after account, creator-profile, and unresolved-report checks. Tips remain manual. This never initiates an external payout.
             </p>
           </div>
           <button
@@ -115,13 +141,51 @@ export default function AdminPayouts() {
                     Held: {formatKes(creator.pending_cents)}
                   </p>
                 </div>
+                {creator.hold_reason && (
+                    <p role="status" className="border border-amber-900 bg-amber-950/20 p-3 text-[10px] font-bold uppercase tracking-widest text-amber-300">
+                      Clearance hold: {creator.hold_reason}
+                    </p>
+                )}
+                <div className="flex flex-col justify-between gap-3 border border-zinc-800 bg-black p-3 sm:flex-row sm:items-center">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Eligible settled PPV</p>
+                      <p className="mt-1 text-sm font-black text-green-300">{formatKes(creator.eligible_ppv_cents)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => autoClearPPV(creator)}
+                      disabled={processingId === creator.user_id || Number(creator.eligible_ppv_cents || 0) <= 0 || Boolean(creator.hold_reason)}
+                      className="border-2 border-green-800 px-4 py-3 text-[9px] font-black uppercase tracking-widest text-green-200 hover:border-green-400 disabled:opacity-40"
+                    >
+                      {processingId === creator.user_id ? 'Processing…' : 'Auto-clear PPV'}
+                    </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {Object.entries(creator.pending_by_source || {}).filter(([, amount]) => Number(amount) > 0).map(([source, amount]) => (
+                      <p key={source} className="border border-zinc-800 p-3 text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                        {source.replaceAll('_', ' ')} · {formatKes(amount)}
+                      </p>
+                    ))}
+                </div>
                 <div className="grid gap-4 md:grid-cols-[1fr_2fr_auto]">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                      Manual source
+                      <select
+                        value={getManualSource(creator)}
+                        onChange={event => setSources(current => ({ ...current, [creator.user_id]: event.target.value }))}
+                        className="mt-2 w-full border-2 border-zinc-800 bg-black p-3 text-xs text-white"
+                      >
+                        {Object.entries(creator.pending_by_source || {})
+                          .filter(([source, amount]) => source !== 'ppv' && Number(amount) > 0)
+                          .map(([source]) => <option key={source} value={source}>{source.replaceAll('_', ' ')}</option>)}
+                      </select>
+                    </label>
                   <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
                     Amount (KES)
                     <input
                       type="number"
                       min="0.01"
-                      max={Number(creator.pending_cents || 0) / 100}
+                      max={Number(creator.pending_by_source?.[getManualSource(creator)] || 0) / 100}
                       step="0.01"
                       value={amounts[creator.user_id] || ''}
                       onChange={event => setAmounts(current => ({ ...current, [creator.user_id]: event.target.value }))}
@@ -142,7 +206,7 @@ export default function AdminPayouts() {
                   <button
                     type="button"
                     onClick={() => clearEarnings(creator)}
-                    disabled={processingId === creator.user_id}
+                    disabled={processingId === creator.user_id || Boolean(creator.hold_reason) || Object.entries(creator.pending_by_source || {}).every(([source, amount]) => source === 'ppv' || Number(amount) <= 0)}
                     className="self-end border-2 border-white bg-white px-4 py-3 text-[9px] font-black uppercase tracking-widest text-black hover:bg-zinc-200 disabled:opacity-50"
                   >
                     {processingId === creator.user_id ? 'Clearing…' : 'Clear earnings'}

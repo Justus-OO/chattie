@@ -9,6 +9,11 @@ import {
 import { toast } from 'sonner';
 import { adminService } from '../../api/admin.service';
 
+const displayRecordedValue = (value, fallback = 'Not recorded') => {
+  const text = String(value || '').trim();
+  return !text || text.toLowerCase() === 'unknown' ? fallback : text;
+};
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -124,7 +129,7 @@ export default function AdminUsers() {
   });
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -462,7 +467,7 @@ export default function AdminUsers() {
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedUser(null)} />
           
-          <div className="relative w-full max-w-2xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(0,0,0,0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
+          <div className="relative w-full max-w-2xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(var(--shadow-rgb), 0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
             
             {/* Drawer Header */}
             <div className="p-6 bg-zinc-950 border-b-2 border-zinc-800 shrink-0 flex justify-between items-start">
@@ -547,15 +552,15 @@ export default function AdminUsers() {
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
                       <span className="text-zinc-500">Known Location</span>
-                      <span className="text-white">{selectedUser.security?.location || 'Unknown'}</span>
+                      <span className="text-white">{displayRecordedValue(selectedUser.security?.location, 'No location estimate')}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold border-b border-zinc-900 pb-2">
                       <span className="text-zinc-500">Last IP Address</span>
-                      <span className="text-zinc-400">{selectedUser.security?.lastIp || 'Unknown'}</span>
+                      <span className="text-zinc-400">{displayRecordedValue(selectedUser.security?.lastIp)}</span>
                     </div>
                     <div className="flex justify-between items-center text-xs uppercase font-bold">
                       <span className="text-zinc-500">Primary Device</span>
-                      <span className="text-zinc-400">{selectedUser.security?.device || 'Unknown'}</span>
+                      <span className="text-zinc-400">{displayRecordedValue(selectedUser.security?.device, 'Device not reported')}</span>
                     </div>
                   </div>
                 </div>
@@ -639,7 +644,7 @@ export default function AdminUsers() {
                       className={`w-full py-4 border-2 font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${
                         selectedUser.status === 'BANNED' 
                           ? 'border-green-500 text-green-500 hover:bg-green-500 hover:text-black'
-                          : 'border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-black shadow-[4px_4px_0px_rgba(239,68,68,0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1'
+                          : 'border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-black shadow-[4px_4px_0px_rgba(var(--danger-rgb), 0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1'
                       }`}
                     >
                       {selectedUser.status === 'BANNED' ? (

@@ -103,7 +103,9 @@ func (h *EventHandler) ProcessEvent(ctx context.Context, event AppEvent) {
 
 		// Fix 3: Pass ctx and the proper flexible data map down to SendTemplatedEmail
 		templateData := map[string]interface{}{
-			"Username": user.Username,
+			"Username":    user.Username,
+			"ActionURL":   "/notifications",
+			"ActionLabel": "Open notifications",
 		}
 		for key, value := range event.EmailData {
 			templateData[key] = value
@@ -178,6 +180,8 @@ func notificationDetails(eventType string, payload interface{}) (string, string,
 		title, icon = "New After Dark like", "heart"
 	case "MODERATION_ACTION", "USER_BANNED", "USER_SUSPENDED", "OPERATOR_SUSPENDED":
 		title, icon = "Account Action Notice", "alert-triangle"
+	case "SUPPORT_TICKET_UPDATE":
+		title, icon = "Support ticket update", "life-buoy"
 	}
 
 	return title, message, icon

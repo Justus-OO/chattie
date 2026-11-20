@@ -46,9 +46,3 @@ type MediaItem struct {
 	IsPrimary bool      `json:"is_primary"`
 	CreatedAt time.Time `json:"created_at"`
 }
-type VerificationConfig struct {
-	Countries      []string            `json:"countries"`
-	DocumentTypes  map[string][]string `json:"document_types"`
-	DocumentLabels map[string]string   `json:"document_labels"`
-	Poses          []string            `json:"poses"`
-}

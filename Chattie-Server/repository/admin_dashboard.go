@@ -54,11 +54,19 @@ func (r *AdminRepository) GetDashboardTelemetry(ctx context.Context) (*models.Ad
 			       COALESCE(u.username, 'System') || ' · ' || REPLACE(al.action_type, '_', ' ') AS description
 			FROM user_action_logs al
 			LEFT JOIN users u ON u.id = al.user_id
+			WHERE LOWER(REPLACE(al.action_type, ' ', '_')) NOT LIKE '%websocket_connect%'
+			  AND LOWER(REPLACE(al.action_type, ' ', '_')) NOT LIKE '%websocket_disconnect%'
+			  AND LOWER(REPLACE(al.action_type, ' ', '_')) NOT LIKE '%ws_connect%'
+			  AND LOWER(REPLACE(al.action_type, ' ', '_')) NOT LIKE '%ws_disconnect%'
 			UNION ALL
 			SELECT 'admin-' || al.id::text, al.created_at,
 			       'ADMIN'::text,
 			       COALESCE(al.admin_username, 'System') || ' · ' || REPLACE(al.action, '_', ' ')
 			FROM admin_audit_logs al
+			WHERE LOWER(REPLACE(al.action, ' ', '_')) NOT LIKE '%websocket_connect%'
+			  AND LOWER(REPLACE(al.action, ' ', '_')) NOT LIKE '%websocket_disconnect%'
+			  AND LOWER(REPLACE(al.action, ' ', '_')) NOT LIKE '%ws_connect%'
+			  AND LOWER(REPLACE(al.action, ' ', '_')) NOT LIKE '%ws_disconnect%'
 		) activity
 		ORDER BY created_at DESC
 		LIMIT 20

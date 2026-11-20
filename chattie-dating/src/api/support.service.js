@@ -26,6 +26,11 @@ export const supportService = {
     return response.data;
   },
 
+  updateTicketStatus: async (ticketId, status) => {
+    const response = await apiClient.patch(`/support/tickets/${encodeURIComponent(ticketId)}`, { status });
+    return response.data;
+  },
+
   listAdminTickets: async () => {
     const response = await apiClient.get('/admin/support/tickets');
     return response.data;

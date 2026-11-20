@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,8 @@ type MpesaGateway struct {
 	BaseURL               string
 	USDToKESRate          float64
 	HTTPClient            *http.Client
+	rateMu                sync.RWMutex
+	rateAsOf              time.Time
 }
 
 type MpesaSTKSession struct {
@@ -56,15 +59,6 @@ func NewMpesaGateway() *MpesaGateway {
 		baseURL = ""
 	}
 
-	rate := 130.0
-	if configuredRate := strings.TrimSpace(os.Getenv("MPESA_USD_TO_KES_RATE")); configuredRate != "" {
-		if parsedRate, err := strconv.ParseFloat(configuredRate, 64); err == nil && parsedRate > 0 {
-			rate = parsedRate
-		} else {
-			rate = 0
-		}
-	}
-
 	return &MpesaGateway{
 		ConsumerKey:           os.Getenv("MPESA_CONSUMER_KEY"),
 		ConsumerSecret:        os.Getenv("MPESA_CONSUMER_SECRET"),
@@ -78,9 +72,27 @@ func NewMpesaGateway() *MpesaGateway {
 		CallbackURL:           strings.TrimSpace(os.Getenv("MPESA_CALLBACK_URL")),
 		AfterDarkCallbackURL:  strings.TrimSpace(os.Getenv("MPESA_AFTERDARK_CALLBACK_URL")),
 		BaseURL:               baseURL,
-		USDToKESRate:          rate,
 		HTTPClient:            &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+func (m *MpesaGateway) SetUSDToKESRate(rate float64, asOf time.Time) {
+	m.rateMu.Lock()
+	m.USDToKESRate = rate
+	m.rateAsOf = asOf
+	m.rateMu.Unlock()
+}
+
+func (m *MpesaGateway) GetUSDToKESRate() float64 {
+	m.rateMu.RLock()
+	defer m.rateMu.RUnlock()
+	if m.USDToKESRate <= 0 {
+		return 0
+	}
+	if !m.rateAsOf.IsZero() && time.Since(m.rateAsOf) > 36*time.Hour {
+		return 0
+	}
+	return m.USDToKESRate
 }
 
 func (m *MpesaGateway) CreateSubscription(context.Context, string, string, float64, int) (*CheckoutSession, error) {
@@ -305,10 +317,11 @@ func (m *MpesaGateway) GetPaymentStatus(ctx context.Context, checkoutRequestID s
 }
 
 func (m *MpesaGateway) KESAmount(usd float64) (int64, error) {
-	if m.USDToKESRate <= 0 {
-		return 0, fmt.Errorf("MPESA_USD_TO_KES_RATE must be a positive number")
+	rate := m.GetUSDToKESRate()
+	if rate <= 0 {
+		return 0, fmt.Errorf("USD/KES exchange rate is unavailable or stale")
 	}
-	amount := int64(math.Round(usd * m.USDToKESRate))
+	amount := int64(math.Round(usd * rate))
 	if amount < 1 {
 		return 0, fmt.Errorf("converted M-Pesa amount is below one shilling")
 	}

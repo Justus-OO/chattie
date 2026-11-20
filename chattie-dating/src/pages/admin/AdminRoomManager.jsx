@@ -99,6 +99,17 @@ export default function AdminRoomManager() {
     }
   };
 
+  const handleRoomStatus = async (room, status) => {
+    try {
+      await adminService.updateRoomStatus(room.id, status);
+      setRooms(previous => previous.map(item => item.id === room.id ? { ...item, status } : item));
+      setSelectedRoom(previous => previous?.id === room.id ? { ...previous, status } : previous);
+      toast.success(status === 'ACTIVE' ? 'Room unsuspended and active.' : `Room status updated to ${status.toLowerCase()}.`);
+    } catch (error) {
+      toast.error(error?.response?.data?.error || 'Failed to update room status.');
+    }
+  };
+
   const handleKickUser = async (userId) => {
     if (!selectedRoom) return;
     try {
@@ -136,7 +147,7 @@ export default function AdminRoomManager() {
   });
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -417,7 +428,7 @@ export default function AdminRoomManager() {
 
                   <div className="hidden lg:flex flex-col items-center justify-center relative">
                     <div className="w-full h-0.5 bg-zinc-800 absolute top-1/2 -translate-y-1/2 -z-10"></div>
-                    <div className="relative z-10 flex size-[clamp(6rem,12vw,8rem)] flex-col items-center justify-center rounded-full border-4 border-zinc-800 bg-black shadow-[0_0_50px_rgba(59,130,246,0.1)]">
+                    <div className="relative z-10 flex size-[clamp(6rem,12vw,8rem)] flex-col items-center justify-center rounded-full border-4 border-zinc-800 bg-black shadow-[0_0_50px_rgba(var(--info-rgb), 0.1)]">
                       <Server className="w-8 h-8 text-blue-500 mb-2 animate-pulse" />
                       <span className="text-[10px] font-black text-white uppercase tracking-widest">ROUTER_X1</span>
                     </div>
@@ -455,7 +466,7 @@ export default function AdminRoomManager() {
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedRoom(null)} />
           
-          <div className="relative w-full max-w-md h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(0,0,0,0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
+          <div className="relative w-full max-w-md h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(var(--shadow-rgb), 0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
             
             {/* Drawer Header */}
             <div className="p-6 bg-zinc-950 border-b-2 border-zinc-800 shrink-0">
@@ -557,15 +568,27 @@ export default function AdminRoomManager() {
               <h4 className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <AlertTriangle className="w-3 h-3" /> Super Admin Override
               </h4>
-              <button 
-                className="w-full py-3 bg-black border-2 border-zinc-700 hover:border-white text-zinc-400 hover:text-white font-black text-[10px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
-                onClick={() => toast('Room set to invite-only.')}
-              >
-                <Lock className="w-3 h-3" /> Lock Room (Stop Ingress)
-              </button>
+              {selectedRoom.status !== 'SUSPENDED' && (
+                <button
+                  type="button"
+                  onClick={() => handleRoomStatus(selectedRoom, 'SUSPENDED')}
+                  className="flex w-full items-center justify-center gap-2 border-2 border-zinc-700 bg-black py-3 text-[10px] font-black uppercase tracking-widest text-zinc-400 transition-colors hover:border-amber-500 hover:text-amber-300"
+                >
+                  <Lock className="h-3 w-3" /> Suspend Room (Stop Ingress)
+                </button>
+              )}
+              {selectedRoom.status === 'SUSPENDED' && (
+                <button
+                  type="button"
+                  onClick={() => handleRoomStatus(selectedRoom, 'ACTIVE')}
+                  className="w-full border-2 border-emerald-800 bg-black py-3 text-[10px] font-black uppercase tracking-widest text-emerald-300 transition-colors hover:border-emerald-400"
+                >
+                  <ShieldCheck className="mr-2 inline h-4 w-4" /> Unsuspend Room
+                </button>
+              )}
               <button 
                 onClick={() => handleForceCloseRoom(selectedRoom.id)}
-                className="w-full py-4 bg-red-600 border-2 border-red-500 text-black hover:bg-black hover:text-red-500 font-black text-[11px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2 shadow-[4px_4px_0px_rgba(239,68,68,0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1"
+                className="w-full py-4 bg-red-600 border-2 border-red-500 text-black hover:bg-black hover:text-red-500 font-black text-[11px] uppercase tracking-widest transition-colors flex items-center justify-center gap-2 shadow-[4px_4px_0px_rgba(var(--danger-rgb), 0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1"
               >
                 <PowerOff className="w-4 h-4" /> Force Terminate Space
               </button>

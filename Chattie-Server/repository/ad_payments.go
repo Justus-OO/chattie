@@ -13,6 +13,7 @@ import (
 )
 
 var ErrADPaymentUnavailable = errors.New("After Dark payment item is unavailable")
+var ErrADWalletCoversPurchase = errors.New("wallet balance now covers the full PPV purchase")
 
 type ADPaymentIntent struct {
 	ID                    string
@@ -24,6 +25,7 @@ type ADPaymentIntent struct {
 	Currency              string
 	SettlementAmountCents int64
 	SettlementCurrency    string
+	WalletAmountCents     int64
 	ExchangeRate          float64
 	Provider              string
 	ProviderSessionID     string
@@ -33,7 +35,7 @@ type ADPaymentIntent struct {
 	ReceiptNumber         string
 }
 
-func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID, paymentType, targetID, provider string, amountCents int64, message, currency string, kesPerUSD float64) (*ADPaymentIntent, error) {
+func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID, paymentType, targetID, provider string, amountCents int64, useWallet bool, message, currency string, kesPerUSD float64) (*ADPaymentIntent, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider != "paystack" && provider != "mpesa" && provider != "stripe" {
 		return nil, fmt.Errorf("unsupported After Dark payment provider")
@@ -48,6 +50,9 @@ func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID,
 	paymentType = strings.ToLower(strings.TrimSpace(paymentType))
 	if len(message) > 500 {
 		return nil, fmt.Errorf("payment message is too long")
+	}
+	if useWallet && paymentType != "ppv" {
+		return nil, fmt.Errorf("wallet contributions are only supported for PPV posts")
 	}
 
 	intent := &ADPaymentIntent{
@@ -97,11 +102,7 @@ func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID,
 		}
 		intent.CreatorID, intent.AmountCents = creatorID, price
 	case "ppv":
-		price, creatorID, err := r.publishedPPVPrice(ctx, userID, intent.TargetID)
-		if err != nil {
-			return nil, err
-		}
-		intent.CreatorID, intent.AmountCents = creatorID, price
+		// Price and entitlement are rechecked under lock when the PPV intent is created.
 	case "live_pass":
 		price, creatorID, err := r.livePassPrice(ctx, userID, intent.TargetID)
 		if err != nil {
@@ -110,6 +111,9 @@ func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID,
 		intent.CreatorID, intent.AmountCents = creatorID, price
 	default:
 		return nil, fmt.Errorf("unsupported After Dark payment type")
+	}
+	if paymentType == "ppv" {
+		return r.createADPPVPaymentIntent(ctx, intent, kesPerUSD, useWallet)
 	}
 	intent.SettlementAmountCents = intent.AmountCents
 	intent.SettlementCurrency = "KES"
@@ -129,8 +133,8 @@ func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID,
 	_, err = r.DB.ExecContext(ctx, `
 		INSERT INTO ad_payment_intents
 			(id, user_id, payment_type, target_id, creator_id, amount_cents, currency,
-			 settlement_amount_cents, settlement_currency, exchange_rate, provider, status, message)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '')::uuid, $6, $7, $8, $9, $10, $11, 'pending', $12)`,
+			 settlement_amount_cents, settlement_currency, wallet_amount_cents, exchange_rate, provider, status, message)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '')::uuid, $6, $7, $8, $9, 0, $10, $11, 'pending', $12)`,
 		intent.ID, intent.UserID, intent.PaymentType, intent.TargetID, intent.CreatorID,
 		intent.AmountCents, intent.Currency, intent.SettlementAmountCents,
 		intent.SettlementCurrency, intent.ExchangeRate, intent.Provider, intent.Message)
@@ -138,6 +142,138 @@ func (r *ADFinanceRepository) CreateADPaymentIntent(ctx context.Context, userID,
 		return nil, fmt.Errorf("create After Dark payment intent: %w", err)
 	}
 	return intent, nil
+}
+
+func (r *ADFinanceRepository) createADPPVPaymentIntent(ctx context.Context, intent *ADPaymentIntent, kesPerUSD float64, useWallet bool) (*ADPaymentIntent, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var creatorID, accessType string
+	var priceCents int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT creator_id::text, access_type, price_cents
+		FROM ad_posts
+		WHERE id = $1 AND status = 'published'
+		FOR UPDATE`, intent.TargetID).Scan(&creatorID, &accessType, &priceCents); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrADPaymentUnavailable
+		}
+		return nil, err
+	}
+	if accessType != "ppv" || priceCents < 1 {
+		return nil, ErrADPaymentUnavailable
+	}
+	if creatorID == intent.UserID {
+		return nil, fmt.Errorf("creators cannot purchase their own post")
+	}
+	var alreadyEntitled bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM ad_post_entitlements WHERE user_id = $1 AND post_id = $2
+		)`, intent.UserID, intent.TargetID).Scan(&alreadyEntitled); err != nil {
+		return nil, err
+	}
+	if alreadyEntitled {
+		return nil, fmt.Errorf("post is already unlocked")
+	}
+	var pendingCheckout bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM ad_payment_intents
+			WHERE user_id = $1 AND target_id = $2 AND payment_type = 'ppv' AND status = 'pending'
+		)`, intent.UserID, intent.TargetID).Scan(&pendingCheckout); err != nil {
+		return nil, err
+	}
+	if pendingCheckout {
+		return nil, fmt.Errorf("a PPV checkout for this post is already pending")
+	}
+
+	var walletAmount int64
+	if useWallet {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ad_wallets (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+			intent.UserID); err != nil {
+			return nil, err
+		}
+		var availableBalance int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT available_balance_cents FROM ad_wallets WHERE user_id = $1 FOR UPDATE`,
+			intent.UserID).Scan(&availableBalance); err != nil {
+			return nil, err
+		}
+		walletAmount = walletContributionCents(availableBalance, priceCents)
+	}
+	if useWallet && walletAmount >= priceCents {
+		return nil, ErrADWalletCoversPurchase
+	}
+
+	providerSettlementCents := priceCents - walletAmount
+	intent.CreatorID = creatorID
+	intent.SettlementAmountCents = priceCents
+	intent.SettlementCurrency = "KES"
+	intent.WalletAmountCents = walletAmount
+	intent.ExchangeRate = 1
+	intent.AmountCents = providerSettlementCents
+	if intent.Currency == "USD" {
+		intent.AmountCents, err = usdMinorFromKESMinor(providerSettlementCents, kesPerUSD)
+		if err != nil {
+			return nil, err
+		}
+		intent.ExchangeRate = kesPerUSD
+	}
+	if intent.Provider == "mpesa" && providerSettlementCents%100 != 0 {
+		return nil, fmt.Errorf("M-Pesa payments must be in whole Kenyan shillings; choose Paystack for fractional amounts")
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ad_payment_intents
+			(id, user_id, payment_type, target_id, creator_id, amount_cents, currency,
+			 settlement_amount_cents, settlement_currency, wallet_amount_cents, exchange_rate, provider, status, message)
+		VALUES ($1, $2, 'ppv', $3, $4, $5, $6, $7, 'KES', $8, $9, $10, 'pending', $11)`,
+		intent.ID, intent.UserID, intent.TargetID, creatorID, intent.AmountCents, intent.Currency,
+		intent.SettlementAmountCents, intent.WalletAmountCents, intent.ExchangeRate, intent.Provider, intent.Message); err != nil {
+		return nil, fmt.Errorf("create After Dark PPV payment intent: %w", err)
+	}
+	if walletAmount > 0 {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE ad_wallets
+			SET available_balance_cents = available_balance_cents - $1, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = $2 AND available_balance_cents >= $1`,
+			walletAmount, intent.UserID)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if rows != 1 {
+			return nil, fmt.Errorf("wallet balance changed during checkout")
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
+			VALUES ($1, $2, 'wallet_reserve', $3, 'Wallet contribution reserved for PPV checkout')`,
+			intent.UserID, -walletAmount, intent.ID); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit After Dark PPV checkout: %w", err)
+	}
+	return intent, nil
+}
+
+func walletContributionCents(availableBalance, priceCents int64) int64 {
+	if availableBalance <= 0 || priceCents <= 0 {
+		return 0
+	}
+	if availableBalance < priceCents {
+		return availableBalance
+	}
+	return priceCents
 }
 
 func usdMinorFromKESMinor(kesMinor int64, kesPerUSD float64) (int64, error) {
@@ -223,39 +359,6 @@ func (r *ADFinanceRepository) creatorSubscriptionPrice(ctx context.Context, subs
 	return price, creatorID, nil
 }
 
-func (r *ADFinanceRepository) publishedPPVPrice(ctx context.Context, buyerID, postID string) (int64, string, error) {
-	var creatorID string
-	var price int64
-	var accessType string
-	err := r.DB.QueryRowContext(ctx, `
-		SELECT creator_id::text, price_cents, access_type
-		FROM ad_posts
-		WHERE id = $1 AND status = 'published'`,
-		postID).Scan(&creatorID, &price, &accessType)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, "", ErrADPaymentUnavailable
-		}
-		return 0, "", err
-	}
-	if accessType != "ppv" || price < 1 {
-		return 0, "", ErrADPaymentUnavailable
-	}
-	if creatorID == buyerID {
-		return 0, "", fmt.Errorf("creators cannot purchase their own post")
-	}
-	var entitled bool
-	if err := r.DB.QueryRowContext(ctx, `
-		SELECT EXISTS (SELECT 1 FROM ad_post_entitlements WHERE user_id = $1 AND post_id = $2)`,
-		buyerID, postID).Scan(&entitled); err != nil {
-		return 0, "", err
-	}
-	if entitled {
-		return 0, "", fmt.Errorf("post is already unlocked")
-	}
-	return price, creatorID, nil
-}
-
 func (r *ADFinanceRepository) livePassPrice(ctx context.Context, buyerID, sessionID string) (int64, string, error) {
 	var creatorID string
 	var price int64
@@ -302,10 +405,14 @@ func (r *ADFinanceRepository) UpdateADPaymentStatus(ctx context.Context, intentI
 	if status != "pending" && status != "failed" {
 		return fmt.Errorf("invalid After Dark payment status")
 	}
+	if status == "failed" {
+		_, err := r.MarkADPaymentFailed(ctx, intentID)
+		return err
+	}
 	_, err := r.DB.ExecContext(ctx, `
 		UPDATE ad_payment_intents
 		SET status = $2, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND status <> 'completed'`,
+		WHERE id = $1 AND status = 'pending'`,
 		intentID, status)
 	if err != nil {
 		return fmt.Errorf("update After Dark payment status: %w", err)
@@ -314,26 +421,54 @@ func (r *ADFinanceRepository) UpdateADPaymentStatus(ctx context.Context, intentI
 }
 
 func (r *ADFinanceRepository) MarkADPaymentFailed(ctx context.Context, intentID string) (bool, error) {
-	result, err := r.DB.ExecContext(ctx, `
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin After Dark payment failure transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var userID string
+	var walletAmount int64
+	err = tx.QueryRowContext(ctx, `
 		UPDATE ad_payment_intents
 		SET status = 'failed', updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND status = 'pending'`,
-		intentID)
+		WHERE id = $1 AND status = 'pending'
+		RETURNING user_id::text, wallet_amount_cents`,
+		intentID).Scan(&userID, &walletAmount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("mark After Dark payment failed: %w", err)
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("check After Dark payment failure update: %w", err)
+	if walletAmount > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ad_wallets (user_id, available_balance_cents)
+			VALUES ($1, $2)
+			ON CONFLICT (user_id) DO UPDATE SET
+				available_balance_cents = ad_wallets.available_balance_cents + EXCLUDED.available_balance_cents,
+				updated_at = CURRENT_TIMESTAMP`,
+			userID, walletAmount); err != nil {
+			return false, fmt.Errorf("release reserved After Dark wallet funds: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
+			VALUES ($1, $2, 'wallet_release', $3, 'Released wallet contribution after failed PPV checkout')`,
+			userID, walletAmount, intentID); err != nil {
+			return false, fmt.Errorf("record released After Dark wallet funds: %w", err)
+		}
 	}
-	return rows == 1, nil
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit After Dark payment failure: %w", err)
+	}
+	return true, nil
 }
 
 func (r *ADFinanceRepository) GetADPaymentIntent(ctx context.Context, intentID, userID string) (*ADPaymentIntent, error) {
 	return r.getADPaymentIntent(ctx, `
 		SELECT id::text, user_id::text, payment_type, COALESCE(target_id, ''),
 		       COALESCE(creator_id::text, ''), amount_cents, currency,
-		       settlement_amount_cents, settlement_currency, exchange_rate::float8, provider,
+		       settlement_amount_cents, settlement_currency, wallet_amount_cents, exchange_rate::float8, provider,
 		       COALESCE(provider_session_id, ''), COALESCE(merchant_request_id, ''),
 		       status, COALESCE(message, ''), COALESCE(receipt_number, '')
 		FROM ad_payment_intents WHERE id = $1 AND user_id = $2`,
@@ -344,7 +479,7 @@ func (r *ADFinanceRepository) GetADPaymentByProviderSession(ctx context.Context,
 	return r.getADPaymentIntent(ctx, `
 		SELECT id::text, user_id::text, payment_type, COALESCE(target_id, ''),
 		       COALESCE(creator_id::text, ''), amount_cents, currency,
-		       settlement_amount_cents, settlement_currency, exchange_rate::float8, provider,
+		       settlement_amount_cents, settlement_currency, wallet_amount_cents, exchange_rate::float8, provider,
 		       COALESCE(provider_session_id, ''), COALESCE(merchant_request_id, ''),
 		       status, COALESCE(message, ''), COALESCE(receipt_number, '')
 		FROM ad_payment_intents WHERE provider = $1 AND provider_session_id = $2`,
@@ -356,7 +491,7 @@ func (r *ADFinanceRepository) getADPaymentIntent(ctx context.Context, query stri
 	err := r.DB.QueryRowContext(ctx, query, args...).Scan(
 		&intent.ID, &intent.UserID, &intent.PaymentType, &intent.TargetID, &intent.CreatorID,
 		&intent.AmountCents, &intent.Currency, &intent.SettlementAmountCents,
-		&intent.SettlementCurrency, &intent.ExchangeRate, &intent.Provider, &intent.ProviderSessionID,
+		&intent.SettlementCurrency, &intent.WalletAmountCents, &intent.ExchangeRate, &intent.Provider, &intent.ProviderSessionID,
 		&intent.MerchantRequestID, &intent.Status, &intent.Message, &intent.ReceiptNumber)
 	if err != nil {
 		return nil, err
@@ -375,14 +510,14 @@ func (r *ADFinanceRepository) CompleteADPayment(ctx context.Context, intentID st
 	err = tx.QueryRowContext(ctx, `
 		SELECT id::text, user_id::text, payment_type, COALESCE(target_id, ''),
 		       COALESCE(creator_id::text, ''), amount_cents, currency,
-		       settlement_amount_cents, settlement_currency, exchange_rate::float8, provider,
+		       settlement_amount_cents, settlement_currency, wallet_amount_cents, exchange_rate::float8, provider,
 		       COALESCE(provider_session_id, ''), COALESCE(merchant_request_id, ''),
 		       status, COALESCE(message, ''), COALESCE(receipt_number, '')
 		FROM ad_payment_intents WHERE id = $1 FOR UPDATE`,
 		intentID).Scan(
 		&intent.ID, &intent.UserID, &intent.PaymentType, &intent.TargetID, &intent.CreatorID,
 		&intent.AmountCents, &intent.Currency, &intent.SettlementAmountCents,
-		&intent.SettlementCurrency, &intent.ExchangeRate, &intent.Provider, &intent.ProviderSessionID,
+		&intent.SettlementCurrency, &intent.WalletAmountCents, &intent.ExchangeRate, &intent.Provider, &intent.ProviderSessionID,
 		&intent.MerchantRequestID, &intent.Status, &intent.Message, &intent.ReceiptNumber)
 	if err != nil {
 		return nil, false, err
@@ -453,7 +588,7 @@ func applyADSubscription(ctx context.Context, tx *sql.Tx, intent *ADPaymentInten
 		intent.UserID, -intent.SettlementAmountCents, intent.ID); err != nil {
 		return err
 	}
-	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "subscription_earning", intent.ID, "New subscriber"); err != nil {
+	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "subscription_earning", "subscriptions", intent.ID, "New subscriber"); err != nil {
 		return err
 	}
 	now := time.Now()
@@ -491,13 +626,17 @@ func applyADPPV(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) error 
 	if entitled {
 		return nil
 	}
+	providerSettlementCents := intent.SettlementAmountCents - intent.WalletAmountCents
+	if providerSettlementCents < 1 {
+		return fmt.Errorf("invalid PPV provider settlement amount")
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, 'ppv_purchase', $3, 'Unlocked PPV post')`,
-		intent.UserID, -intent.SettlementAmountCents, intent.ID); err != nil {
+		intent.UserID, -providerSettlementCents, intent.ID); err != nil {
 		return err
 	}
-	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "ppv_earning", intent.ID, "PPV post unlocked"); err != nil {
+	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "ppv_earning", "ppv", intent.ID, "PPV post unlocked"); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `
@@ -528,7 +667,7 @@ func applyADTip(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) error 
 		intent.UserID, -intent.SettlementAmountCents, intent.ID, intent.Message); err != nil {
 		return err
 	}
-	return creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "tip_received", intent.ID, intent.Message)
+	return creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "tip_received", "tips", intent.ID, intent.Message)
 }
 
 func applyADLivePass(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) error {
@@ -548,7 +687,7 @@ func applyADLivePass(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) e
 		intent.UserID, -intent.SettlementAmountCents, intent.ID); err != nil {
 		return err
 	}
-	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "ppv_earning", intent.ID, "Live session pass sold"); err != nil {
+	if err := creditADCreator(ctx, tx, intent.CreatorID, intent.SettlementAmountCents, "ppv_earning", "live_pass", intent.ID, "Live session pass sold"); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `
@@ -559,7 +698,7 @@ func applyADLivePass(ctx context.Context, tx *sql.Tx, intent *ADPaymentIntent) e
 	return err
 }
 
-func creditADCreator(ctx context.Context, tx *sql.Tx, creatorID string, amount int64, transactionType, referenceID, description string) error {
+func creditADCreator(ctx context.Context, tx *sql.Tx, creatorID string, amount int64, transactionType, source, referenceID, description string) error {
 	creatorCut := amount * 80 / 100
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_wallets (user_id, pending_balance_cents)
@@ -570,9 +709,26 @@ func creditADCreator(ctx context.Context, tx *sql.Tx, creatorID string, amount i
 		creatorID, creatorCut); err != nil {
 		return err
 	}
+	if err := addADPendingEarning(ctx, tx, creatorID, source, creatorCut); err != nil {
+		return err
+	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO ad_ledger_entries (user_id, amount_cents, transaction_type, reference_id, description)
 		VALUES ($1, $2, $3, $4, $5)`,
 		creatorID, creatorCut, transactionType, referenceID, description)
+	return err
+}
+
+func addADPendingEarning(ctx context.Context, tx *sql.Tx, userID, source string, amount int64) error {
+	if amount <= 0 {
+		return errors.New("pending earnings amount must be positive")
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO ad_pending_earnings (user_id, source, balance_cents)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, source) DO UPDATE
+		SET balance_cents = ad_pending_earnings.balance_cents + EXCLUDED.balance_cents,
+		    updated_at = CURRENT_TIMESTAMP
+	`, userID, source, amount)
 	return err
 }

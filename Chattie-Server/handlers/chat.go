@@ -14,6 +14,7 @@ import (
 	"chattie-backend/middlewares"
 	"chattie-backend/models"
 	"chattie-backend/repository"
+	"chattie-backend/services"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -60,6 +61,7 @@ type Hub struct {
 	Unregister  chan *Client
 	Mutex       sync.Mutex
 	Repo        *repository.ChatRepository
+	Events      *services.EventHandler
 }
 
 func NewHub(repo *repository.ChatRepository) *Hub {
@@ -732,6 +734,20 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 		if strings.TrimSpace(msg.Content) == "" && strings.TrimSpace(msg.Media) == "" {
 			continue
 		}
+		if c.Hub.Repo != nil {
+			muteCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			muted, err := c.Hub.Repo.IsUserAutoMuted(muteCtx, c.UserID)
+			cancel()
+			if err != nil {
+				log.Printf("[WS WARNING] could not check chat mute for user %s: %v", c.UserID, err)
+				c.sendRoomError(msg.ClientMessageID, "Could not validate chat restrictions")
+				continue
+			}
+			if muted {
+				c.sendRoomError(msg.ClientMessageID, "You are temporarily muted for repeated restricted-language violations")
+				continue
+			}
+		}
 
 		if c.TargetID != "" && c.TargetID != "undefined" {
 			msg.RecipientID = c.TargetID
@@ -766,12 +782,14 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 		// =======================================================
 		originalText := msg.Content
 		isFlagged := false
+		explicitHit := false
 
 		if c.Role == "model" || c.Role == "operator" {
 			cleanText, flagged := MaskSocialInfo(msg.Content)
 			msg.Content = cleanText
 			isFlagged = flagged
 		} else if contentMode != "mature" {
+			explicitHit = HasBadWords(msg.Content)
 			cleanText, flagged := MaskBadWords(msg.Content)
 			msg.Content = cleanText
 			isFlagged = flagged
@@ -786,6 +804,20 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 				UserID:     c.UserID,
 				ActionType: "MODERATION_FLAG",
 				Metadata:   `{"content":"` + originalText + `"}`,
+			}
+			if explicitHit && c.Hub.Repo != nil {
+				muteCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				muted, err := c.Hub.Repo.RecordExplicitFilterHit(muteCtx, c.UserID)
+				cancel()
+				if err != nil {
+					log.Printf("[WS WARNING] could not record restricted-language hit for user %s: %v", c.UserID, err)
+					c.sendRoomError(msg.ClientMessageID, "Could not validate chat restrictions")
+					continue
+				}
+				if muted {
+					c.sendRoomError(msg.ClientMessageID, "You are temporarily muted for repeated restricted-language violations")
+					continue
+				}
 			}
 		}
 
@@ -809,6 +841,20 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 			ActionType: "MESSAGE_SENT",
 			TargetID:   msg.RecipientID,
 			Metadata:   `{"message_id":"` + msg.ID + `","is_media":` + boolStr(msg.Media != "") + `}`,
+		}
+
+		if msg.RoomID == "" && msg.RecipientID != "" && c.Hub.Events != nil {
+			go c.Hub.Events.ProcessEvent(context.WithoutCancel(context.Background()), services.AppEvent{
+				RecipientID: msg.RecipientID,
+				WSEventType: "NEW_MESSAGE",
+				WSPayload: map[string]interface{}{
+					"title": "New message", "message": "You received a new chat message.",
+					"sender_id": c.UserID, "action_url": "/messages", "action_label": "Open chat", "category": "messages",
+				},
+				EmailTemplate:    "new_message",
+				EmailNotifColumn: "notif_messages",
+				EmailData:        map[string]interface{}{"Message": "You received a new chat message. Open Chattie to reply."},
+			})
 		}
 
 		msg.RoomID = c.HubRoom

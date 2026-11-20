@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { settingsService } from '../../api/settings.service';
 import { AFTER_DARK_CREATOR_POLICY_VERSION, afterDarkService } from '../../api/afterdark.service';
 import { useAppStore } from '../../store/useAppStore';
-import DocuPassVerificationModal from '../modals/DocuPassVerificationModal';
+import PlaidIdentityVerificationModal from '../modals/PlaidIdentityVerificationModal';
 
 const isVerifiedValue = value => value === true || (
   typeof value === 'string' && ['true', 'verified'].includes(value.trim().toLowerCase())
@@ -207,12 +207,12 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
       <div className="absolute inset-0 bg-black/90 backdrop-blur-sm transition-opacity duration-300" onClick={handleClose} />
       
-      <div className="relative flex h-[90dvh] min-h-0 w-full max-w-4xl flex-col border-4 border-zinc-700 bg-black font-mono shadow-[16px_16px_0px_rgba(255,255,255,0.05)] animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative flex h-[90dvh] min-h-0 w-full max-w-4xl flex-col border-4 border-zinc-700 bg-black font-mono shadow-[16px_16px_0px_rgba(var(--highlight-rgb), 0.05)] animate-in fade-in zoom-in-95 duration-200">
         
         {/* HEADER */}
         <div className="flex items-center justify-between border-b-4 border-zinc-800 bg-zinc-950 p-5 shrink-0 relative z-20">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-yellow-500/10 border-2 border-yellow-500 flex items-center justify-center text-yellow-500 shadow-[2px_2px_0px_rgba(234,179,8,0.2)]">
+            <div className="w-10 h-10 bg-yellow-500/10 border-2 border-yellow-500 flex items-center justify-center text-yellow-500 shadow-[2px_2px_0px_rgba(var(--warning-rgb), 0.2)]">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
@@ -252,7 +252,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
           {step === 1 && (
             <div className="p-6 md:p-12 max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="flex flex-col items-center text-center space-y-4 mb-10">
-                <div className="size-[clamp(5rem,12vw,6rem)] bg-zinc-950 border-4 border-zinc-800 flex items-center justify-center mb-2 shadow-[8px_8px_0px_rgba(255,255,255,0.02)]">
+                <div className="size-[clamp(5rem,12vw,6rem)] bg-zinc-950 border-4 border-zinc-800 flex items-center justify-center mb-2 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.02)]">
                   <ShieldAlert className="w-12 h-12 text-yellow-500" />
                 </div>
                 <h1 className="text-3xl font-black text-white uppercase tracking-widest">MONETIZE YOUR CONTENT</h1>
@@ -278,7 +278,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
                 </div>
               </div>
 
-              <div className="bg-red-500/5 border-2 border-red-900/50 p-6 flex items-start gap-5 shadow-[4px_4px_0px_rgba(239,68,68,0.1)]">
+              <div className="bg-red-500/5 border-2 border-red-900/50 p-6 flex items-start gap-5 shadow-[4px_4px_0px_rgba(var(--danger-rgb), 0.1)]">
                 <AlertTriangle className="w-8 h-8 text-red-500 shrink-0" />
                 <div>
                   <h3 className="text-xs font-black text-red-500 uppercase tracking-widest mb-2">IDENTITY CHECK STATUS</h3>
@@ -429,7 +429,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
                 ].map((item) => (
                   <label
                     key={item.key} 
-                    className={`flex items-center gap-5 p-4 border-2 cursor-pointer transition-all duration-200 ${agreements[item.key] ? 'border-yellow-500 bg-yellow-500/10 shadow-[4px_4px_0px_rgba(234,179,8,0.15)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'}`}
+                    className={`flex items-center gap-5 p-4 border-2 cursor-pointer transition-all duration-200 ${agreements[item.key] ? 'border-yellow-500 bg-yellow-500/10 shadow-[4px_4px_0px_rgba(var(--warning-rgb), 0.15)]' : 'border-zinc-800 bg-zinc-950 hover:border-zinc-600'}`}
                   >
                     <input
                       type="checkbox"
@@ -453,7 +453,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
           {step === 5 && (
             <div className="flex-1 flex flex-col items-center justify-center p-8 h-full animate-in zoom-in-95 duration-500">
               <div className="text-center w-full max-w-md flex flex-col items-center animate-in slide-in-from-bottom-8 duration-500">
-                <div className={`size-[clamp(6rem,16vw,8rem)] rounded-full border-4 flex items-center justify-center mb-8 ${isApplicationApproved ? 'bg-green-500/10 border-green-500 shadow-[0_0_40px_rgba(34,197,94,0.3)]' : 'bg-yellow-500/10 border-yellow-500 shadow-[0_0_40px_rgba(234,179,8,0.2)]'}`}>
+                <div className={`size-[clamp(6rem,16vw,8rem)] rounded-full border-4 flex items-center justify-center mb-8 ${isApplicationApproved ? 'bg-green-500/10 border-green-500 shadow-[0_0_40px_rgba(var(--success-rgb), 0.3)]' : 'bg-yellow-500/10 border-yellow-500 shadow-[0_0_40px_rgba(var(--warning-rgb), 0.2)]'}`}>
                   {isApplicationApproved ? <Check className="w-16 h-16 text-green-500" /> : <ShieldCheck className="w-16 h-16 text-yellow-500" />}
                 </div>
                 <h3 className="text-xl font-black text-white uppercase tracking-widest mb-4">
@@ -483,7 +483,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
               type="button"
               onClick={handleEnableCreatorMode}
               disabled={isSubmitting}
-              className="ml-auto px-10 py-4 bg-yellow-500 text-black font-black uppercase tracking-widest text-[11px] border-2 border-yellow-500 transition-all hover:bg-yellow-400 shadow-[4px_4px_0px_rgba(234,179,8,0.2)] hover:shadow-[8px_8px_0px_rgba(234,179,8,0.4)] hover:-translate-y-1 flex items-center gap-2"
+              className="ml-auto px-10 py-4 bg-yellow-500 text-black font-black uppercase tracking-widest text-[11px] border-2 border-yellow-500 transition-all hover:bg-yellow-400 shadow-[4px_4px_0px_rgba(var(--warning-rgb), 0.2)] hover:shadow-[8px_8px_0px_rgba(var(--warning-rgb), 0.4)] hover:-translate-y-1 flex items-center gap-2"
             >
               <ShieldCheck className="w-5 h-5" /> ACKNOWLEDGE & FINISH
             </button>
@@ -502,7 +502,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
                 <button 
                   onClick={handleNext}
                   disabled={isLoadingProfile || (step === 2 && (profileLoadError || !hasVerificationStatus))}
-                  className="px-10 py-4 bg-white text-black font-black uppercase tracking-widest text-[11px] border-2 border-white transition-all hover:bg-zinc-200 shadow-[4px_4px_0px_rgba(255,255,255,0.2)] hover:shadow-[8px_8px_0px_rgba(255,255,255,0.4)] hover:-translate-y-1 disabled:shadow-none disabled:hover:translate-y-0 flex items-center gap-2"
+                  className="px-10 py-4 bg-white text-black font-black uppercase tracking-widest text-[11px] border-2 border-white transition-all hover:bg-zinc-200 shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] hover:shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.4)] hover:-translate-y-1 disabled:shadow-none disabled:hover:translate-y-0 flex items-center gap-2"
                 >
                   {isLoadingProfile ? 'CHECKING PROFILE…' : 'CONTINUE'} <ChevronRight className="w-5 h-5" />
                 </button>
@@ -510,7 +510,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
                 <button 
                   onClick={handleSubmit}
                   disabled={!allAgreed || isSubmitting}
-                  className="px-10 py-4 bg-yellow-500 text-black font-black uppercase tracking-widest text-[11px] border-2 border-yellow-500 transition-all hover:bg-yellow-400 shadow-[4px_4px_0px_rgba(234,179,8,0.2)] hover:shadow-[8px_8px_0px_rgba(234,179,8,0.4)] hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0 flex items-center gap-2"
+                  className="px-10 py-4 bg-yellow-500 text-black font-black uppercase tracking-widest text-[11px] border-2 border-yellow-500 transition-all hover:bg-yellow-400 shadow-[4px_4px_0px_rgba(var(--warning-rgb), 0.2)] hover:shadow-[8px_8px_0px_rgba(var(--warning-rgb), 0.4)] hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0 flex items-center gap-2"
                 >
                   <ShieldCheck className="w-5 h-5" /> {isSubmitting ? 'SUBMITTING…' : 'SUBMIT APPLICATION'}
                 </button>
@@ -521,7 +521,7 @@ export default function OptInGateModal({ isOpen, onClose, onSuccess }) {
 
       </div>
     </div>
-    <DocuPassVerificationModal
+    <PlaidIdentityVerificationModal
       isOpen={showIdentityVerification}
       onClose={() => setShowIdentityVerification(false)}
       onVerified={() => {

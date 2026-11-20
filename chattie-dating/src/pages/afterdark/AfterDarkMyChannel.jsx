@@ -110,7 +110,7 @@ const EditPostModal = ({ post, onClose, onSave }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col overflow-hidden rounded-none animate-in zoom-in-95 duration-200 z-10">
+      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col overflow-hidden rounded-none animate-in zoom-in-95 duration-200 z-10">
         
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
@@ -297,7 +297,7 @@ const SubscriberMessageModal = ({ subscriber, onClose }) => {
         role="dialog" 
         aria-modal="true" 
         aria-label={`Conversation with ${subscriberName}`} 
-        className="relative z-10 flex h-[85dvh] min-h-0 w-full max-w-lg flex-col overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] rounded-none animate-in zoom-in-95 duration-200"
+        className="relative z-10 flex h-[85dvh] min-h-0 w-full max-w-lg flex-col overflow-hidden border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] rounded-none animate-in zoom-in-95 duration-200"
       >
         <header className="flex items-center justify-between border-b-2 border-zinc-800 bg-zinc-950 p-4 shrink-0">
           <div className="flex items-center gap-3">
@@ -404,7 +404,7 @@ const WithdrawModal = ({ balance, pending, payoutMethods, onClose, onSuccess }) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col z-10 rounded-none animate-in zoom-in-95 duration-200 overflow-hidden">
+      <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col z-10 rounded-none animate-in zoom-in-95 duration-200 overflow-hidden">
         
         <div className="p-4 border-b-2 border-zinc-800 flex justify-between items-center bg-zinc-950 shrink-0">
           <h2 className="text-[10px] font-bold uppercase tracking-widest text-white flex items-center gap-2">
@@ -947,7 +947,7 @@ export default function AfterDarkMyChannel() {
       
       {/* Finance Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-black border-2 border-green-500 p-6 flex flex-col justify-between shadow-[4px_4px_0px_rgba(34,197,94,0.1)] rounded-none">
+        <div className="bg-black border-2 border-green-500 p-6 flex flex-col justify-between shadow-[4px_4px_0px_rgba(var(--success-rgb), 0.1)] rounded-none">
           <div>
             <h4 className="text-[10px] font-bold text-green-500 uppercase tracking-widest mb-2 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4" /> Available Balance
@@ -1108,7 +1108,7 @@ export default function AfterDarkMyChannel() {
 
       <section className="pt-6 border-t-2 border-zinc-800 space-y-3">
         <h2 className="text-[10px] font-bold uppercase tracking-widest text-red-500">Danger Zone</h2>
-        <div className="bg-black border-2 border-red-900 p-4 md:p-6 shadow-[4px_4px_0px_rgba(239,68,68,0.1)] rounded-none">
+        <div className="bg-black border-2 border-red-900 p-4 md:p-6 shadow-[4px_4px_0px_rgba(var(--danger-rgb), 0.1)] rounded-none">
           <h3 className="text-sm font-bold text-white uppercase tracking-widest mb-2 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-red-500" /> Deactivate Creator Channel
           </h3>

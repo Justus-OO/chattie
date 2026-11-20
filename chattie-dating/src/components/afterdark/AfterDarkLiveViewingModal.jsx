@@ -207,7 +207,7 @@ function ChatInputControls({ messageText, setMessageText, sendMessage, sendReact
         type="submit" 
         disabled={!messageText.trim() || connectionEnded} 
         aria-label="Send message" 
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-black transition-transform hover:scale-105 active:scale-95 disabled:opacity-50"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--text-on-accent)] transition-transform hover:scale-105 active:scale-95 disabled:opacity-50"
       >
         <Send className="h-4 w-4 ml-0.5" />
       </button>
@@ -553,7 +553,7 @@ export default function LiveViewer({
   };
 
   return (
-    <div className="after-dark-live-viewer fixed inset-0 z-[100] flex h-[100dvh] w-full overflow-hidden bg-black text-white [&_*]:!rounded-none" style={{ '--accent': '#facc15', '--accent-rgb': '250, 204, 21' }}>
+    <div className="after-dark-live-viewer fixed inset-0 z-[100] flex h-[100dvh] w-full overflow-hidden bg-black text-white [&_*]:!rounded-none">
       {/* FULL SCREEN PAYWALL OVERLAY */}
       {!hasAccess ? (
         <div className="relative flex h-full w-full flex-col items-center justify-center p-6">
@@ -570,7 +570,7 @@ export default function LiveViewer({
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="relative">
                 <img src={creator.avatar} alt="" className="size-[clamp(5rem,12vw,6rem)] rounded-full border-2 border-[var(--accent)] object-cover shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)]" />
-                <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-bold text-black">
+                <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-on-accent)]">
                   LIVE NOW
                 </span>
               </div>
@@ -596,7 +596,7 @@ export default function LiveViewer({
               </div>
 
               <div className="flex flex-col gap-3 pt-2">
-                <button type="button" disabled={!hasEnoughBalance} onClick={() => onUseBalance(creator, accessType, price)} className="w-full rounded-full bg-[var(--accent)] py-3.5 text-sm font-bold text-black transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50">
+                <button type="button" disabled={!hasEnoughBalance} onClick={() => onUseBalance(creator, accessType, price)} className="w-full rounded-full bg-[var(--accent)] py-3.5 text-sm font-bold text-[var(--text-on-accent)] transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50">
                   <Wallet className="mr-2 inline h-4 w-4" /> Unlock for KES {price.toLocaleString()}
                 </button>
                 <button type="button" onClick={() => onCheckout(creator, accessType, price)} className="w-full rounded-full bg-white/10 py-3.5 text-sm font-bold text-white transition-colors hover:bg-white/20">
@@ -607,7 +607,7 @@ export default function LiveViewer({
           </div>
         </div>
       ) : isOwnBroadcast ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-zinc-950 p-5 text-center" style={{ '--accent': '#facc15' }}>
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-zinc-950 p-5 text-center">
           <div className="border-2 border-yellow-400 bg-black p-4">
             <Radio className="h-8 w-8 text-yellow-400" />
           </div>
@@ -615,7 +615,7 @@ export default function LiveViewer({
             <p className="text-lg font-black uppercase tracking-widest text-white">Your channel is on air</p>
             <p className="mt-1 text-xs font-bold uppercase tracking-wide text-zinc-400">The broadcast is active. Return to the control room to continue hosting.</p>
           </div>
-          <button type="button" onClick={onManageBroadcast} className="border-2 border-yellow-400 bg-yellow-400 px-5 py-3 text-xs font-black uppercase tracking-widest text-black hover:bg-black hover:text-yellow-400">
+          <button type="button" onClick={onManageBroadcast} className="border-2 border-yellow-400 bg-yellow-400 px-5 py-3 text-xs font-black uppercase tracking-widest text-[var(--text-on-warning)] hover:bg-black hover:text-yellow-400">
             Return to Creator Studio
           </button>
           <button type="button" onClick={onClose} className="border-2 border-zinc-700 bg-black px-5 py-3 text-xs font-bold uppercase tracking-widest text-white hover:border-white">
@@ -638,7 +638,7 @@ export default function LiveViewer({
             {joinError && <p role="alert" className="mt-2 text-sm text-red-400">{joinError}</p>}
           </div>
           {joinState === 'failed' && (
-            <button type="button" onClick={retryJoin} className="rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-black">
+            <button type="button" onClick={retryJoin} className="rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-[var(--text-on-accent)]">
               Retry connection
             </button>
           )}
@@ -681,7 +681,7 @@ export default function LiveViewer({
                 onError={handleStageError}
               />
               {tipAlert && (
-                <div role="status" className="absolute left-1/2 top-20 z-40 w-[min(90%,24rem)] -translate-x-1/2 animate-in slide-in-from-top-3 rounded-2xl border border-amber-300/40 bg-gradient-to-r from-amber-500/95 to-orange-500/95 p-3 text-black shadow-xl">
+                <div role="status" className="absolute left-1/2 top-20 z-40 w-[min(90%,24rem)] -translate-x-1/2 animate-in slide-in-from-top-3 rounded-2xl border border-amber-300/40 bg-gradient-to-r from-amber-500/95 to-orange-500/95 p-3 text-[var(--text-on-warning)] shadow-xl">
                   <div className="flex items-center gap-2">
                     <Gift className="h-6 w-6 shrink-0" />
                     <div className="min-w-0">
@@ -720,7 +720,7 @@ export default function LiveViewer({
                         key={amount}
                         type="button"
                         onClick={() => setTipAmount(String(amount))}
-                        className={`rounded-lg px-2 py-2 text-xs font-bold ${Number(tipAmount) === amount ? 'bg-[var(--accent)] text-black' : 'bg-white/10 text-white'}`}
+                        className={`rounded-lg px-2 py-2 text-xs font-bold ${Number(tipAmount) === amount ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-white/10 text-white'}`}
                       >
                         {amount}
                       </button>
@@ -750,7 +750,7 @@ export default function LiveViewer({
                   <button
                     type="submit"
                     disabled={isSendingTip || connectionState !== ConnectionState.Connected || Number(tipAmount) > Number(walletBalance || 0)}
-                    className="flex w-full items-center justify-center gap-2 border-2 border-yellow-400 bg-yellow-400 py-2.5 text-sm font-bold text-black disabled:opacity-50"
+                    className="flex w-full items-center justify-center gap-2 border-2 border-yellow-400 bg-yellow-400 py-2.5 text-sm font-bold text-[var(--text-on-warning)] disabled:opacity-50"
                   >
                     <Gift className="h-4 w-4" />
                     {isSendingTip ? 'Sending…' : Number(tipAmount) > Number(walletBalance || 0) ? 'Insufficient wallet balance' : `Tip from wallet · KES ${Number(tipAmount || 0).toLocaleString()}`}
@@ -801,10 +801,10 @@ export default function LiveViewer({
                 <button type="button" onClick={shareLive} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md">
                   <Share2 className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={() => setTipOpen(open => !open)} aria-label="Send a tip" className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-400 text-black shadow-lg">
+                <button type="button" onClick={() => setTipOpen(open => !open)} aria-label="Send a tip" className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-400 text-[var(--text-on-warning)] shadow-lg">
                   <Gift className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={toggleCaptions} aria-label={captionsEnabled ? 'Turn captions off' : 'Turn captions on'} className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-md ${captionsEnabled ? 'bg-[var(--accent)] text-black' : 'bg-black/40 text-white'}`}>
+                <button type="button" onClick={toggleCaptions} aria-label={captionsEnabled ? 'Turn captions off' : 'Turn captions on'} className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-md ${captionsEnabled ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-black/40 text-white'}`}>
                   <span className="text-xs font-black">CC</span>
                 </button>
                 <span className="rounded-full bg-black/40 px-2 py-1 text-[10px] text-white">♥ {reactionCount}</span>
@@ -820,7 +820,7 @@ export default function LiveViewer({
                 >
                   <div className="flex flex-col justify-end flex-1 gap-2 overflow-y-auto pb-1 scrollbar-hide">
                     {messages.slice(-50).map(message => (
-                      <div key={message.id} className="inline-flex w-fit rounded-xl bg-black/40 px-3 py-1.5 text-[13px] leading-snug backdrop-blur-sm">
+                      <div key={message.id} className={`chat-bubble ${message.name === userAlias ? 'chat-bubble--mine self-end border border-[var(--accent)]/35 bg-[var(--accent)]/15' : 'chat-bubble--other self-start border border-white/10 bg-black/45'} inline-flex w-fit max-w-full px-3 py-1.5 text-[13px] leading-snug text-white backdrop-blur-sm`}>
                         <span className={`font-semibold mr-1.5 ${message.name === userAlias ? 'text-[var(--accent)]' : 'text-white/80'}`}>
                           {message.name}:
                         </span>
@@ -857,10 +857,10 @@ export default function LiveViewer({
                   <button type="button" onClick={shareLive} aria-label="Share live" className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
                     <Share2 className="h-4 w-4" />
                   </button>
-                  <button type="button" onClick={() => setTipOpen(open => !open)} aria-label="Send a tip" className="rounded-full bg-amber-400 p-2 text-black hover:bg-amber-300">
+                  <button type="button" onClick={() => setTipOpen(open => !open)} aria-label="Send a tip" className="rounded-full bg-amber-400 p-2 text-[var(--text-on-warning)] hover:bg-amber-300">
                     <Gift className="h-4 w-4" />
                   </button>
-                  <button type="button" onClick={toggleCaptions} aria-label={captionsEnabled ? 'Turn captions off' : 'Turn captions on'} className={`rounded-full p-2 ${captionsEnabled ? 'bg-[var(--accent)] text-black' : 'bg-white/10 text-white'}`}>
+                  <button type="button" onClick={toggleCaptions} aria-label={captionsEnabled ? 'Turn captions off' : 'Turn captions on'} className={`rounded-full p-2 ${captionsEnabled ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-white/10 text-white'}`}>
                     <span className="text-[10px] font-black">CC</span>
                   </button>
                   <span className="text-xs text-white">♥ {reactionCount}</span>
@@ -872,12 +872,14 @@ export default function LiveViewer({
                   Welcome to {creator.name}'s Live! Be respectful and follow community guidelines.
                 </div>
                 {messages.map(message => (
-                  <div key={message.id} className="flex flex-col text-sm leading-relaxed">
-                    <div className="flex items-center gap-2">
+                  <div key={message.id} className={`flex w-full flex-col text-sm leading-relaxed ${message.name === userAlias ? 'items-end' : 'items-start'}`}>
+                    <div className={`mb-1 flex items-center gap-2 ${message.name === userAlias ? 'flex-row-reverse' : ''}`}>
                       <span className={`font-bold ${message.name === userAlias ? 'text-[var(--accent)]' : 'text-white/90'}`}>{message.name}</span>
                       <span className="text-[10px] text-zinc-500">{message.time}</span>
                     </div>
-                    <span className="text-zinc-200">{message.text}</span>
+                    <div className={`chat-bubble ${message.name === userAlias ? 'chat-bubble--mine border border-[var(--accent)]/30 bg-[var(--accent)]/15' : 'chat-bubble--other border border-white/10 bg-black/45'} max-w-[90%] px-3 py-2 text-zinc-100 backdrop-blur-sm`}>
+                      {message.text}
+                    </div>
                   </div>
                 ))}
                 <div ref={chatEndRef} />

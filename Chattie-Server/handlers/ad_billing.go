@@ -82,6 +82,10 @@ func (h *ADBillingHandler) UnlockPostWithWallet(w http.ResponseWriter, r *http.R
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err.Error() == "a PPV checkout for this post is already pending" {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "Transaction failed", http.StatusInternalServerError)
 		return
 	}

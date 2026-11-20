@@ -9,10 +9,14 @@ type OperatorSecurity struct {
 
 // OperatorPerformance represents output metrics for an operator
 type OperatorPerformance struct {
-	AvgReplyTime   string  `json:"avgReplyTime"`
-	MsgsSent       int     `json:"msgsSent"`
-	ActiveSessions int     `json:"activeSessions"`
-	Rating         float64 `json:"rating"`
+	AvgReplyTime         string  `json:"avgReplyTime"`
+	AvgReplyTimeSeconds  int64   `json:"avgReplyTimeSeconds"`
+	MsgsSent             int     `json:"msgsSent"`
+	ActiveSessions       int     `json:"activeSessions"`
+	Rating               float64 `json:"rating"`
+	RatingSampleSize     int     `json:"ratingSampleSize"`
+	AnsweredMessages     int     `json:"answeredMessages"`
+	SubstantiatedReports int     `json:"substantiatedReports"`
 }
 
 // OperatorDetail represents the human staff member operating chat queues

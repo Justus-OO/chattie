@@ -9,6 +9,9 @@ import (
 )
 
 var ErrCreatorApplicationNotEligible = errors.New("creator application does not meet approval requirements")
+var ErrCreatorApplicationIncomplete = errors.New("creator application is missing age, identity, or consent requirements")
+var ErrCreatorApplicationPending = errors.New("creator application is already pending review")
+var ErrCreatorApplicationAlreadyApproved = errors.New("creator already has an approved application")
 
 type ADPerformerRepository struct {
 	DB *sql.DB
@@ -18,14 +21,38 @@ func NewADPerformerRepository(db *sql.DB) *ADPerformerRepository {
 	return &ADPerformerRepository{DB: db}
 }
 
+func (r *ADPerformerRepository) IsActiveCreator(ctx context.Context, userID string) (bool, error) {
+	var active bool
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM performer_profiles
+			WHERE user_id = $1 AND status = 'active'
+		)
+	`, userID).Scan(&active)
+	return active, err
+}
+
+func (r *ADPerformerRepository) CanManageCreatorProfile(ctx context.Context, userID string) (bool, error) {
+	var canManage bool
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM performer_profiles
+			WHERE user_id = $1 AND status IN ('active', 'paused')
+		)
+	`, userID).Scan(&canManage)
+	return canManage, err
+}
+
 func (r *ADPerformerRepository) GetApplicationByUserID(ctx context.Context, userID string) (*models.PerformerApplication, error) {
 	query := `
 		SELECT 
-			id::text, user_id::text, creator_alias, status, COALESCE(verification_ref, ''), COALESCE(payout_method_id, ''),
+			id::text, user_id::text,
+			EXISTS (SELECT 1 FROM performer_profiles WHERE user_id = $1 AND status = 'active'),
+			creator_alias, status, COALESCE(verification_ref, ''), COALESCE(payout_method_id, ''),
 			policy_version, COALESCE(decision_reason_code, ''), submitted_at
 		FROM performer_applications
 		WHERE user_id = $1
-		ORDER BY submitted_at DESC
+		ORDER BY CASE status WHEN 'approved' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, submitted_at DESC
 		LIMIT 1
 	`
 	row := r.DB.QueryRowContext(ctx, query, userID)
@@ -33,7 +60,7 @@ func (r *ADPerformerRepository) GetApplicationByUserID(ctx context.Context, user
 	var app models.PerformerApplication
 
 	err := row.Scan(
-		&app.ID, &app.UserID, &app.CreatorAlias, &app.Status, &app.VerificationRef,
+		&app.ID, &app.UserID, &app.IsCreator, &app.CreatorAlias, &app.Status, &app.VerificationRef,
 		&app.PayoutMethodID, &app.PolicyVersion, &app.DecisionReasonCode, &app.SubmittedAt,
 	)
 
@@ -52,6 +79,58 @@ func (r *ADPerformerRepository) SubmitApplication(ctx context.Context, app *mode
 		return err
 	}
 	defer tx.Rollback()
+
+	var identityVerified, ageVerified bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(profile.verified, FALSE),
+		       COALESCE(profile.date_of_birth <= CURRENT_DATE - INTERVAL '18 years', FALSE)
+		FROM users
+		LEFT JOIN user_profiles profile ON profile.user_id = users.id
+		WHERE users.id = $1
+		FOR UPDATE OF users
+	`, app.UserID).Scan(&identityVerified, &ageVerified); err != nil {
+		return err
+	}
+	var existingStatus string
+	err = tx.QueryRowContext(ctx, `
+		SELECT status
+		FROM performer_applications
+		WHERE user_id = $1 AND status IN ('pending', 'approved')
+		ORDER BY CASE status WHEN 'approved' THEN 0 ELSE 1 END, submitted_at DESC
+		LIMIT 1
+	`, app.UserID).Scan(&existingStatus)
+	if err == nil {
+		if existingStatus == "approved" {
+			return ErrCreatorApplicationAlreadyApproved
+		}
+		return ErrCreatorApplicationPending
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if !identityVerified || !ageVerified {
+		return ErrCreatorApplicationIncomplete
+	}
+
+	requiredConsents := map[string]bool{
+		"age_attestation":   false,
+		"content_ownership": false,
+		"revenue_split":     false,
+		"zero_tolerance":    false,
+	}
+	for _, consent := range consents {
+		if consent.PolicyVersion != app.PolicyVersion {
+			return ErrCreatorApplicationIncomplete
+		}
+		if _, exists := requiredConsents[consent.ConsentType]; exists {
+			requiredConsents[consent.ConsentType] = true
+		}
+	}
+	for _, accepted := range requiredConsents {
+		if !accepted {
+			return ErrCreatorApplicationIncomplete
+		}
+	}
 
 	appQuery := `
 		INSERT INTO performer_applications 
@@ -87,16 +166,27 @@ func (r *ADPerformerRepository) ListPendingApplications(ctx context.Context) ([]
 		       COALESCE(application.decision_reason_code, ''),
 		       COALESCE(application.ai_triage_summary, ''),
 		       application.submitted_at,
+		       COALESCE(profile.verified, FALSE),
+		       COALESCE(profile.date_of_birth <= CURRENT_DATE - INTERVAL '18 years', FALSE),
+		       (
+		          SELECT COUNT(DISTINCT consent.consent_type)
+		          FROM performer_consents consent
+		          WHERE consent.user_id = application.user_id
+		            AND consent.policy_version = application.policy_version
+		            AND consent.accepted_at >= application.submitted_at
+		            AND consent.consent_type IN ('age_attestation', 'content_ownership', 'revenue_split', 'zero_tolerance')
+		       ) = 4,
+		       BTRIM(application.creator_alias) <> '' AND BTRIM(COALESCE(application.policy_version, '')) <> '',
+		       EXISTS (
+		           SELECT 1 FROM performer_applications approved
+		           WHERE approved.user_id = application.user_id
+		             AND approved.status = 'approved'
+		       ),
 		       (
 		           COALESCE(profile.verified, FALSE)
 		           AND BTRIM(application.creator_alias) <> ''
 		           AND BTRIM(COALESCE(application.policy_version, '')) <> ''
 		           AND profile.date_of_birth <= CURRENT_DATE - INTERVAL '18 years'
-		           AND EXISTS (
-		               SELECT 1 FROM user_action_logs verification
-		               WHERE verification.user_id = application.user_id
-		                 AND verification.action_type = 'KYC_VERIFICATION_PASSED'
-		           )
 		           AND (
 		               SELECT COUNT(DISTINCT consent.consent_type)
 		               FROM performer_consents consent
@@ -130,6 +220,9 @@ func (r *ADPerformerRepository) ListPendingApplications(ctx context.Context) ([]
 			&application.ID, &application.UserID, &application.Username, &application.Email,
 			&application.CreatorAlias, &application.Status, &application.PolicyVersion,
 			&application.DecisionReasonCode, &application.AISummary, &application.SubmittedAt,
+			&application.IdentityVerified, &application.AgeVerified,
+			&application.ConsentsVerified, &application.ProfileComplete,
+			&application.HasExistingApproval,
 			&application.EligibleForApproval,
 		); err != nil {
 			return nil, err
@@ -154,11 +247,35 @@ func (r *ADPerformerRepository) ReviewApplication(ctx context.Context, adminID, 
 		SELECT user_id::text
 		FROM performer_applications
 		WHERE id = $1 AND status = 'pending'
+	`, applicationID).Scan(&userID); err != nil {
+		return err
+	}
+	var lockedUserID string
+	if err := tx.QueryRowContext(ctx, `SELECT id::text FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&lockedUserID); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, `
+		SELECT user_id::text
+		FROM performer_applications
+		WHERE id = $1 AND status = 'pending'
 		FOR UPDATE
 	`, applicationID).Scan(&userID); err != nil {
 		return err
 	}
 	if decision == "approve" {
+		var alreadyApproved bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM performer_applications
+				WHERE user_id = $1 AND status = 'approved'
+			)
+		`, userID).Scan(&alreadyApproved); err != nil {
+			return err
+		}
+		if alreadyApproved {
+			return ErrCreatorApplicationAlreadyApproved
+		}
+
 		var eligible bool
 		if err := tx.QueryRowContext(ctx, `
 			SELECT (
@@ -166,11 +283,6 @@ func (r *ADPerformerRepository) ReviewApplication(ctx context.Context, adminID, 
 			    AND BTRIM(application.creator_alias) <> ''
 			    AND BTRIM(COALESCE(application.policy_version, '')) <> ''
 			    AND profile.date_of_birth <= CURRENT_DATE - INTERVAL '18 years'
-			    AND EXISTS (
-			        SELECT 1 FROM user_action_logs verification
-			        WHERE verification.user_id = application.user_id
-			          AND verification.action_type = 'KYC_VERIFICATION_PASSED'
-			    )
 			    AND (
 			        SELECT COUNT(DISTINCT consent.consent_type)
 			        FROM performer_consents consent

@@ -61,6 +61,16 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrWeakPassword", "Valid email and password (min 6 characters) are required")})
 		return
 	}
+	disposable, err := h.isDisposableEmail(r.Context(), user.Email)
+	if err != nil {
+		log.Printf("[AUTH] Could not check disposable-email rule: %v", err)
+		http.Error(w, "Registration is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if disposable {
+		http.Error(w, "Disposable email providers are not supported", http.StatusUnprocessableEntity)
+		return
+	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), 10)
 	if err != nil {
@@ -290,6 +300,16 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 
 	if err != nil {
 		// User doesn't exist, create a new one
+		disposable, ruleErr := h.isDisposableEmail(r.Context(), email)
+		if ruleErr != nil {
+			log.Printf("[AUTH] Could not check disposable-email rule: %v", ruleErr)
+			http.Error(w, "Registration is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if disposable {
+			http.Error(w, "Disposable email providers are not supported", http.StatusUnprocessableEntity)
+			return
+		}
 		user = &models.User{
 			Email:    email,
 			Username: name,
@@ -317,6 +337,31 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 	}
 
 	h.sendLoginOrChallenge(w, r, user)
+}
+
+func (h *AuthHandler) isDisposableEmail(ctx context.Context, email string) (bool, error) {
+	enabled, err := h.Repo.IsFirewallRuleActive(ctx, "RUL_2")
+	if err != nil || !enabled {
+		return false, err
+	}
+	return isKnownDisposableEmail(email), nil
+}
+
+func isKnownDisposableEmail(email string) bool {
+	separator := strings.LastIndexByte(email, '@')
+	if separator < 0 || separator == len(email)-1 {
+		return false
+	}
+	domain := strings.ToLower(strings.TrimSpace(email[separator+1:]))
+	for _, disposableDomain := range []string{
+		"10minutemail.com", "guerrillamail.com", "mailinator.com", "tempmail.com",
+		"temp-mail.org", "yopmail.com", "sharklasers.com", "dispostable.com",
+	} {
+		if domain == disposableDomain || strings.HasSuffix(domain, "."+disposableDomain) {
+			return true
+		}
+	}
+	return false
 }
 
 // ============================================================================

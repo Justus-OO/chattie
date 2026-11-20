@@ -163,6 +163,41 @@ func trustedCountryCode(r *http.Request, trustedProxies []*net.IPNet) string {
 	return code
 }
 
+func clientIPFromRequest(r *http.Request, trustedProxies []*net.IPNet) net.IP {
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remoteHost = r.RemoteAddr
+	}
+	remoteIP := net.ParseIP(remoteHost)
+	if remoteIP == nil || !isTrustedProxy(remoteIP, trustedProxies) {
+		return remoteIP
+	}
+
+	chain := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(chain) - 1; i >= 0; i-- {
+		candidate := net.ParseIP(strings.TrimSpace(chain[i]))
+		if candidate == nil {
+			return remoteIP
+		}
+		if !isTrustedProxy(candidate, trustedProxies) {
+			return candidate
+		}
+	}
+	if len(chain) > 0 {
+		return net.ParseIP(strings.TrimSpace(chain[0]))
+	}
+	return remoteIP
+}
+
+func isTrustedProxy(ip net.IP, trustedProxies []*net.IPNet) bool {
+	for _, network := range trustedProxies {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func validCountryCode(code string) bool {
 	if len(code) != 2 || code == "XX" || code == "T1" {
 		return false

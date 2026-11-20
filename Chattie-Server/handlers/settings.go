@@ -7,9 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io" // FIX: Added missing io package
+	"io"
 	"log"
-	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,11 +24,11 @@ import (
 )
 
 type SettingsHandler struct {
-	Repo     *repository.SettingsRepository
-	Storage  *services.UploadService
-	Email    *EmailHandler
-	Plaid    *services.PlaidIdentityVerificationService
-	Events   *services.EventHandler
+	Repo    *repository.SettingsRepository
+	Storage *services.UploadService
+	Email   *EmailHandler
+	Plaid   *services.PlaidIdentityVerificationService
+	Events  *services.EventHandler
 }
 
 func NewSettingsHandler(

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Send, Image as ImageIcon, Smile, Paperclip, MoreVertical, 
@@ -9,7 +9,6 @@ import {
   Copy, Check, KeyRound, DoorOpen, CheckCheck, Settings, Edit3
 } from 'lucide-react';
 import { toast } from 'sonner';
-import EmojiPicker from 'emoji-picker-react';
 
 // ============================================================================
 // LIVEKIT WEBRTC IMPORTS
@@ -24,6 +23,7 @@ import {
   useTracks
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
 
 // Services & Hooks
 import { useAppStore } from '../../store/useAppStore';
@@ -93,7 +93,7 @@ const ActiveVoiceGrid = ({ members }) => {
               <div
                 key={participant.identity}
                 className={`relative flex min-h-[clamp(9rem,28vh,12rem)] flex-col items-center justify-center overflow-hidden rounded-3xl border p-4 text-center transition-colors ${
-                  isSpeaking ? 'border-green-500/70 bg-green-500/10 shadow-[0_0_30px_rgba(34,197,94,0.12)]' : 'border-zinc-800 bg-black/50'
+                  isSpeaking ? 'border-green-500/70 bg-green-500/10 shadow-[0_0_30px_rgba(var(--success-rgb), 0.12)]' : 'border-zinc-800 bg-black/50'
                 }`}
               >
                 <div className={`mb-3 flex size-[clamp(4rem,9vw,5rem)] items-center justify-center overflow-hidden rounded-full border-2 bg-zinc-950 ${
@@ -1080,7 +1080,7 @@ export default function LiveRoom() {
   if (membershipStatus === 'locked' || membershipStatus === 'pending') {
     return (
       <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-2 text-center font-mono text-zinc-300 sm:p-3 lg:p-4">
-        <div className="w-20 h-20 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center text-4xl mb-6 shadow-[8px_8px_0px_rgba(255,255,255,0.05)]">
+        <div className="w-20 h-20 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center text-4xl mb-6 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.05)]">
           {selectedRoom.icon || '🔒'}
         </div>
         <h2 className="text-xl font-black text-white uppercase tracking-widest mb-2">{selectedRoom.name}</h2>
@@ -1096,7 +1096,7 @@ export default function LiveRoom() {
           <div className="flex flex-col gap-3 w-full max-w-xs">
             <button
               onClick={handleKnockToJoin}
-              className="py-4 bg-white text-black border-2 border-white font-black uppercase tracking-widest text-xs hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.2)] flex items-center justify-center gap-2"
+              className="py-4 bg-white text-black border-2 border-white font-black uppercase tracking-widest text-xs hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] flex items-center justify-center gap-2"
             >
               <KeyRound className="w-4 h-4" /> KNOCK TO ENTER
             </button>
@@ -1113,11 +1113,11 @@ export default function LiveRoom() {
   }
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 w-full bg-black text-zinc-300 font-mono overflow-hidden relative rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="flex h-full min-h-0 min-w-0 w-full bg-black text-zinc-300 font-mono overflow-hidden relative rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       <div className="flex-1 flex flex-col min-w-0 h-full relative z-10">
         
-        <header className="flex flex-col border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(0,0,0,0.5)] z-20">
+        <header className="flex flex-col border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(var(--shadow-rgb), 0.5)] z-20">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
             <div className="flex items-center gap-4">
               <button 
@@ -1393,9 +1393,9 @@ export default function LiveRoom() {
                         </div>
                       )}
                       
-                      <div className={`p-3.5 border font-medium text-sm leading-relaxed tracking-wide flex flex-col gap-2 shadow-lg
-                          ${msg.isMe ? 'bg-white border-white text-black shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)] rounded-[20px] rounded-br-sm'
-                                   : 'bg-black border-zinc-600 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-[20px] rounded-bl-sm'}
+                      <div className={`chat-bubble ${msg.isMe ? 'chat-bubble--mine' : 'chat-bubble--other'} flex max-w-full flex-col gap-2 border p-3.5 text-sm font-medium leading-relaxed tracking-wide
+                          ${msg.isMe ? 'border-white/80 bg-gradient-to-br from-white to-zinc-100 text-black shadow-white/10'
+                                   : 'border-zinc-600 bg-gradient-to-br from-zinc-900 to-black text-white shadow-black/30'}
                       `}>
                         {quote && (
                           <div className={`pl-3 border-l-2 mb-2 italic text-xs ${msg.isMe ? 'border-black/20 text-black/70' : 'border-white/20 text-white/70'}`}>
@@ -1457,8 +1457,10 @@ export default function LiveRoom() {
             <div className="p-4 bg-zinc-950 border-t border-zinc-800 shrink-0 relative z-30">
               
               {showEmojiPicker && (
-                <div className="absolute bottom-[calc(100%+10px)] left-16 bg-black border-2 border-zinc-700 p-2 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] z-50">
-                  <EmojiPicker theme={theme} onEmojiClick={handleEmojiSelect} searchDisabled={true} skinTonesDisabled={true} height={350} width={300} />
+                <div className="absolute bottom-[calc(100%+10px)] left-16 bg-black border-2 border-zinc-700 p-2 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] z-50">
+                  <Suspense fallback={<div className="p-4 text-xs text-zinc-400">Loading emoji...</div>}>
+                    <EmojiPicker theme={theme} onEmojiClick={handleEmojiSelect} searchDisabled={true} skinTonesDisabled={true} height={350} width={300} />
+                  </Suspense>
                 </div>
               )}
 
@@ -1525,7 +1527,7 @@ export default function LiveRoom() {
           <div className="flex-1 bg-black flex flex-col relative">
             {!canUseVoiceChannel ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                <Crown className="w-16 h-16 text-yellow-500 mb-6 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]" />
+                <Crown className="w-16 h-16 text-yellow-500 mb-6 drop-shadow-[0_0_15px_rgba(var(--warning-rgb), 0.5)]" />
                 <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-4">PREMIUM REQUIRED</h3>
                 <p className="text-zinc-400 text-xs font-bold uppercase tracking-widest max-w-md leading-relaxed mb-8">
                   Voice lounges are reserved for Premium members to maintain quality and privacy. Upgrade to join the conversation.
@@ -1537,7 +1539,7 @@ export default function LiveRoom() {
                 <button 
                   onClick={connectToVoice}
                   disabled={isConnectingVoice}
-                  className="px-10 py-4 bg-white text-black border-2 border-white font-black uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.2)] disabled:opacity-50"
+                  className="px-10 py-4 bg-white text-black border-2 border-white font-black uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] disabled:opacity-50"
                 >
                   {isConnectingVoice ? 'CONNECTING...' : 'Connect to Audio'}
                 </button>
@@ -1585,7 +1587,7 @@ export default function LiveRoom() {
       {showAdminModal && roomAdminData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAdminModal(false)} />
-          <div className="relative w-full max-w-lg bg-black border-2 border-yellow-500/50 shadow-[8px_8px_0px_rgba(234,179,8,0.2)] flex flex-col z-10">
+          <div className="relative w-full max-w-lg bg-black border-2 border-yellow-500/50 shadow-[8px_8px_0px_rgba(var(--warning-rgb), 0.2)] flex flex-col z-10">
             <div className="flex items-center justify-between border-b-2 border-zinc-800 bg-zinc-950 p-4">
                <div className="flex items-center gap-4">
                   <button onClick={() => setIsEditingRoom(false)} className={`text-[10px] font-black uppercase tracking-widest pb-1 border-b-2 ${!isEditingRoom ? 'text-yellow-400 border-yellow-400' : 'text-zinc-500 border-transparent hover:text-white'}`}>
@@ -1687,7 +1689,7 @@ export default function LiveRoom() {
       {showShareModal && roomAdminData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowShareModal(false)} />
-          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col z-10 p-6 text-center">
+          <div className="relative w-full max-w-sm bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col z-10 p-6 text-center">
             <h3 className="text-sm font-black text-white uppercase tracking-widest mb-2">Invite Friends</h3>
             <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-6">Share this room code or link with other members.</p>
             
@@ -1704,7 +1706,7 @@ export default function LiveRoom() {
 
       {incomingCallData && !isInPrivateCall && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-md p-6 bg-black border-2 border-white shadow-[8px_8px_0px_rgba(255,255,255,1)]">
+          <div className="w-full max-w-md p-6 bg-black border-2 border-white shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 1)]">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 border-2 border-white flex items-center justify-center text-xl font-black text-white bg-zinc-900">
                 {(incomingCallData.fromName || 'C').charAt(0).toUpperCase()}
@@ -1821,7 +1823,7 @@ export default function LiveRoom() {
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedProfile(null)} />
           
-          <div className="relative flex h-[85dvh] w-full flex-col border-t-2 border-zinc-800 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in slide-in-from-bottom-full duration-300 md:h-full md:w-[clamp(22rem,36vw,30rem)] md:border-l-2 md:border-t-0 md:slide-in-from-right-full">
+          <div className="relative flex h-[85dvh] w-full flex-col border-t-2 border-zinc-800 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in slide-in-from-bottom-full duration-300 md:h-full md:w-[clamp(22rem,36vw,30rem)] md:border-l-2 md:border-t-0 md:slide-in-from-right-full">
             
             <div className="relative aspect-[2/1] max-h-[35dvh] shrink-0 overflow-hidden border-b-2 border-zinc-800 bg-zinc-950">
               <img src={selectedProfile.avatar} alt="cover" className={`w-full h-full object-cover opacity-60 transition-all ${canViewFullProfiles ? 'grayscale' : 'blur-xl scale-110'}`} />
@@ -1910,7 +1912,7 @@ export default function LiveRoom() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowMediaVault(false)} />
           
-          <div className="relative flex h-[80dvh] min-h-0 w-full max-w-2xl flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(255,255,255,0.1)] animate-in zoom-in-95 duration-200">
+          <div className="relative flex h-[80dvh] min-h-0 w-full max-w-2xl flex-col border-2 border-zinc-600 bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <ImageIcon className="w-4 h-4 text-zinc-400" /> YOUR MEDIA VAULT

@@ -531,7 +531,7 @@ export default function AdminCreators() {
   ].join('-');
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Roboto, sans-serif' }}>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black font-mono text-zinc-300 rounded-none" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
       
       {/* =========================================
           TOP TELEMETRY BAR
@@ -581,7 +581,7 @@ export default function AdminCreators() {
           
           <button 
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 bg-white text-black border-2 border-white px-6 py-3 font-black text-xs uppercase tracking-widest hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1"
+            className="flex items-center gap-2 bg-white text-black border-2 border-white px-6 py-3 font-black text-xs uppercase tracking-widest hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] hover:shadow-none translate-y-0 hover:translate-y-1 hover:translate-x-1"
           >
             <UserPlus className="w-4 h-4" /> Onboard New Operator
           </button>
@@ -794,7 +794,15 @@ export default function AdminCreators() {
                         </div>
                         <div>
                           <span className="block text-[9px] text-zinc-500 uppercase tracking-widest mb-1">Quality Rating</span>
-                          <span className="text-xl font-black text-purple-400">{creator.performance?.rating || '0.0'} / 5</span>
+                          <span className="text-xl font-black text-purple-400">
+                            {creator.performance?.ratingSampleSize >= 5 ? `${Number(creator.performance.rating).toFixed(1)} / 5` : 'Insufficient data'}
+                          </span>
+                          <span className="mt-1 block text-[9px] text-zinc-600">
+                            {creator.performance?.ratingSampleSize || 0} inbound · {creator.performance?.answeredMessages || 0} replies · {creator.performance?.substantiatedReports || 0} substantiated reports
+                          </span>
+                          <span className="mt-1 block text-[8px] leading-relaxed text-zinc-600">
+                            Admin-only estimate: reply coverage adjusted for resolved creator reports; shown after 5 inbound messages in the last 30 days.
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -913,7 +921,7 @@ export default function AdminCreators() {
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedCreator(null)} />
           
-          <div className="relative w-full max-w-2xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(0,0,0,0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
+          <div className="relative w-full max-w-2xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-10px_0_30px_rgba(var(--shadow-rgb), 0.8)]] flex flex-col animate-in slide-in-from-right-full duration-300">
             
             {/* Drawer Header */}
             <div className="p-6 bg-zinc-950 border-b-2 border-zinc-800 shrink-0 flex justify-between items-start">
@@ -1142,7 +1150,15 @@ export default function AdminCreators() {
                       </div>
                       <div className="p-3 bg-black border border-zinc-800">
                         <span className="block text-[9px] text-zinc-500">QA Rating Score</span>
-                        <span className="text-lg font-black text-purple-400">{selectedCreator.performance?.rating || '0.0'} / 5</span>
+                        <span className="text-lg font-black text-purple-400">
+                          {selectedCreator.performance?.ratingSampleSize >= 5 ? `${Number(selectedCreator.performance.rating).toFixed(1)} / 5` : 'Insufficient data'}
+                        </span>
+                        <span className="mt-1 block text-[9px] text-zinc-600">
+                          {selectedCreator.performance?.ratingSampleSize || 0} inbound · {selectedCreator.performance?.answeredMessages || 0} replies · {selectedCreator.performance?.substantiatedReports || 0} substantiated reports
+                        </span>
+                        <span className="mt-1 block text-[8px] leading-relaxed text-zinc-600">
+                          Admin-only estimate: reply coverage adjusted for resolved creator reports; shown after 5 inbound messages in the last 30 days.
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1160,7 +1176,7 @@ export default function AdminCreators() {
       {showAddModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
-          <div className="relative w-full max-w-lg bg-black border-2 border-white shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col z-10">
+          <div className="relative w-full max-w-lg bg-black border-2 border-white shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 1)] flex flex-col z-10">
             <div className="p-6 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <UserPlus className="w-4 h-4" /> Onboard Operator
@@ -1246,7 +1262,7 @@ export default function AdminCreators() {
                 <button 
                   onClick={handleProvisionOperator}
                   disabled={isProvisioningCreator}
-                  className="w-full py-4 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(255,255,255,0.2)] disabled:opacity-50"
+                  className="w-full py-4 bg-white text-black font-black uppercase text-xs tracking-widest border-2 border-white hover:bg-zinc-200 transition-colors shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.2)] disabled:opacity-50"
                 >
                   {isProvisioningCreator ? <Loader2 className="inline w-4 h-4 animate-spin" /> : 'Create Creator Account'}
                 </button>
@@ -1262,7 +1278,7 @@ export default function AdminCreators() {
       {showAssignModal && selectedCreator && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAssignModal(false)} />
-          <div className="relative w-full max-w-md bg-black border-2 border-blue-500 shadow-[8px_8px_0px_rgba(59,130,246,0.3)] flex flex-col z-10">
+          <div className="relative w-full max-w-md bg-black border-2 border-blue-500 shadow-[8px_8px_0px_rgba(var(--info-rgb), 0.3)] flex flex-col z-10">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center">
               <h2 className="text-xs font-black text-white uppercase tracking-widest">Assign to {selectedCreator.displayName || selectedCreator.username}</h2>
               <button onClick={() => setShowAssignModal(false)} className="text-zinc-500 hover:text-white"><X className="w-4 h-4" /></button>
@@ -1337,7 +1353,7 @@ export default function AdminCreators() {
       {showCreatePersonaModal && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowCreatePersonaModal(false)} />
-          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-white bg-black shadow-[8px_8px_0px_rgba(255,255,255,1)]">
+          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col border-2 border-white bg-black shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 1)]">
             <div className="p-4 border-b-2 border-zinc-800 bg-zinc-950 flex justify-between items-center shrink-0">
               <h2 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <Plus className="w-4 h-4" /> Provision Virtual Persona
@@ -1521,7 +1537,7 @@ export default function AdminCreators() {
         <div className="fixed inset-0 z-[90] flex justify-end">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setSelectedVaultPersona(null)} />
           
-          <div className="relative w-full max-w-5xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-20px_0_40px_rgba(0,0,0,1)]] flex flex-col animate-in slide-in-from-right-full duration-300">
+          <div className="relative w-full max-w-5xl h-full bg-black border-l-2 border-zinc-800 shadow-[[-20px_0_40px_rgba(var(--shadow-rgb),1)]] flex flex-col animate-in slide-in-from-right-full duration-300">
             
             {/* Vault Header */}
             <div className="p-6 bg-zinc-950 border-b-2 border-zinc-800 shrink-0 flex justify-between items-start">

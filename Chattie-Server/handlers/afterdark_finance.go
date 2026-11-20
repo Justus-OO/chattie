@@ -408,15 +408,20 @@ func (h *ADFinanceHandler) ClearCreatorEarnings(w http.ResponseWriter, r *http.R
 	var req struct {
 		AmountCents int64  `json:"amount_cents"`
 		Reason      string `json:"reason"`
+		Source      string `json:"source"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AmountCents <= 0 || strings.TrimSpace(req.Reason) == "" || len(strings.TrimSpace(req.Reason)) > 500 {
-		http.Error(w, "A positive amount and an audit reason of 500 characters or fewer are required", http.StatusBadRequest)
+		http.Error(w, "A positive amount, source, and an audit reason of 500 characters or fewer are required", http.StatusBadRequest)
 		return
 	}
-	if err := h.Repo.ClearCreatorEarnings(r.Context(), creatorID.String(), adminID, req.Reason, req.AmountCents); err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "exceeds pending") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := h.Repo.ClearCreatorEarnings(r.Context(), creatorID.String(), adminID, req.Reason, req.Source, req.AmountCents); err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, repository.ErrEarningsOnHold) || strings.Contains(err.Error(), "exceeds pending") || strings.Contains(err.Error(), "only available") {
+			status := http.StatusBadRequest
+			if errors.Is(err, repository.ErrEarningsOnHold) {
+				status = http.StatusConflict
+			}
+			http.Error(w, err.Error(), status)
 			return
 		}
 		http.Error(w, "Could not clear creator earnings", http.StatusInternalServerError)
@@ -424,6 +429,32 @@ func (h *ADFinanceHandler) ClearCreatorEarnings(w http.ResponseWriter, r *http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+}
+
+func (h *ADFinanceHandler) AutoClearPPEarnings(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || adminID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	creatorID, err := uuid.Parse(chi.URLParam(r, "userId"))
+	if err != nil {
+		http.Error(w, "Invalid creator ID", http.StatusBadRequest)
+		return
+	}
+	amount, err := h.Repo.AutoClearPPEarnings(r.Context(), creatorID.String(), adminID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, repository.ErrEarningsOnHold) {
+			status = http.StatusConflict
+		} else if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "eligible") {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "cleared", "source": "ppv", "amount_cents": amount})
 }
 
 // GET /api/afterdark/wallet/history
@@ -531,7 +562,9 @@ func (h *ADFinanceHandler) SendTip(w http.ResponseWriter, r *http.Request) {
 	}
 	tipID, err := h.Repo.SendTip(r.Context(), senderID, chi.URLParam(r, "creatorId"), req.AmountCents, req.Message)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || err.Error() == "creator not found or unavailable" {
+		if errors.Is(err, repository.ErrTippingLockedOut) {
+			http.Error(w, err.Error(), http.StatusLocked)
+		} else if errors.Is(err, sql.ErrNoRows) || err.Error() == "creator not found or unavailable" {
 			http.Error(w, "Creator not found or unavailable", http.StatusNotFound)
 		} else if err.Error() == "insufficient funds" {
 			http.Error(w, "Insufficient wallet funds", http.StatusPaymentRequired)

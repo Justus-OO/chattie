@@ -287,10 +287,10 @@ export default function PremiumUpgrade() {
           {/* Hero Section */}
           <div className="text-center mb-10 w-full flex flex-col items-center border-b-2 border-zinc-800 pb-10">
             <div className="relative mb-6">
-              <div className="w-16 h-16 bg-black border-2 border-yellow-400 flex items-center justify-center relative shadow-[4px_4px_0px_rgba(250,204,21,0.2)]">
+              <div className="w-16 h-16 bg-black border-2 border-yellow-400 flex items-center justify-center relative shadow-[4px_4px_0px_rgba(var(--warning-rgb), 0.2)]">
                 <Crown className="w-8 h-8 text-yellow-400" />
               </div>
-              <div className="absolute -top-3 -right-3 px-2 py-0.5 bg-yellow-400 text-black border-2 border-black text-[9px] font-bold uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+              <div className="absolute -top-3 -right-3 px-2 py-0.5 bg-yellow-400 text-black border-2 border-black text-[9px] font-bold uppercase tracking-widest shadow-[2px_2px_0px_rgba(var(--shadow-rgb),1)]">
                 VIP
               </div>
             </div>
@@ -315,7 +315,7 @@ export default function PremiumUpgrade() {
                     relative p-6 transition-colors flex flex-col text-center border-2
                     ${isProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
                     ${isSelected 
-                      ? 'bg-zinc-900 border-yellow-400 z-10 shadow-[8px_8px_0px_rgba(250,204,21,0.1)]' 
+                      ? 'bg-zinc-900 border-yellow-400 z-10 shadow-[8px_8px_0px_rgba(var(--warning-rgb), 0.1)]'
                       : 'bg-black border-zinc-800 hover:border-zinc-600 hover:bg-zinc-950'
                     }
                   `}
@@ -360,7 +360,7 @@ export default function PremiumUpgrade() {
             <button 
               onClick={() => setShowSummaryModal(true)}
               disabled={!selectedPlan || isProcessing}
-              className="w-full max-w-md py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-xs font-bold uppercase tracking-widest hover:bg-yellow-500 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors shadow-[8px_8px_0px_rgba(255,255,255,0.1)] focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 focus:ring-offset-black"
+              className="w-full max-w-md py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-xs font-bold uppercase tracking-widest hover:bg-yellow-500 disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 transition-colors shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 focus:ring-offset-black"
             >
               CONTINUE WITH {selectedPlan?.duration}
             </button>
@@ -436,7 +436,7 @@ export default function PremiumUpgrade() {
         <button 
           onClick={() => setShowSummaryModal(true)}
           disabled={!selectedPlan || isProcessing}
-          className="w-full py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center transition-colors disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 shadow-[4px_4px_0px_rgba(255,255,255,0.1)] focus:outline-none"
+          className="w-full py-4 bg-yellow-400 text-black border-2 border-yellow-400 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center transition-colors disabled:bg-zinc-800 disabled:border-zinc-800 disabled:text-zinc-500 shadow-[4px_4px_0px_rgba(var(--highlight-rgb), 0.1)] focus:outline-none"
         >
           GET {selectedPlan?.duration} FOR ${selectedPlan?.price}
         </button>
@@ -449,7 +449,7 @@ export default function PremiumUpgrade() {
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => !isProcessing && setShowSummaryModal(false)} />
           
-          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(255,255,255,0.1)] flex flex-col overflow-hidden animate-in slide-in-from-bottom-full md:zoom-in-95 duration-300 rounded-none">
+          <div className="relative w-full max-w-md bg-black border-2 border-zinc-600 shadow-[8px_8px_0px_rgba(var(--highlight-rgb), 0.1)] flex flex-col overflow-hidden animate-in slide-in-from-bottom-full md:zoom-in-95 duration-300 rounded-none">
             
             <div className="bg-zinc-950 p-4 flex justify-between items-center border-b-2 border-zinc-800 shrink-0">
               <h2 className="font-bold text-[10px] uppercase tracking-widest text-white flex items-center gap-2">
@@ -512,7 +512,7 @@ export default function PremiumUpgrade() {
           ===================================================================== */}
       {paymentSession?.provider === 'stripe' && stripePromise && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-8 bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="relative h-[95dvh] max-h-[95dvh] w-full max-w-4xl overflow-hidden border-2 border-zinc-600 bg-white shadow-[8px_8px_0px_rgba(250,204,21,0.3)] animate-in zoom-in-95 duration-300 md:h-auto">
+          <div className="relative h-[95dvh] max-h-[95dvh] w-full max-w-4xl overflow-hidden border-2 border-zinc-600 bg-white shadow-[8px_8px_0px_rgba(var(--warning-rgb), 0.3)] animate-in zoom-in-95 duration-300 md:h-auto">
             
             <button 
               onClick={handleCloseStripeModal}

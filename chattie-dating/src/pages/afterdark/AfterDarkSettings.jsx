@@ -110,10 +110,11 @@ export default function AfterDarkSettings() {
     afterDarkService.getMyPerformerProfile()
       .then(response => {
         const profile = response?.profile || response;
-        const exists = Boolean(profile && (profile.id || profile.user_id || profile.username));
+        const status = String(profile?.status || '').toLowerCase();
+        const canManageCreatorProfile = ['active', 'paused'].includes(status);
         if (!active) return;
-        setCreatorProfileStatus(exists);
-        if (exists !== storedCreatorStatus) setCreatorStatus(exists);
+        setCreatorProfileStatus(canManageCreatorProfile);
+        if (canManageCreatorProfile !== storedCreatorStatus) setCreatorStatus(canManageCreatorProfile);
       })
       .catch(error => {
         if (!active) return;
@@ -288,7 +289,7 @@ export default function AfterDarkSettings() {
     const accountNumber = payoutAccountNumber.trim();
     const accountName = payoutAccountName.trim();
     if (!accountNumber || !accountName) {
-      toast.error('Enter both the payout account number and account name.');
+      toast.error(t('adPayoutAccountRequired'));
       return;
     }
 
@@ -380,14 +381,14 @@ export default function AfterDarkSettings() {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) {
-      toast.error('Choose an image file smaller than 5MB.');
+      toast.error(t('adImageTooLarge'));
       event.target.value = '';
       return;
     }
     setFile(file);
     const reader = new FileReader();
     reader.onload = () => setPreview(String(reader.result));
-    reader.onerror = () => toast.error('This image could not be previewed.');
+    reader.onerror = () => toast.error(t('adImagePreviewFailed'));
     reader.readAsDataURL(file);
   };
 
@@ -544,7 +545,7 @@ export default function AfterDarkSettings() {
         </div>
         {showPasswordDialog && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <button type="button" aria-label="Close password dialog" className="absolute inset-0 bg-black/90" onClick={() => setShowPasswordDialog(false)} />
+            <button type="button" aria-label={t('adClosePasswordDialog')} className="absolute inset-0 bg-black/90" onClick={() => setShowPasswordDialog(false)} />
             <form onSubmit={async event => {
               event.preventDefault();
               if (!currentPassword || newPassword.length < 8) {
@@ -601,18 +602,18 @@ export default function AfterDarkSettings() {
         </div>
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
           <button type="button" aria-label={t('adChange')} onClick={() => avatarInputRef.current?.click()} className="relative size-[clamp(5rem,12vw,6rem)] shrink-0 overflow-hidden border-2 border-dashed border-zinc-800 hover:border-white">
-            <img src={avatarPreview || currentUser.avatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=200&q=80'} alt="Profile preview" className="h-full w-full object-cover" />
+            <img src={avatarPreview || currentUser.avatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=200&q=80'} alt={t('profilePreview')} className="h-full w-full object-cover" />
             <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-[9px] font-black uppercase text-white"><Camera className="mr-1 h-4 w-4" /> {t('adChange')}</span>
           </button>
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={event => selectImage(event, setAvatarPreview, setAvatarFile)} />
           <div className="grid flex-1 gap-4 sm:grid-cols-2">
             <div className="border border-zinc-800 bg-black p-3">
               <span className="block text-[9px] font-black uppercase text-zinc-500">{t('displayName')}</span>
-              <span className="mt-1 block text-sm font-bold text-white">{currentUser.name || currentUser.username || 'Chattie member'}</span>
+              <span className="mt-1 block text-sm font-bold text-white">{currentUser.name || currentUser.username || t('chattieMember')}</span>
             </div>
             <div className="border border-zinc-800 bg-black p-3">
               <span className="block text-[9px] font-black uppercase text-zinc-500">{t('emailAddress')}</span>
-              <span className="mt-1 block truncate text-sm font-bold text-white">{currentUser.email || 'Managed in Chattie account settings'}</span>
+              <span className="mt-1 block truncate text-sm font-bold text-white">{currentUser.email || t('managedAccountSettings')}</span>
             </div>
           </div>
         </div>
@@ -674,8 +675,8 @@ export default function AfterDarkSettings() {
 
       <section className="space-y-6 border-2 border-zinc-800 bg-black p-4 sm:p-6">
         <div>
-          <h3 className="text-xs font-black uppercase tracking-widest text-white">Payout methods</h3>
-          <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">Manage the destinations used for creator withdrawals.</p>
+          <h3 className="text-xs font-black uppercase tracking-widest text-white">{t('adPayoutMethods')}</h3>
+          <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">{t('adPayoutDestinations')}</p>
         </div>
         {payoutMethods.length > 0 ? (
           <div className="space-y-2">
@@ -706,24 +707,24 @@ export default function AfterDarkSettings() {
             })}
           </div>
         ) : (
-          <p className="border-2 border-dashed border-zinc-800 p-4 text-[9px] font-bold uppercase tracking-widest text-zinc-500">No payout methods added yet.</p>
+          <p className="border-2 border-dashed border-zinc-800 p-4 text-[9px] font-bold uppercase tracking-widest text-zinc-500">{t('adNoPayoutMethods')}</p>
         )}
         <form onSubmit={addPayoutMethod} className="grid grid-cols-1 gap-4 border-t-2 border-zinc-800 pt-5 sm:grid-cols-2">
           <div>
-            <label htmlFor="payout-provider" className="mb-2 block text-[10px] font-black uppercase tracking-widest text-zinc-500">Provider</label>
+            <label htmlFor="payout-provider" className="mb-2 block text-[10px] font-black uppercase tracking-widest text-zinc-500">{t('adProvider')}</label>
             <select
               id="payout-provider"
               value={payoutProvider}
               onChange={event => setPayoutProvider(event.target.value)}
               className="w-full border-2 border-zinc-800 bg-black p-3 text-xs font-bold uppercase text-white outline-none focus:border-white"
             >
-              <option value="mpesa">M-Pesa</option>
-              <option value="paystack_bank">Paystack bank</option>
-              <option value="paystack_mobile_money">Paystack mobile money</option>
+              <option value="mpesa">{t('adMpesaProvider')}</option>
+              <option value="paystack_bank">{t('adPaystackBank')}</option>
+              <option value="paystack_mobile_money">{t('adPaystackMobileMoney')}</option>
             </select>
           </div>
           <div>
-            <label htmlFor="payout-account-name" className="mb-2 block text-[10px] font-black uppercase tracking-widest text-zinc-500">Account name</label>
+            <label htmlFor="payout-account-name" className="mb-2 block text-[10px] font-black uppercase tracking-widest text-zinc-500">{t('adAccountName')}</label>
             <input
               id="payout-account-name"
               value={payoutAccountName}
@@ -752,7 +753,7 @@ export default function AfterDarkSettings() {
             </div>
           )}
           <div className="sm:col-span-2">
-            <label htmlFor="payout-account-number" className="mb-2 block text-[10px] font-black uppercase tracking-widest text-zinc-500">Account number</label>
+            <label htmlFor="payout-account-number" className="mb-2 block text-[10px] font-black uppercase tracking-widest text-zinc-500">{t('adAccountNumber')}</label>
             <input
               id="payout-account-number"
               type="text"
@@ -925,7 +926,7 @@ export default function AfterDarkSettings() {
               </button>
             ))}
             {twoFactorChannel === 'sms' && !twoFactorAvailability.sms_available && (
-              <span className="text-[9px] font-bold uppercase text-amber-500">Add a phone number first.</span>
+              <span className="text-[9px] font-bold uppercase text-amber-500">{t('adAddPhoneFirst')}</span>
             )}
           </div>
         )}
@@ -941,7 +942,7 @@ export default function AfterDarkSettings() {
               onChange={event => setTwoFactorCode(event.target.value)}
               maxLength={8}
               required
-              aria-label="Two-factor verification code"
+              aria-label={t('adTwoFactorCode')}
               className="w-full border-2 border-zinc-800 bg-black px-3 py-2 text-sm font-bold tracking-[0.4em] text-white outline-none focus:border-white"
             />
             <div className="flex gap-2">

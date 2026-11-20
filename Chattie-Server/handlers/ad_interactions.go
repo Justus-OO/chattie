@@ -59,6 +59,7 @@ func (h *ADInteractionsHandler) ToggleLike(w http.ResponseWriter, r *http.Reques
 				WSEventType: "AFTER_DARK_LIKE",
 				WSPayload: map[string]interface{}{
 					"title": "New After Dark like", "message": "A member liked your post.", "post_id": postID,
+					"action_url": "/afterdark/feed", "action_label": "View post", "category": "social",
 				},
 				EmailTemplate: "afterdark_notification",
 				EmailData: map[string]interface{}{
@@ -85,10 +86,13 @@ func (h *ADInteractionsHandler) GetComments(w http.ResponseWriter, r *http.Reque
 	}
 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit == 0 || limit > 100 {
+	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
 
 	comments, err := h.Repo.GetComments(r.Context(), postID, limit, offset)
 	if err != nil {
