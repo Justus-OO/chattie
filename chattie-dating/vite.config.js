@@ -7,7 +7,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-  // Add this define block to fix the sockjs-client error
+  preview: {
+    allowedHosts: ['chattie-gx8z.onrender.com'],
+  },
   define: {
     global: 'window',
   },

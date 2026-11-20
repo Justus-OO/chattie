@@ -15,7 +15,6 @@ export const SUPPORTED_LANGUAGES = [
 
 const translations = {
   en: {
-    profileLoadFailed: 'Could not load this profile.',
     supportTitle: 'Support', supportDescription: 'AI can help with general questions. Ask for a human at any time.',
     supportNewTicket: 'New ticket', supportSubject: 'Subject', supportMessage: 'Message',
     supportSubjectPlaceholder: 'What do you need help with?', supportDescribeIssue: 'Describe the issue…',
@@ -70,7 +69,6 @@ const translations = {
     loadingConversations: 'Loading your conversations...', unreadMessages: 'You have {count} unread messages', caughtUp: "You're all caught up!", searchMessages: 'Search messages...', newMatches: 'New matches', likes: 'Likes', noNewMatches: 'No new matches yet', messages: 'Messages', noConversations: 'No conversations yet', conversationEmpty: 'When you match with someone or receive a message, it will appear here.', connecting: 'Connecting...', audioCall: 'Audio call', videoCall: 'Video call', decline: 'Decline', answer: 'Answer', microphoneGain: 'Microphone gain', toggleScreenShare: 'Toggle screen share', swapCamera: 'Swap camera', toggleSpeaker: 'Toggle speaker', reactions: 'Reactions', muteAll: 'Mute all', newMessages: 'New messages', nsfw: 'NSFW', reveal: 'Reveal', reconnect: 'Reconnect', videoAttached: 'Video attached', photoAttached: 'Photo attached', readyToSend: 'Ready to send', attachMedia: 'Attach media', vault: 'Vault', smartAssistantDrafting: 'Smart Assistant is drafting...', typeMessage: 'Type a message...', about: 'About', noBio: 'No bio provided yet.', supportHistory: 'Support history', lifetimeContribution: 'Lifetime contribution', viewFullProfile: 'View full profile', incomingVideoCall: 'Incoming video call', incomingAudioCall: 'Incoming audio call', callRejectedInbox: 'Call was rejected', secureCallFailedInbox: 'Failed to start secure call.', joinCallFailedInbox: 'Failed to join call.', chatOffline: 'Chat connection offline. Reconnecting...', uploadFailed: 'Upload failed', sendMessageFailed: 'Failed to send message.', mediaFlagged: 'Uploaded media flagged by moderation', fileAttached: 'File attached', uploadFileFailed: 'Failed to upload file', conversationDeleted: 'Conversation deleted.', deleteConversationFailed: 'Unable to delete conversation.', vaultPhotoUploaded: 'Photo uploaded to vault.', blockedUser: '{name} has been blocked.', blockFailed: 'Failed to block user.', screenShareStopped: 'Screen share stopped', screenShareStarted: 'Screen share started', cameraSwapped: 'Camera swapped', speakerOff: 'Speaker off', speakerOn: 'Speaker on', muteAllRequested: 'Requested mute-all', reacted: 'Reacted {emoji}', you: 'You', micOff: 'Mic off', ringing: 'Ringing...',
   },
   es: {
-    profileLoadFailed: 'No se pudo cargar este perfil.',
     supportTitle: 'Soporte', supportDescription: 'La IA puede ayudar con preguntas generales. Puedes pedir atención humana cuando quieras.',
     supportNewTicket: 'Nuevo ticket', supportSubject: 'Asunto', supportMessage: 'Mensaje',
     supportSubjectPlaceholder: '¿Con qué necesitas ayuda?', supportDescribeIssue: 'Describe el problema…',
