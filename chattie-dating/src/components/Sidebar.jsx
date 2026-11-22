@@ -145,7 +145,7 @@ export default function Sidebar() {
         </div>
 
         {/* Global Navigation Links */}
-        <div className="p-2 grid grid-cols-5 gap-1 shrink-0" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <div className="p-2 grid grid-cols-3 gap-1 shrink-0 md:grid-cols-5" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
           <NavLink to="/rooms" className={({isActive}) => `flex flex-col items-center gap-1 p-2 border transition-colors ${isActive ? 'bg-white text-black border-white' : 'text-zinc-500 hover:text-zinc-300'}`} style={{ backgroundColor: 'var(--surface-strong)', borderColor: 'var(--border)' }}>
             <Users className="w-5 h-5" />
             <span className="text-[9px] font-bold uppercase">{t('rooms')}</span>

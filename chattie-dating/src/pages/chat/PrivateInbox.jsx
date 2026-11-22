@@ -1380,12 +1380,12 @@ export default function PrivateInbox() {
       <header className="p-4 md:p-6 shrink-0 flex flex-col gap-4 z-10 bg-zinc-950 border-b-2 border-zinc-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-10 w-10 border-2 border-zinc-700 bg-black flex items-center justify-center">
+            <div className="hidden h-10 w-10 items-center justify-center border-2 border-zinc-700 bg-black md:flex">
               <MessageSquare className="w-5 h-5 text-yellow-400" />
             </div>
             <div>
-              <h1 className="font-black text-xl md:text-2xl uppercase tracking-widest text-white">{t('inbox')}</h1>
-              <p className="text-[10px] mt-1 font-bold uppercase tracking-widest text-zinc-500">
+              <h1 className="hidden font-black text-xl uppercase tracking-widest text-white md:block md:text-2xl">{t('inbox')}</h1>
+              <p className="mt-0 text-[10px] font-bold uppercase tracking-widest text-zinc-500 md:mt-1">
                 {totalUnread > 0 ? t('unreadMessages', { count: totalUnread }) : t('caughtUp')}
               </p>
             </div>

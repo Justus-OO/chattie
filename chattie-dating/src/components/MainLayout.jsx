@@ -14,6 +14,7 @@ export default function MainLayout() {
   // Mobile Sidebar State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const isMessagesRoute = location.pathname === '/messages' || location.pathname.startsWith('/messages/');
 
   // Automatically close the mobile sidebar when the route changes (e.g. clicking a link)
   useEffect(() => {
@@ -33,11 +34,11 @@ export default function MainLayout() {
     <div className="flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-black font-mono text-zinc-300 md:flex-row">
       
       {/* MOBILE HEADER (Visible only on small screens) */}
-      <header className="md:hidden flex items-center justify-between p-3 border-b-2 border-zinc-800 bg-zinc-950 shrink-0 z-20">
+      <header className="md:hidden flex items-center justify-between p-2.5 border-b-2 border-zinc-800 bg-zinc-950 shrink-0 z-20">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-green-500 border border-black animate-pulse"></div>
+          {!isMessagesRoute && <div className="w-3 h-3 bg-green-500 border border-black animate-pulse" aria-hidden="true"></div>}
           <h1 className="font-bold text-lg text-white uppercase tracking-widest leading-none">
-            Chattie
+            {isMessagesRoute ? t('inbox') : 'Chattie'}
           </h1>
         </div>
         <button 

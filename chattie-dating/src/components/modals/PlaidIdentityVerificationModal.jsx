@@ -195,35 +195,50 @@ export default function PlaidIdentityVerificationModal({ isOpen, onClose, onVeri
         role="dialog"
         aria-modal="true"
         aria-labelledby="plaid-verification-title"
-        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-zinc-200 bg-white text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+        className="relative max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto border-2 shadow-2xl"
+        style={{
+          backgroundColor: 'var(--surface-strong)',
+          borderColor: 'var(--border-strong)',
+          color: 'var(--text-primary)',
+        }}
       >
-        <div className="h-1 bg-gradient-to-r from-cyan-400 via-blue-500 to-violet-500" />
+        <div className="h-1" style={{ backgroundColor: 'var(--accent)' }} />
         <button
           type="button"
           onClick={close}
           aria-label={t('verificationClose')}
-          className="absolute right-4 top-4 rounded-full p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:hover:bg-zinc-800 dark:hover:text-white"
+          className="absolute right-3 top-3 border p-2 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] sm:right-4 sm:top-4"
+          style={{
+            borderColor: 'var(--border)',
+            color: 'var(--text-secondary)',
+          }}
         >
           <X size={18} />
         </button>
 
-        <div className="p-6 sm:p-8">
-          <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
+        <div className="p-4 sm:p-8">
+          <div
+            className="mb-5 flex h-12 w-12 items-center justify-center border-2 sm:mb-6 sm:h-14 sm:w-14"
+            style={{ backgroundColor: 'var(--accent-soft)', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+          >
             {isSuccessful ? <CheckCircle2 size={28} /> : <ShieldCheck size={28} />}
           </div>
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>
             {t('plaidVerificationSecure')}
           </p>
-          <h2 id="plaid-verification-title" className="text-2xl font-bold tracking-tight">
+          <h2 id="plaid-verification-title" className="text-xl font-bold tracking-tight sm:text-2xl">
             {t('verificationTitle')}
           </h2>
-          <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+          <p className="mt-3 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
             {t('plaidVerificationIntro')}
           </p>
 
-          <div className="mt-6 flex gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
-            <LockKeyhole className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" size={18} />
-            <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-400">
+          <div
+            className="mt-5 flex gap-3 border p-3 sm:mt-6 sm:p-4"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-alt)' }}
+          >
+            <LockKeyhole className="mt-0.5 shrink-0" style={{ color: 'var(--accent)' }} size={18} />
+            <p className="text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>
               {t('plaidVerificationPrivacy')}
             </p>
           </div>
@@ -231,11 +246,14 @@ export default function PlaidIdentityVerificationModal({ isOpen, onClose, onVeri
           {statusMessage && (
             <div
               role="status"
-              className={`mt-5 flex items-start gap-3 rounded-xl border p-4 text-sm ${
-                isSuccessful
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200'
-                  : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200'
-              }`}
+              className="mt-5 flex items-start gap-3 border p-3 text-sm sm:p-4"
+              style={{
+                borderColor: isSuccessful ? 'var(--success)' : 'var(--accent)',
+                backgroundColor: isSuccessful
+                  ? 'color-mix(in srgb, var(--surface-strong) 90%, var(--success) 10%)'
+                  : 'var(--accent-soft)',
+                color: isSuccessful ? 'var(--success-strong)' : 'var(--accent-strong)',
+              }}
             >
               {isPending ? <LoaderCircle className="mt-0.5 shrink-0 animate-spin" size={17} /> : (
                 isSuccessful ? <CheckCircle2 className="mt-0.5 shrink-0" size={17} /> : <AlertCircle className="mt-0.5 shrink-0" size={17} />
@@ -245,7 +263,7 @@ export default function PlaidIdentityVerificationModal({ isOpen, onClose, onVeri
           )}
 
           {error && (
-            <p role="alert" className="mt-4 text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="mt-4 text-sm" style={{ color: 'var(--danger)' }}>
               {error}
             </p>
           )}
@@ -256,7 +274,8 @@ export default function PlaidIdentityVerificationModal({ isOpen, onClose, onVeri
                 type="checkbox"
                 checked={hasConsent}
                 onChange={(event) => setHasConsent(event.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 dark:border-zinc-700"
+                className="mt-1 h-4 w-4 border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                style={{ accentColor: 'var(--accent)', borderColor: 'var(--border-strong)' }}
               />
               <span>{t('plaidVerificationConsent')}</span>
             </label>
@@ -266,7 +285,11 @@ export default function PlaidIdentityVerificationModal({ isOpen, onClose, onVeri
             <button
               type="button"
               onClick={close}
-              className="rounded-xl border border-zinc-300 px-5 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+              className="border px-5 py-3 text-sm font-semibold transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              style={{
+                borderColor: 'var(--border-strong)',
+                color: 'var(--text-primary)',
+              }}
             >
               {t('verificationClose')}
             </button>
@@ -275,7 +298,8 @@ export default function PlaidIdentityVerificationModal({ isOpen, onClose, onVeri
                 type="button"
                 onClick={startVerification}
                 disabled={!hasConsent || isStarting}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-zinc-950"
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-bold transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ backgroundColor: 'var(--accent)', color: 'var(--text-on-accent)' }}
               >
                 {isStarting && <LoaderCircle size={16} className="animate-spin" />}
                 {isStarting ? t('verificationLoading') : t('startVerification')}
