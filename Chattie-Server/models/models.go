@@ -71,6 +71,18 @@ type DiscoverProfile struct {
 	Intent      string   `json:"intent"`      // e.g., "Casual", "Dating"
 	IsNew       bool     `json:"is_new,omitempty"`
 }
+
+type DiscoverDiagnostics struct {
+	ViewerReady       bool `json:"viewer_ready"`
+	ViewerHasPhoto    bool `json:"viewer_has_photo"`
+	ViewerAgeEligible bool `json:"viewer_age_eligible"`
+	CandidatePool     int  `json:"candidate_pool"`
+	AfterAge          int  `json:"after_age"`
+	AfterGender       int  `json:"after_gender"`
+	AfterIntent       int  `json:"after_intent"`
+	AfterLocation     int  `json:"after_location"`
+}
+
 type ConsentLog struct {
 	UserID    string `json:"user_id"`
 	IPAddress string `json:"ip_address"`

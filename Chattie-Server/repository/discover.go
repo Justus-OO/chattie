@@ -189,3 +189,160 @@ func (r *Repository) GetSwipeDeck(ctx context.Context, userID string, limit, off
 
 	return profiles, nil
 }
+
+func (r *Repository) GetSwipeDeckDiagnostics(ctx context.Context, userID string) (models.DiscoverDiagnostics, error) {
+	var diagnostics models.DiscoverDiagnostics
+	err := r.DB.QueryRowContext(ctx, `
+		WITH viewer AS (
+			SELECT
+				u.id,
+				(lower(u.status) IN ('active', 'online') AND u.role <> 'admin') AS account_eligible,
+				EXTRACT(YEAR FROM age(p.date_of_birth))::INT AS age,
+				p.gender,
+				COALESCE(pref.interested_in, 'All') AS interested_in,
+				COALESCE(pref.min_age, 18) AS min_age,
+				COALESCE(pref.max_age, 99) AS max_age,
+				COALESCE(pref.max_distance_km, 50) AS max_distance_km,
+				COALESCE(settings.show_me, 'Everyone') AS show_me,
+				COALESCE(settings.global_mode, FALSE) AS global_mode,
+				loc.latitude,
+				loc.longitude,
+				loc.country_code,
+				EXISTS (
+					SELECT 1 FROM user_media media
+					WHERE media.user_id = u.id AND NULLIF(BTRIM(media.url), '') IS NOT NULL
+				) AS has_photo
+			FROM users u
+			LEFT JOIN user_profiles p ON p.user_id = u.id
+			LEFT JOIN user_preferences pref ON pref.user_id = u.id
+			LEFT JOIN user_settings settings ON settings.user_id = u.id
+			LEFT JOIN user_locations loc ON loc.user_id = u.id
+			WHERE u.id = $1
+		),
+		candidate_pool AS (
+			SELECT
+				EXTRACT(YEAR FROM age(profile.date_of_birth))::INT AS target_age,
+				profile.gender AS target_gender,
+				COALESCE(candidate_preferences.min_age, 18) AS target_min_age,
+				COALESCE(candidate_preferences.max_age, 99) AS target_max_age,
+				COALESCE(candidate_preferences.interested_in, 'All') AS target_interested_in,
+				COALESCE(candidate_preferences.max_distance_km, 50) AS target_max_distance_km,
+				COALESCE(candidate_settings.show_me, 'Everyone') AS target_show_me,
+				COALESCE(candidate_settings.global_mode, FALSE) AS target_global_mode,
+				location.country_code AS target_country_code,
+				CASE
+					WHEN viewer.latitude IS NULL OR viewer.longitude IS NULL OR location.latitude IS NULL OR location.longitude IS NULL THEN 9999.0
+					ELSE 6371 * acos(LEAST(1.0, GREATEST(-1.0,
+						cos(radians(viewer.latitude)) * cos(radians(location.latitude)) *
+						cos(radians(location.longitude) - radians(viewer.longitude)) +
+						sin(radians(viewer.latitude)) * sin(radians(location.latitude))
+					)))
+				END AS distance_km,
+				viewer.age AS viewer_age,
+				viewer.gender AS viewer_gender,
+				viewer.interested_in AS viewer_interested_in,
+				viewer.min_age AS viewer_min_age,
+				viewer.max_age AS viewer_max_age,
+				viewer.max_distance_km AS viewer_max_distance_km,
+				viewer.show_me AS viewer_show_me,
+				viewer.global_mode AS viewer_global_mode,
+				viewer.country_code AS viewer_country_code
+			FROM users candidate
+			JOIN user_profiles profile ON profile.user_id = candidate.id
+			LEFT JOIN user_locations location ON location.user_id = candidate.id
+			LEFT JOIN user_preferences candidate_preferences ON candidate_preferences.user_id = candidate.id
+			LEFT JOIN user_settings candidate_settings ON candidate_settings.user_id = candidate.id
+			CROSS JOIN viewer
+			WHERE candidate.id <> $1
+				AND candidate.status IN ('active', 'online', 'ONLINE')
+				AND candidate.role IN ('client', 'persona')
+				AND NULLIF(BTRIM(profile.display_name), '') IS NOT NULL
+				AND EXTRACT(YEAR FROM age(profile.date_of_birth))::INT >= 18
+				AND EXISTS (
+					SELECT 1 FROM user_media media
+					WHERE media.user_id = candidate.id AND NULLIF(BTRIM(media.url), '') IS NOT NULL
+				)
+				AND viewer.account_eligible
+				AND viewer.age >= 18
+				AND viewer.has_photo
+				AND NOT EXISTS (
+					SELECT 1 FROM interactions interaction
+					WHERE interaction.actor_id = $1 AND interaction.target_id = candidate.id
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM blocks block
+					WHERE (block.blocker_id = $1 AND block.blocked_id = candidate.id)
+						OR (block.blocker_id = candidate.id AND block.blocked_id = $1)
+				)
+				AND (
+					COALESCE(candidate_settings.privacy_incognito, FALSE) = FALSE
+					OR EXISTS (
+						SELECT 1 FROM interactions interaction
+						WHERE interaction.actor_id = candidate.id
+							AND interaction.target_id = $1
+							AND interaction.action_type IN ('LIKE', 'SUPER_LIKE')
+					)
+				)
+		),
+		age_matches AS (
+			SELECT * FROM candidate_pool
+			WHERE target_age BETWEEN viewer_min_age AND viewer_max_age
+				AND viewer_age BETWEEN target_min_age AND target_max_age
+		),
+		gender_matches AS (
+			SELECT * FROM age_matches candidate
+			WHERE (
+				lower(BTRIM(candidate.viewer_show_me)) IN ('everyone', 'all', '')
+				OR (lower(BTRIM(candidate.viewer_show_me)) = 'men' AND lower(BTRIM(candidate.target_gender)) IN ('male', 'man'))
+				OR (lower(BTRIM(candidate.viewer_show_me)) = 'women' AND lower(BTRIM(candidate.target_gender)) IN ('female', 'woman'))
+				OR (lower(BTRIM(candidate.viewer_show_me)) = 'other' AND lower(BTRIM(candidate.target_gender)) IN ('other', 'nonbinary', 'non-binary'))
+			)
+			AND (
+				lower(BTRIM(candidate.target_show_me)) IN ('everyone', 'all', '')
+				OR (lower(BTRIM(candidate.target_show_me)) = 'men' AND lower(BTRIM(candidate.viewer_gender)) IN ('male', 'man'))
+				OR (lower(BTRIM(candidate.target_show_me)) = 'women' AND lower(BTRIM(candidate.viewer_gender)) IN ('female', 'woman'))
+				OR (lower(BTRIM(candidate.target_show_me)) = 'other' AND lower(BTRIM(candidate.viewer_gender)) IN ('other', 'nonbinary', 'non-binary'))
+			)
+		),
+		intent_matches AS (
+			SELECT * FROM gender_matches candidate
+			WHERE lower(BTRIM(candidate.target_interested_in)) IN ('all', '')
+				OR lower(BTRIM(candidate.viewer_interested_in)) IN ('all', '')
+				OR lower(BTRIM(candidate.target_interested_in)) = lower(BTRIM(candidate.viewer_interested_in))
+		),
+		location_matches AS (
+			SELECT * FROM intent_matches candidate
+			WHERE (
+				candidate.viewer_country_code IS NULL
+				OR candidate.target_country_code IS NULL
+				OR candidate.target_country_code = candidate.viewer_country_code
+				OR (candidate.viewer_global_mode AND candidate.target_global_mode)
+			)
+			AND (
+				(candidate.viewer_global_mode AND candidate.target_global_mode)
+				OR (candidate.distance_km <= candidate.viewer_max_distance_km
+					AND candidate.distance_km <= candidate.target_max_distance_km)
+			)
+		)
+		SELECT
+			COALESCE(viewer.account_eligible AND COALESCE(viewer.age >= 18, FALSE) AND viewer.has_photo, FALSE),
+			viewer.has_photo,
+			COALESCE(viewer.age >= 18, FALSE),
+			(SELECT COUNT(*) FROM candidate_pool),
+			(SELECT COUNT(*) FROM age_matches),
+			(SELECT COUNT(*) FROM gender_matches),
+			(SELECT COUNT(*) FROM intent_matches),
+			(SELECT COUNT(*) FROM location_matches)
+		FROM viewer
+	`, userID).Scan(
+		&diagnostics.ViewerReady,
+		&diagnostics.ViewerHasPhoto,
+		&diagnostics.ViewerAgeEligible,
+		&diagnostics.CandidatePool,
+		&diagnostics.AfterAge,
+		&diagnostics.AfterGender,
+		&diagnostics.AfterIntent,
+		&diagnostics.AfterLocation,
+	)
+	return diagnostics, err
+}

@@ -381,6 +381,7 @@ func main() {
 
 		// Discovery Routes
 		r.Get("/api/discover/deck", discoverHandler.GetSwipeDeck)
+		r.Get("/api/discover/diagnostics", discoverHandler.GetSwipeDeckDiagnostics)
 		r.Get("/api/grid", gridHandler.GetGridBrowse)
 
 		// Interaction & Match Routes

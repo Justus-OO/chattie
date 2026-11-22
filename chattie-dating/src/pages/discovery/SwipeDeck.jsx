@@ -22,6 +22,8 @@ const IDLE_DRAG = {
   photoNavigationSide: null,
 };
 
+const DECK_BATCH_SIZE = 20;
+
 const countryCodeToFlag = (countryCode) => {
   const normalizedCode = countryCode?.trim().toUpperCase();
   if (!normalizedCode || !/^[A-Z]{2}$/.test(normalizedCode)) return '';
@@ -42,12 +44,23 @@ export default function SwipeDeck() {
   const [deck, setDeck] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deckError, setDeckError] = useState(null);
+  const [moreProfilesError, setMoreProfilesError] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [isLoadingDiagnostics, setIsLoadingDiagnostics] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState(false);
+  const [isLoadingMoreProfiles, setIsLoadingMoreProfiles] = useState(false);
+  const [isWideningSearch, setIsWideningSearch] = useState(false);
   const [showDiscoveryFilters, setShowDiscoveryFilters] = useState(false);
   const [discoveryFilters, setDiscoveryFilters] = useState(null);
   const [isLoadingDiscoveryFilters, setIsLoadingDiscoveryFilters] = useState(false);
   const [isSavingDiscoveryFilters, setIsSavingDiscoveryFilters] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const loadedFullProfilesRef = useRef(new Set());
+  const loadedProfileIdsRef = useRef(new Set());
+  const isLoadingMoreProfilesRef = useRef(false);
+  const hasMoreProfilesRef = useRef(true);
+  const diagnosticsRequestRef = useRef(0);
   
   // --- UI TOGGLES ---
   const [showProfile, setShowProfile] = useState(false);
@@ -71,21 +84,78 @@ export default function SwipeDeck() {
   }, []);
 
   // --- FETCH SWIPE DECK ON MOUNT ---
-  useEffect(() => {
-    fetchDeck();
-  }, []);
-
-  const fetchDeck = async () => {
+  const fetchDeck = useCallback(async () => {
     try {
       setLoading(true);
-      const profiles = await discoveryService.getSwipeDeck(20, 0);
-      setDeck(profiles || []);
+      setDeckError(null);
+      setMoreProfilesError(false);
+      diagnosticsRequestRef.current += 1;
+      setDiagnostics(null);
+      setDiagnosticsError(false);
+      setIsLoadingDiagnostics(false);
+      const profiles = await discoveryService.getSwipeDeck(DECK_BATCH_SIZE, 0);
+      if (!Array.isArray(profiles)) throw new Error(t('coreUiSwipeDeckInvalidResponse'));
+      loadedProfileIdsRef.current = new Set(profiles.map(profile => profile.id));
+      hasMoreProfilesRef.current = profiles.length === DECK_BATCH_SIZE;
+      setDeck(profiles);
     } catch (error) {
-      toast.error(error.message || t('failedLoadDeck'));
+      loadedProfileIdsRef.current.clear();
+      hasMoreProfilesRef.current = false;
+      setDeck([]);
+      setDeckError(error.message || t('failedLoadDeck'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    fetchDeck();
+  }, [fetchDeck]);
+
+  const loadMoreProfiles = useCallback(async () => {
+    if (!hasMoreProfilesRef.current || isLoadingMoreProfilesRef.current) return;
+
+    isLoadingMoreProfilesRef.current = true;
+    setIsLoadingMoreProfiles(true);
+    setMoreProfilesError(false);
+    try {
+      const profiles = await discoveryService.getSwipeDeck(DECK_BATCH_SIZE, 0);
+      if (!Array.isArray(profiles)) throw new Error(t('coreUiSwipeDeckInvalidResponse'));
+
+      const newProfiles = profiles.filter(profile => !loadedProfileIdsRef.current.has(profile.id));
+      newProfiles.forEach(profile => loadedProfileIdsRef.current.add(profile.id));
+      setDeck(previous => [...previous, ...newProfiles]);
+
+      hasMoreProfilesRef.current = profiles.length === DECK_BATCH_SIZE && newProfiles.length > 0;
+    } catch (error) {
+      setMoreProfilesError(true);
+      toast.error(error.message || t('coreUiSwipeDeckLoadFailed'));
+    } finally {
+      isLoadingMoreProfilesRef.current = false;
+      setIsLoadingMoreProfiles(false);
+    }
+  }, [t]);
+
+  const loadDiscoveryDiagnostics = useCallback(async () => {
+    const requestId = diagnosticsRequestRef.current + 1;
+    diagnosticsRequestRef.current = requestId;
+    setIsLoadingDiagnostics(true);
+    setDiagnosticsError(false);
+    try {
+      const result = await discoveryService.getSwipeDeckDiagnostics();
+      if (diagnosticsRequestRef.current === requestId) setDiagnostics(result);
+    } catch {
+      if (diagnosticsRequestRef.current === requestId) setDiagnosticsError(true);
+    } finally {
+      if (diagnosticsRequestRef.current === requestId) setIsLoadingDiagnostics(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loading && !deckError && deck.length === 0 && !moreProfilesError && !diagnostics && !diagnosticsError && !isLoadingDiagnostics && !isLoadingMoreProfiles) {
+      loadDiscoveryDiagnostics();
+    }
+  }, [deck.length, deckError, diagnostics, diagnosticsError, isLoadingDiagnostics, isLoadingMoreProfiles, loading, loadDiscoveryDiagnostics, moreProfilesError]);
 
   const openDiscoveryFilters = async () => {
     setShowDiscoveryFilters(true);
@@ -137,6 +207,28 @@ export default function SwipeDeck() {
       toast.error(error.response?.data?.error || t('coreUiDiscoveryFiltersSaveFailed'));
     } finally {
       setIsSavingDiscoveryFilters(false);
+    }
+  };
+
+  const widenDiscoverySearch = async () => {
+    if (isWideningSearch) return;
+    setIsWideningSearch(true);
+    try {
+      const preferences = await settingsService.getDiscoveryPreferences();
+      await settingsService.updateDiscoveryPreferences({
+        interested_in: preferences.interested_in || 'All',
+        min_age: 18,
+        max_age: 99,
+        max_distance_km: 500,
+        show_me: preferences.show_me,
+        global_mode: true,
+      });
+      toast.success(t('coreUiSearchWidened'));
+      await fetchDeck();
+    } catch (error) {
+      toast.error(error.response?.data?.error || error.message || t('coreUiDiscoveryFiltersSaveFailed'));
+    } finally {
+      setIsWideningSearch(false);
     }
   };
 
@@ -239,6 +331,7 @@ export default function SwipeDeck() {
       if (response.is_match) {
         setMatchModal({ show: true, user: targetUser });
       }
+      if (deck.length <= 6) await loadMoreProfiles();
     } catch (error) {
       setHistory(prev => prev.filter(user => user.id !== targetUser.id));
       if (error.code !== 'ALREADY_INTERACTED') {
@@ -255,7 +348,7 @@ export default function SwipeDeck() {
     } finally {
       actionInProgressRef.current = false;
     }
-  }, [activeUser, navigate, resetDrag, t]);
+  }, [activeUser, deck.length, loadMoreProfiles, navigate, resetDrag, t]);
 
   const handleUndo = useCallback(async () => {
     try {
@@ -396,25 +489,113 @@ export default function SwipeDeck() {
     );
   }
 
+  if (deckError) {
+    return (
+      <div className="discovery-shell flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-4 bg-black p-4 text-center font-mono text-zinc-300">
+        <h2 className="text-xl font-bold uppercase tracking-widest text-white">{t('coreUiSwipeDeckLoadFailed')}</h2>
+        <p className="max-w-md text-xs leading-relaxed text-zinc-400">{deckError}</p>
+        <button
+          type="button"
+          onClick={fetchDeck}
+          className="flex items-center gap-2 border-2 border-white bg-white px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-black hover:bg-zinc-200"
+        >
+          <RotateCcw className="h-4 w-4" /> {t('refresh')}
+        </button>
+      </div>
+    );
+  }
+
   // ============================================================================
   // EMPTY STATE RENDER
   // ============================================================================
   if (deck.length === 0) {
+    let emptyDeckReason = isLoadingMoreProfiles
+      ? t('coreUiLoadingMoreProfiles')
+      : t('coreUiEmptyDeckFiltersHint');
+    if (diagnostics) {
+      if (!diagnostics.viewer_ready) {
+        emptyDeckReason = !diagnostics.viewer_has_photo
+          ? t('coreUiDiagnosticsAddPhoto')
+          : !diagnostics.viewer_age_eligible
+            ? t('coreUiDiagnosticsAgeEligibility')
+            : t('coreUiDiagnosticsProfileEligibility');
+      } else if (diagnostics.candidate_pool === 0) {
+        emptyDeckReason = t('coreUiDiagnosticsNoCandidates');
+      } else if (diagnostics.after_age === 0) {
+        emptyDeckReason = t('coreUiDiagnosticsAgeFilters');
+      } else if (diagnostics.after_gender === 0) {
+        emptyDeckReason = t('coreUiDiagnosticsGenderFilters');
+      } else if (diagnostics.after_intent === 0) {
+        emptyDeckReason = t('coreUiDiagnosticsIntentFilters');
+      } else if (diagnostics.after_location === 0) {
+        emptyDeckReason = t('coreUiDiagnosticsLocationFilters');
+      } else {
+        emptyDeckReason = t('coreUiDiagnosticsCaughtUp');
+      }
+    }
+
     return (
       <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center overflow-y-auto bg-black p-2 text-center font-mono text-zinc-300 border-l-2 md:border-zinc-800 rounded-none sm:p-3 lg:p-4">
         <div className="w-24 h-24 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center mb-6">
           <Flame className="w-10 h-10 text-zinc-600" />
         </div>
-        <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-widest">{t('caughtUpTitle')}</h2>
+        <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-widest">
+          {moreProfilesError
+            ? t('coreUiSwipeDeckLoadFailed')
+            : diagnostics && !diagnostics.viewer_ready
+              ? t('coreUiDiscoveryNeedsAttention')
+              : t('caughtUpTitle')}
+        </h2>
         <p className="text-zinc-500 text-[10px] uppercase tracking-widest max-w-sm leading-relaxed mb-6">
-          {t('coreUiEmptyDeckFiltersHint')}
+          {moreProfilesError ? t('coreUiSwipeDeckLoadFailed') : emptyDeckReason}
         </p>
+        {isLoadingMoreProfiles && (
+          <div className="mb-5 flex items-center gap-2 text-[10px] uppercase tracking-widest text-zinc-500" role="status">
+            <Loader2 className="h-4 w-4 animate-spin" /> {t('coreUiLoadingMoreProfiles')}
+          </div>
+        )}
+        {isLoadingDiagnostics && (
+          <div className="mb-5 flex items-center gap-2 text-[10px] uppercase tracking-widest text-zinc-500" role="status">
+            <Loader2 className="h-4 w-4 animate-spin" /> {t('coreUiDiagnosingDeck')}
+          </div>
+        )}
+        {diagnostics && (
+          <div className="mb-5 grid w-full max-w-sm grid-cols-2 gap-2 border border-zinc-800 bg-zinc-950 p-3 text-left text-[10px] uppercase tracking-widest text-zinc-500" aria-label={t('coreUiDiscoveryDiagnostics')}>
+            <span>{t('coreUiDiagnosticCandidatePool')}</span><span className="text-right text-white">{diagnostics.candidate_pool}</span>
+            <span>{t('coreUiDiagnosticAfterAge')}</span><span className="text-right text-white">{diagnostics.after_age}</span>
+            <span>{t('coreUiDiagnosticAfterGender')}</span><span className="text-right text-white">{diagnostics.after_gender}</span>
+            <span>{t('coreUiDiagnosticAfterIntent')}</span><span className="text-right text-white">{diagnostics.after_intent}</span>
+            <span>{t('coreUiDiagnosticAfterLocation')}</span><span className="text-right text-white">{diagnostics.after_location}</span>
+          </div>
+        )}
+        {diagnosticsError && (
+          <div className="mb-5 flex flex-col items-center gap-2">
+            <p className="text-xs text-zinc-400">{t('coreUiDiagnosticsLoadFailed')}</p>
+            <button
+              type="button"
+              onClick={loadDiscoveryDiagnostics}
+              className="border-2 border-zinc-700 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:border-white"
+            >
+              {t('coreUiRetryDiagnostics')}
+            </button>
+          </div>
+        )}
         <div className="flex flex-wrap justify-center gap-3">
           <button
             type="button"
+            onClick={widenDiscoverySearch}
+            disabled={isWideningSearch || isLoadingMoreProfiles}
+            className="flex items-center gap-2 border-2 border-zinc-700 bg-black px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-white transition-colors hover:border-white disabled:opacity-50"
+          >
+            {isWideningSearch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sliders className="h-4 w-4" />}
+            {t(isWideningSearch ? 'coreUiWideningSearch' : 'coreUiWidenSearch')}
+          </button>
+          <button
+            type="button"
             onClick={openDiscoveryFilters}
+            disabled={isWideningSearch || isLoadingMoreProfiles}
             aria-expanded={showDiscoveryFilters}
-            className="px-6 py-3 bg-white border-2 border-white text-black font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors flex items-center gap-2"
+            className="flex items-center gap-2 border-2 border-white bg-white px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-black transition-colors hover:bg-zinc-200 disabled:opacity-50"
           >
             <Sliders className="w-4 h-4" /> {t('coreUiAdjustDiscoveryFilters')}
           </button>
@@ -426,7 +607,8 @@ export default function SwipeDeck() {
           </button>
           <button 
             onClick={fetchDeck}
-            className="px-6 py-3 bg-white border-2 border-white text-black font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors flex items-center gap-2"
+            disabled={isLoadingMoreProfiles || isWideningSearch}
+            className="px-6 py-3 bg-white border-2 border-white text-black font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors flex items-center gap-2 disabled:opacity-50"
           >
             <RotateCcw className="w-4 h-4" /> {t('refresh')}
           </button>
@@ -553,6 +735,17 @@ export default function SwipeDeck() {
             )}
           </form>
         )}
+        {moreProfilesError && (
+          <button
+            type="button"
+            onClick={loadMoreProfiles}
+            disabled={isLoadingMoreProfiles}
+            className="mt-4 flex items-center gap-2 border-2 border-zinc-700 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:border-white disabled:opacity-50"
+          >
+            {isLoadingMoreProfiles && <Loader2 className="h-3 w-3 animate-spin" />}
+            {t('refresh')}
+          </button>
+        )}
       </div>
     );
   }
@@ -588,6 +781,11 @@ export default function SwipeDeck() {
 
       {/* SWIPE DECK AREA */}
       <div className="discovery-content min-h-0 flex-1 w-full flex flex-col items-center justify-center px-0.5 pb-0.5 pt-0 sm:px-1 sm:pb-1 lg:px-2 lg:pb-2 relative overflow-hidden">
+        {isLoadingMoreProfiles && (
+          <div className="absolute top-2 z-30 flex items-center gap-2 bg-black/80 px-3 py-2 text-[10px] uppercase tracking-widest text-zinc-300" role="status">
+            <Loader2 className="h-3 w-3 animate-spin" /> {t('coreUiLoadingMoreProfiles')}
+          </div>
+        )}
         
         {/* Keyboard Hint (Top Left) */}
         <div className="absolute top-8 left-8 z-10 hidden lg:block text-zinc-600 text-[10px] font-bold uppercase tracking-widest">

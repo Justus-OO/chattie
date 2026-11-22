@@ -11,7 +11,22 @@ export const discoveryService = {
       });
       return response.data; // Returns array of DiscoverProfile
     } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to load discover deck');
+      const requestError = new Error(error.response?.data?.error || 'Failed to load discover deck');
+      requestError.status = error.response?.status;
+      requestError.code = error.response?.data?.code || error.response?.data?.error;
+      throw requestError;
+    }
+  },
+
+  getSwipeDeckDiagnostics: async () => {
+    try {
+      const response = await apiClient.get('/discover/diagnostics');
+      return response.data;
+    } catch (error) {
+      const requestError = new Error(error.response?.data?.error || 'Failed to load discovery diagnostics');
+      requestError.status = error.response?.status;
+      requestError.code = error.response?.data?.code || error.response?.data?.error;
+      throw requestError;
     }
   },
 

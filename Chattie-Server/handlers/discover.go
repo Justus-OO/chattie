@@ -70,3 +70,24 @@ func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(profiles)
 }
+
+func (h *DiscoverHandler) GetSwipeDeckDiagnostics(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	diagnostics, err := h.Repo.GetSwipeDeckDiagnostics(r.Context(), userID)
+	if err != nil {
+		log.Printf("[DISCOVERY] Failed to load swipe-deck diagnostics for user %s: %v", userID, err)
+		http.Error(w, localized(r.Context(), "ErrFailedGenerateDiscoverDeck", "Failed to load discovery diagnostics"), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
+	if err := json.NewEncoder(w).Encode(diagnostics); err != nil {
+		log.Printf("[DISCOVERY] Failed to encode swipe-deck diagnostics for user %s: %v", userID, err)
+	}
+}
