@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 // Services
 import { discoveryService } from '../../api/discovery.service';
+import { settingsService } from '../../api/settings.service';
 import { usePremiumStatus } from '../../hooks/usePremiumStatus';
 import './discovery.css';
 import { useI18n } from '../../i18n';
@@ -41,6 +42,10 @@ export default function SwipeDeck() {
   const [deck, setDeck] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showDiscoveryFilters, setShowDiscoveryFilters] = useState(false);
+  const [discoveryFilters, setDiscoveryFilters] = useState(null);
+  const [isLoadingDiscoveryFilters, setIsLoadingDiscoveryFilters] = useState(false);
+  const [isSavingDiscoveryFilters, setIsSavingDiscoveryFilters] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const loadedFullProfilesRef = useRef(new Set());
   
@@ -79,6 +84,59 @@ export default function SwipeDeck() {
       toast.error(error.message || t('failedLoadDeck'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openDiscoveryFilters = async () => {
+    setShowDiscoveryFilters(true);
+    setIsLoadingDiscoveryFilters(true);
+    try {
+      const preferences = await settingsService.getDiscoveryPreferences();
+      setDiscoveryFilters({
+        minAge: String(preferences.min_age),
+        maxAge: String(preferences.max_age),
+        maxDistanceKm: Number(preferences.max_distance_km),
+        showMe: preferences.show_me,
+        globalMode: Boolean(preferences.global_mode),
+        interestedIn: preferences.interested_in || 'All',
+      });
+    } catch (error) {
+      setShowDiscoveryFilters(false);
+      toast.error(error.response?.data?.error || t('coreUiDiscoveryFiltersLoadFailed'));
+    } finally {
+      setIsLoadingDiscoveryFilters(false);
+    }
+  };
+
+  const saveDiscoveryFilters = async (event) => {
+    event.preventDefault();
+    if (!discoveryFilters || isSavingDiscoveryFilters) return;
+
+    const minAge = Number(discoveryFilters.minAge);
+    const maxAge = Number(discoveryFilters.maxAge);
+    if (!Number.isInteger(minAge) || !Number.isInteger(maxAge) ||
+      minAge < 18 || maxAge > 99 || minAge > maxAge) {
+      toast.error(t('coreUiDiscoveryAgeRangeInvalid'));
+      return;
+    }
+
+    setIsSavingDiscoveryFilters(true);
+    try {
+      await settingsService.updateDiscoveryPreferences({
+        interested_in: discoveryFilters.interestedIn,
+        min_age: minAge,
+        max_age: maxAge,
+        max_distance_km: discoveryFilters.maxDistanceKm,
+        show_me: discoveryFilters.showMe,
+        global_mode: discoveryFilters.globalMode,
+      });
+      setShowDiscoveryFilters(false);
+      toast.success(t('coreUiDiscoveryFiltersSaved'));
+      await fetchDeck();
+    } catch (error) {
+      toast.error(error.response?.data?.error || t('coreUiDiscoveryFiltersSaveFailed'));
+    } finally {
+      setIsSavingDiscoveryFilters(false);
     }
   };
 
@@ -343,15 +401,23 @@ export default function SwipeDeck() {
   // ============================================================================
   if (deck.length === 0) {
     return (
-      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center bg-black p-2 text-center font-mono text-zinc-300 border-l-2 md:border-zinc-800 rounded-none sm:p-3 lg:p-4">
+      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center overflow-y-auto bg-black p-2 text-center font-mono text-zinc-300 border-l-2 md:border-zinc-800 rounded-none sm:p-3 lg:p-4">
         <div className="w-24 h-24 bg-zinc-950 border-2 border-zinc-800 flex items-center justify-center mb-6">
           <Flame className="w-10 h-10 text-zinc-600" />
         </div>
         <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-widest">{t('caughtUpTitle')}</h2>
-        <p className="text-zinc-500 text-[10px] uppercase tracking-widest max-w-sm leading-relaxed mb-8">
-          {t('caughtUpDescription')}
+        <p className="text-zinc-500 text-[10px] uppercase tracking-widest max-w-sm leading-relaxed mb-6">
+          {t('coreUiEmptyDeckFiltersHint')}
         </p>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={openDiscoveryFilters}
+            aria-expanded={showDiscoveryFilters}
+            className="px-6 py-3 bg-white border-2 border-white text-black font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-colors flex items-center gap-2"
+          >
+            <Sliders className="w-4 h-4" /> {t('coreUiAdjustDiscoveryFilters')}
+          </button>
           <button 
             onClick={() => navigate('/settings')}
             className="px-6 py-3 bg-black border-2 border-zinc-700 text-zinc-400 font-bold uppercase tracking-widest text-[10px] hover:text-white hover:border-white transition-colors flex items-center gap-2"
@@ -365,6 +431,128 @@ export default function SwipeDeck() {
             <RotateCcw className="w-4 h-4" /> {t('refresh')}
           </button>
         </div>
+
+        {showDiscoveryFilters && (
+          <form
+            onSubmit={saveDiscoveryFilters}
+            className="mt-6 w-full max-w-lg border-2 border-zinc-800 bg-zinc-950 p-4 text-left sm:p-6"
+            aria-labelledby="discovery-filter-title"
+          >
+            <h3 id="discovery-filter-title" className="mb-5 text-sm font-bold uppercase tracking-widest text-white">
+              {t('coreUiAdjustDiscoveryFilters')}
+            </h3>
+            {isLoadingDiscoveryFilters ? (
+              <div className="flex items-center justify-center gap-3 py-8 text-xs uppercase tracking-widest text-zinc-400" role="status">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                {t('scanningNetwork')}
+              </div>
+            ) : discoveryFilters && (
+              <div className="space-y-5">
+                <fieldset>
+                  <legend className="mb-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                    {t('coreUiAgeRange')}
+                  </legend>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-[10px] uppercase tracking-widest text-zinc-500">
+                      {t('coreUiMin')}
+                      <input
+                        type="number"
+                        min="18"
+                        max="99"
+                        required
+                        value={discoveryFilters.minAge}
+                        onChange={event => setDiscoveryFilters(filters => ({ ...filters, minAge: event.target.value }))}
+                        className="mt-2 w-full border-2 border-zinc-700 bg-black px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </label>
+                    <label className="text-[10px] uppercase tracking-widest text-zinc-500">
+                      {t('coreUiMax')}
+                      <input
+                        type="number"
+                        min="18"
+                        max="99"
+                        required
+                        value={discoveryFilters.maxAge}
+                        onChange={event => setDiscoveryFilters(filters => ({ ...filters, maxAge: event.target.value }))}
+                        className="mt-2 w-full border-2 border-zinc-700 bg-black px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </label>
+                  </div>
+                </fieldset>
+
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                  <span className="flex justify-between gap-3">
+                    <span>{t('coreUiMaximumDistance')}</span>
+                    <span className="text-white">{discoveryFilters.maxDistanceKm} km</span>
+                  </span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="500"
+                    value={discoveryFilters.maxDistanceKm}
+                    onChange={event => setDiscoveryFilters(filters => ({ ...filters, maxDistanceKm: Number(event.target.value) }))}
+                    className="mt-3 h-2 w-full cursor-pointer appearance-none border-2 border-zinc-800 bg-black accent-white"
+                  />
+                </label>
+
+                <fieldset>
+                  <legend className="mb-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                    {t('coreUiShowMe')}
+                  </legend>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {['Men', 'Women', 'Other', 'Everyone'].map(option => (
+                      <button
+                        key={option}
+                        type="button"
+                        aria-pressed={discoveryFilters.showMe === option}
+                        onClick={() => setDiscoveryFilters(filters => ({ ...filters, showMe: option }))}
+                        className={`border-2 px-2 py-2 text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                          discoveryFilters.showMe === option
+                            ? 'border-white bg-white text-black'
+                            : 'border-zinc-700 text-zinc-400 hover:border-white hover:text-white'
+                        }`}
+                      >
+                        {t(`coreUiShowMe${option}`)}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <label className="flex cursor-pointer items-start gap-3 border-t border-zinc-800 pt-4 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={discoveryFilters.globalMode}
+                    onChange={event => setDiscoveryFilters(filters => ({ ...filters, globalMode: event.target.checked }))}
+                    className="mt-0.5 h-4 w-4 accent-white"
+                  />
+                  <span>
+                    <span className="block font-bold uppercase tracking-widest">{t('coreUiGlobalMode')}</span>
+                    <span className="mt-1 block text-[10px] leading-relaxed text-zinc-500">{t('coreUiGlobalModeDescription')}</span>
+                  </span>
+                </label>
+
+                <div className="flex justify-end gap-3 border-t border-zinc-800 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscoveryFilters(false)}
+                    disabled={isSavingDiscoveryFilters}
+                    className="border-2 border-zinc-700 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:border-white disabled:opacity-50"
+                  >
+                    {t('coreUiCancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingDiscoveryFilters}
+                    className="flex items-center gap-2 border-2 border-white bg-white px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-black hover:bg-zinc-200 disabled:opacity-50"
+                  >
+                    {isSavingDiscoveryFilters && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {t('coreUiSaveFilters')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </form>
+        )}
       </div>
     );
   }

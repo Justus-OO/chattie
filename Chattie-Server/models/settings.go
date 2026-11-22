@@ -40,6 +40,15 @@ type SettingsPayload struct {
 	Plan      string `json:"plan"`
 }
 
+type DiscoveryPreferences struct {
+	InterestedIn  string `json:"interested_in"`
+	ShowMe        string `json:"show_me"`
+	MinAge        int    `json:"min_age"`
+	MaxAge        int    `json:"max_age"`
+	MaxDistanceKm int    `json:"max_distance_km"`
+	GlobalMode    bool   `json:"global_mode"`
+}
+
 type MediaItem struct {
 	ID        string    `json:"id"`
 	URL       string    `json:"url"`

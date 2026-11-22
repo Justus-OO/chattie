@@ -6,6 +6,16 @@ export const settingsService = {
     return response.data;
   },
 
+  getDiscoveryPreferences: async () => {
+    const response = await apiClient.get('/settings/discovery');
+    return response.data;
+  },
+
+  updateDiscoveryPreferences: async (preferences) => {
+    const response = await apiClient.patch('/settings/discovery', preferences);
+    return response.data;
+  },
+
   updateSettings: async (settingsData) => {
     const response = await apiClient.put('/settings', settingsData);
     return response.data;

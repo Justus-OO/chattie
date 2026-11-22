@@ -358,6 +358,8 @@ func main() {
 		r.Route("/api/settings", func(r chi.Router) {
 			r.Get("/", settingsHandler.GetSettings)
 			r.Put("/", settingsHandler.UpdateSettings)
+			r.Get("/discovery", settingsHandler.GetDiscoveryPreferences)
+			r.Patch("/discovery", settingsHandler.UpdateDiscoveryPreferences)
 			r.Post("/password", authHandler.ChangePassword)
 			r.Delete("/account", settingsHandler.DeleteAccount)
 

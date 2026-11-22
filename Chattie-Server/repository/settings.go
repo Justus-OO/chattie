@@ -36,6 +36,78 @@ func (r *SettingsRepository) CanUseIncognito(ctx context.Context, userID string)
 	return allowed, err
 }
 
+func (r *SettingsRepository) GetDiscoveryPreferences(ctx context.Context, userID string) (models.DiscoveryPreferences, error) {
+	var preferences models.DiscoveryPreferences
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(pref.interested_in, 'All'),
+			COALESCE(settings.show_me, 'Everyone'),
+			COALESCE(pref.min_age, 18),
+			COALESCE(pref.max_age, 99),
+			COALESCE(pref.max_distance_km, 50),
+			COALESCE(settings.global_mode, FALSE)
+		FROM users u
+		LEFT JOIN user_preferences pref ON pref.user_id = u.id
+		LEFT JOIN user_settings settings ON settings.user_id = u.id
+		WHERE u.id = $1
+	`, userID).Scan(
+		&preferences.InterestedIn,
+		&preferences.ShowMe,
+		&preferences.MinAge,
+		&preferences.MaxAge,
+		&preferences.MaxDistanceKm,
+		&preferences.GlobalMode,
+	)
+	return preferences, err
+}
+
+func (r *SettingsRepository) UpdateDiscoveryPreferences(ctx context.Context, userID string, preferences models.DiscoveryPreferences) error {
+	showMe, err := normalizeShowMePreference(preferences.ShowMe)
+	if err != nil {
+		return err
+	}
+	interestedIn, err := normalizeMatchingIntent(preferences.InterestedIn)
+	if err != nil {
+		return err
+	}
+	if preferences.MinAge < 18 || preferences.MaxAge > 99 ||
+		preferences.MinAge > preferences.MaxAge ||
+		preferences.MaxDistanceKm < 1 || preferences.MaxDistanceKm > 500 {
+		return ErrInvalidDiscoveryPreferences
+	}
+
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_preferences (user_id, interested_in, min_age, max_age, max_distance_km)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id) DO UPDATE SET
+			interested_in = EXCLUDED.interested_in,
+			min_age = EXCLUDED.min_age,
+			max_age = EXCLUDED.max_age,
+			max_distance_km = EXCLUDED.max_distance_km
+	`, userID, interestedIn, preferences.MinAge, preferences.MaxAge, preferences.MaxDistanceKm); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_settings (user_id, show_me, global_mode)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id) DO UPDATE SET
+			show_me = EXCLUDED.show_me,
+			global_mode = EXCLUDED.global_mode,
+			updated_at = CURRENT_TIMESTAMP
+	`, userID, showMe, preferences.GlobalMode); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // UpdateSettings updates profile, preferences, settings, and tags in a single transaction
 func (r *SettingsRepository) UpdateSettings(userID string, data models.SettingsPayload) error {
 	showMe, err := normalizeShowMePreference(data.ShowMe)

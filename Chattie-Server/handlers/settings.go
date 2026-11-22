@@ -91,6 +91,58 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(settings)
 }
 
+func (h *SettingsHandler) GetDiscoveryPreferences(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, no-store")
+
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	preferences, err := h.Repo.GetDiscoveryPreferences(r.Context(), userID)
+	if err != nil {
+		log.Printf("[SETTINGS] Failed to load discovery preferences for user %s: %v", userID, err)
+		http.Error(w, `{"error":"Failed to load discovery preferences"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := json.NewEncoder(w).Encode(preferences); err != nil {
+		log.Printf("[SETTINGS] Failed to encode discovery preferences for user %s: %v", userID, err)
+	}
+}
+
+func (h *SettingsHandler) UpdateDiscoveryPreferences(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	var preferences models.DiscoveryPreferences
+	if err := json.NewDecoder(r.Body).Decode(&preferences); err != nil {
+		http.Error(w, `{"error":"Invalid discovery preferences"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Repo.UpdateDiscoveryPreferences(r.Context(), userID, preferences); err != nil {
+		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
+			http.Error(w, `{"error":"Invalid discovery preferences"}`, http.StatusBadRequest)
+			return
+		}
+		log.Printf("[SETTINGS] Failed to update discovery preferences for user %s: %v", userID, err)
+		http.Error(w, `{"error":"Failed to update discovery preferences"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "Discovery preferences saved"}); err != nil {
+		log.Printf("[SETTINGS] Failed to encode discovery-preferences response for user %s: %v", userID, err)
+	}
+}
+
 func isPresignedMediaURL(rawURL string) bool {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
