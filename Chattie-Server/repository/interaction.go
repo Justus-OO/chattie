@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // =====================================================================
@@ -247,9 +247,10 @@ func (r *Repository) GetFullProfile(ctx context.Context, currentUserID, targetUs
          )
     `
 	var p models.DiscoverProfile
+	arrayMap := pgtype.NewMap()
 	err := r.DB.QueryRowContext(ctx, query, currentUserID, targetUserID).Scan(
 		&p.ID, &p.DisplayName, &p.Bio, &p.Age, &p.City, &p.CountryCode, &p.Distance,
-		pq.Array(&p.Tags), pq.Array(&p.Images), &p.MatchPct,
+		arrayMap.SQLScanner(&p.Tags), arrayMap.SQLScanner(&p.Images), &p.MatchPct,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -392,9 +393,10 @@ func (r *Repository) GetSecretAdmirers(ctx context.Context, userID string) ([]mo
 	defer rows.Close()
 
 	var profiles []models.DiscoverProfile
+	arrayMap := pgtype.NewMap()
 	for rows.Next() {
 		var p models.DiscoverProfile
-		if err := rows.Scan(&p.ID, &p.DisplayName, &p.Bio, &p.Age, &p.City, &p.Distance, &p.MatchPct, pq.Array(&p.Tags), pq.Array(&p.Images), &p.IsNew); err != nil {
+		if err := rows.Scan(&p.ID, &p.DisplayName, &p.Bio, &p.Age, &p.City, &p.Distance, &p.MatchPct, arrayMap.SQLScanner(&p.Tags), arrayMap.SQLScanner(&p.Images), &p.IsNew); err != nil {
 			return nil, isPremium, err
 		}
 		profiles = append(profiles, p)

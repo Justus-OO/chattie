@@ -1,5 +1,6 @@
 -- Chattie database bootstrap for a new PostgreSQL database.
 -- Do not use this fresh-install script to upgrade a populated production database.
+-- Use the ordered scripts in database/migrations for existing databases.
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -60,6 +61,9 @@ CREATE TABLE IF NOT EXISTS ad_posts (
 CREATE INDEX IF NOT EXISTS idx_ad_assets_owner ON ad_assets(owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_posts_creator ON ad_posts(creator_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_posts_published_feed ON ad_posts(created_at DESC, id DESC) WHERE status = 'published';
+CREATE INDEX IF NOT EXISTS idx_ad_posts_ai_safety_queue
+    ON ad_posts (ai_safety_scored_at DESC, ai_safety_score DESC)
+    WHERE status IN ('draft', 'processing');
 
 CREATE TABLE IF NOT EXISTS ad_reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -240,6 +244,9 @@ CREATE TABLE IF NOT EXISTS ad_withdrawals (
 CREATE INDEX IF NOT EXISTS idx_ad_withdrawals_user ON ad_withdrawals(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_withdrawals_provider_reference
     ON ad_withdrawals(provider, provider_reference) WHERE provider_reference <> '';
+CREATE INDEX IF NOT EXISTS idx_ad_withdrawals_user_unresolved
+    ON ad_withdrawals(user_id, created_at DESC)
+    WHERE status IN ('requested', 'submitting', 'submission_unknown', 'processing');
 
 CREATE TABLE IF NOT EXISTS ad_earnings_clearances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -261,6 +268,9 @@ CREATE TABLE IF NOT EXISTS ad_pending_earnings (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, source)
 );
+CREATE INDEX IF NOT EXISTS idx_ad_pending_earnings_source
+    ON ad_pending_earnings (source, balance_cents DESC)
+    WHERE balance_cents > 0;
 
 
 
@@ -1432,6 +1442,11 @@ CREATE TABLE IF NOT EXISTS media_audit_logs (
 -- 9. INDEXES
 -- =====================================================================
 CREATE INDEX IF NOT EXISTS idx_users_status_active ON users(status, last_active);
+CREATE INDEX IF NOT EXISTS idx_users_unverified_onboarding
+    ON users (created_at)
+    WHERE provider = 'local'
+      AND status = 'onboarding'
+      AND email_verified_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_user_locations_coords ON user_locations(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_user_media_sort ON user_media(user_id, is_primary DESC, sort_order ASC);
 CREATE INDEX IF NOT EXISTS idx_profiles_dob ON user_profiles(date_of_birth);
@@ -1456,6 +1471,8 @@ CREATE INDEX IF NOT EXISTS idx_user_consent_logs_user ON user_consent_logs(user_
 CREATE INDEX IF NOT EXISTS idx_user_devices_user ON user_devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id) WHERE is_read = FALSE;
+CREATE INDEX IF NOT EXISTS notifications_user_unread_created_idx
+    ON notifications (user_id, is_read, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_jobs_ready ON action_jobs(status, next_attempt_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_action_jobs_user ON action_jobs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_export_jobs_ready ON export_jobs(status, next_attempt_at);
@@ -1520,14 +1537,16 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO email_templates (name, subject, body_html) VALUES
     ('welcome_email', 'Welcome to Chattie', '<h1>Welcome, {{.Username}}</h1><p>Your Chattie account is ready. Sign in to meet people and start conversations.</p>'),
+    ('new_match', 'It is a match!', '<h1>You have a new match</h1><p>Hello {{.Username}}, {{.Message}}</p><p><a href="{{.ActionURL}}">Open Chattie</a></p>'),
+    ('new_message', 'You have a new Chattie message', '<h1>New message</h1><p>Hello {{.Username}}, {{.Message}}</p><p><a href="{{.ActionURL}}">View message</a></p>'),
     ('data_dossier', 'Your Chattie data archive is ready', '<h1>Your Chattie archive is ready</h1><p>Hello {{.Username}}, your requested Chattie data archive is attached to this email.</p><p>If you did not request this, secure your account and contact support.</p>'),
     ('after_dark_data_archive', 'Your After Dark data archive is ready', '<h1>Your After Dark archive is ready</h1><p>Hello {{.Username}}, your requested After Dark data archive is attached. It contains information from your After Dark account only.</p><p>If you did not request this, secure your account and contact support.</p>'),
     ('unread_messages', 'You have unread messages', '<h1>Hello {{.Username}}</h1><p>You have unread messages waiting for you on Chattie.</p>'),
     ('miss_you', 'We miss you on Chattie', '<h1>We miss you, {{.Username}}</h1><p>Come back to Chattie when you are ready to connect again.</p>'),
-    ('premium_welcome', 'Welcome to Chattie Premium', '<h1>Welcome to Premium, {{.Username}}</h1><p>Your Premium plan is active for {{.Months}} month(s).</p>'),
+    ('premium_welcome', 'Welcome to Chattie Premium', '<h1>Premium is active</h1><p>Hello {{.Username}}, your Premium upgrade was successful.</p><p>Plan duration: {{.Months}} month(s)</p>'),
     ('premium_payment_receipt', 'Chattie Premium payment receipt', '<h1>Payment received</h1><p>Hello {{.Username}}, your Premium payment was successful.</p><p>Amount: {{.Currency}} {{.Amount}}<br>Plan: {{.Months}} month(s)<br>Reference: {{.Reference}}<br>Payment date: {{.PaidAt}}</p>'),
     ('premium_action_required', 'Action needed for your Chattie Premium payment', '<h1>Payment needs attention</h1><p>Hello {{.Username}}, your Premium payment could not be completed.</p><p>{{.ActionMessage}}</p><p>Reference: {{.Reference}}</p>'),
-    ('new_like', 'Someone likes you', '<h1>Someone noticed you, {{.Username}}</h1><p>Open Chattie to see what is new.</p>'),
+    ('new_like', 'Someone noticed you on Chattie', '<h1>New profile interaction</h1><p>Hello {{.Username}}, someone interacted with your profile.</p><p><a href="{{.ActionURL}}">View profile</a></p>'),
     ('report_received', 'We received your report', '<h1>Thank you, {{.Username}}</h1><p>Your report has been received and will be reviewed by our safety team.</p>'),
     ('account_banned', 'Account action notice', '<h1>Account notice</h1><p>Hello {{.Username}}, an account action was taken. Sign in to Chattie or contact support if you believe this is a mistake.</p>'),
     ('moderation_action', 'Moderation notice on your account', '<h1>Account notice</h1><p>Hello {{.Username}}, a moderation action was taken.</p><p>Reason: {{.Reason}}</p>'),

@@ -8,7 +8,7 @@ import (
 
 	"chattie-backend/models"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // =====================================================================
@@ -249,11 +249,12 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 	defer rows.Close()
 
 	var profiles []models.DiscoverProfile
+	arrayMap := pgtype.NewMap()
 	for rows.Next() {
 		var p models.DiscoverProfile
 		if err := rows.Scan(
 			&p.ID, &p.DisplayName, &p.Bio, &p.Age, &p.City,
-			&p.Distance, pq.Array(&p.Tags), pq.Array(&p.Images), &p.MatchPct,
+			&p.Distance, arrayMap.SQLScanner(&p.Tags), arrayMap.SQLScanner(&p.Images), &p.MatchPct,
 		); err != nil {
 			return nil, err
 		}

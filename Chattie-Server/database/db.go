@@ -5,16 +5,20 @@ import (
 	"log"
 	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 func ConnectDB(dataSourceName string) *sql.DB {
-	db, err := sql.Open("postgres", dataSourceName)
+	config, err := pgx.ParseConfig(dataSourceName)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Fatalf("Failed to parse database configuration: %v", err)
 	}
 
-	// Connection Pool Settings: Prevents connection leaks and resource exhaustion
+	// Avoid cached prepared statements so transaction-pooling endpoints remain compatible.
+	config.DefaultQueryExecMode = pgx.QueryExecModeExec
+	db := stdlib.OpenDB(*config)
+
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(25)
 	db.SetConnMaxLifetime(5 * time.Minute)

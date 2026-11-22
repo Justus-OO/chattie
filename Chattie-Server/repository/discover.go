@@ -4,7 +4,7 @@ import (
 	"chattie-backend/models"
 	"context"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // GetSwipeDeck fetches the Tinder-style swipe queue enforcing all privacy, block, and distance logic.
@@ -162,6 +162,7 @@ func (r *Repository) GetSwipeDeck(ctx context.Context, userID string, limit, off
 	defer rows.Close()
 
 	var profiles []models.DiscoverProfile
+	arrayMap := pgtype.NewMap()
 	for rows.Next() {
 		var p models.DiscoverProfile
 		if err := rows.Scan(
@@ -172,8 +173,8 @@ func (r *Repository) GetSwipeDeck(ctx context.Context, userID string, limit, off
 			&p.City,
 			&p.CountryCode,
 			&p.Distance,
-			pq.Array(&p.Tags),
-			pq.Array(&p.Images),
+			arrayMap.SQLScanner(&p.Tags),
+			arrayMap.SQLScanner(&p.Images),
 			&p.MatchPct,
 		); err != nil {
 			return nil, err

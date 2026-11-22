@@ -18,7 +18,7 @@ import (
 	"chattie-backend/services"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -317,7 +317,7 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
     `, payload.Email, payload.Username, string(hashedPassword)).Scan(&userID)
 
 	if err != nil {
-		var postgresError *pq.Error
+		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
 			sendAdminError(w, http.StatusConflict, "Email or username already exists")
 			return
