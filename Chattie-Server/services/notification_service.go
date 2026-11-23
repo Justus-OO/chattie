@@ -211,6 +211,13 @@ func isSupportedRecipientLanguage(language string) bool {
 	}
 }
 
+func recipientLocale(storedLanguage string) string {
+	if isSupportedRecipientLanguage(storedLanguage) {
+		return storedLanguage
+	}
+	return "en"
+}
+
 func pascalEmailTemplateName(templateName string) string {
 	parts := strings.FieldsFunc(templateName, func(r rune) bool {
 		return r == '_' || r == '-' || r == ' '
