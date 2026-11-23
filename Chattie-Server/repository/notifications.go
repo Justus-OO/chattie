@@ -28,7 +28,7 @@ func (r *Repository) CreateNotification(userID, eventType, title, message, icon 
        INSERT INTO notifications (user_id, event_type, title, message, icon, payload, action_url, action_label, category)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''))
        RETURNING id
-    `, userID, eventType, title, message, icon, payloadJSON, actionURL, actionLabel, category).Scan(&id)
+    `, userID, eventType, title, message, icon, string(payloadJSON), actionURL, actionLabel, category).Scan(&id)
 
 	return id, err
 }

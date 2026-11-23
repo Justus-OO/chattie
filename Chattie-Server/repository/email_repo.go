@@ -47,8 +47,8 @@ func (r *Repository) EnqueueEmailJob(ctx context.Context, job *EmailJob) error {
 
 	_, err = r.DB.ExecContext(ctx, `
        INSERT INTO email_jobs (to_email, subject, body_html, attachments, status, next_attempt_at)
-       VALUES ($1, $2, $3, $4, 'pending', CURRENT_TIMESTAMP)`,
-		job.ToEmail, job.Subject, job.BodyHTML, attachments)
+       VALUES ($1, $2, $3, $4::jsonb, 'pending', CURRENT_TIMESTAMP)`,
+		job.ToEmail, job.Subject, job.BodyHTML, string(attachments))
 	return err
 }
 

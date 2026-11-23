@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -36,12 +37,15 @@ func minInt(a, b int) int {
 
 // EnqueueActionJob inserts an action into the durable queue
 func (r *Repository) EnqueueActionJob(job *ActionJob) error {
-	metaBytes, _ := json.Marshal(job.Metadata)
+	metaBytes, err := json.Marshal(job.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal action job metadata: %w", err)
+	}
 
-	_, err := r.DB.Exec(`
+	_, err = r.DB.Exec(`
        INSERT INTO action_jobs (user_id, action_type, target_id, metadata, ip_address, status, next_attempt_at)
        VALUES ($1, $2, NULLIF($3, '')::uuid, NULLIF($4, '')::jsonb, $5, 'pending', CURRENT_TIMESTAMP)`,
-		job.UserID, job.ActionType, job.TargetID, metaBytes, job.IPAddress)
+		job.UserID, job.ActionType, job.TargetID, string(metaBytes), job.IPAddress)
 	return err
 }
 

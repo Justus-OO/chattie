@@ -144,12 +144,12 @@ func (r *RoomRepository) CreateRoom(ctx context.Context, room *models.Room, user
           name, icon, category, description, tags, is_private, room_code, created_by,
           is_voice_room, rules, content_mode, allow_media, allow_links, slow_mode_seconds, is_read_only
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING id, room_code, active_count, created_at
     `
 	err = tx.QueryRowContext(ctx, query,
 		strings.TrimSpace(room.Name), room.Icon, room.Category, strings.TrimSpace(room.Description),
-		tagsJSON, room.IsPrivate, roomCode, userID, room.IsVoiceRoom, room.Rules, room.ContentMode,
+		string(tagsJSON), room.IsPrivate, roomCode, userID, room.IsVoiceRoom, room.Rules, room.ContentMode,
 		room.AllowMedia, room.AllowLinks, room.SlowModeSeconds, room.IsReadOnly,
 	).Scan(&room.ID, &room.RoomCode, &room.ActiveCount, &room.CreatedAt)
 
@@ -220,7 +220,7 @@ func (r *RoomRepository) UpdateRoom(ctx context.Context, roomID, userID string, 
 		if err != nil {
 			return err
 		}
-		tags = encoded
+		tags = string(encoded)
 	}
 	if update.IsPrivate != nil {
 		isPrivate = *update.IsPrivate
