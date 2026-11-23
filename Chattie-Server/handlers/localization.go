@@ -7,7 +7,12 @@ import (
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 )
 
-func localizedMessage(ctx context.Context, messageID string, fallback string, templateData map[string]interface{}) string {
+func localizedMessage(ctx context.Context, messageID string, fallback string, templateData map[string]interface{}) (messageText string) {
+	defer func() {
+		if recover() != nil {
+			messageText = fallback
+		}
+	}()
 	message, err := services.GetLocalizer(ctx).Localize(&i18n.LocalizeConfig{
 		MessageID: messageID,
 		DefaultMessage: &i18n.Message{

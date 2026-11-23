@@ -478,7 +478,7 @@ export default function AfterDarkSettings() {
         <div className="space-y-4 lg:col-span-1">
           <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">{t('adAvatar')}</label>
           <button type="button" aria-label={t('adChange')} onClick={() => avatarInputRef.current?.click()} className="relative flex aspect-square w-full flex-col items-center justify-center overflow-hidden border-2 border-dashed border-zinc-700 bg-black transition-colors hover:border-white hover:bg-zinc-900 group">
-            <img src={avatarPreview || currentUser.avatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=400&q=80'} alt="avatar preview" className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-20 transition-opacity grayscale" />
+            <img src={avatarPreview || currentUser.avatar || 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=400&q=80'} alt={t('afterDarkUiAvatar')} className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-20 transition-opacity grayscale" />
             <div className="relative z-10 flex flex-col items-center">
               <Camera className="w-8 h-8 text-zinc-400 group-hover:text-white mb-2" />
               <span className="text-[9px] font-black uppercase text-zinc-400 group-hover:text-white">{t('adChange')}</span>
@@ -490,7 +490,7 @@ export default function AfterDarkSettings() {
         <div className="flex min-w-0 flex-col space-y-4 lg:col-span-2">
           <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">{t('adCover')}</label>
           <button type="button" aria-label={t('adUploadNewCover')} onClick={() => coverInputRef.current?.click()} className="relative flex min-h-[clamp(10rem,28vw,13rem)] w-full flex-1 flex-col items-center justify-center overflow-hidden border-2 border-dashed border-zinc-700 bg-black transition-colors hover:border-white hover:bg-zinc-900 group">
-            <img src={coverPreview || 'https://images.unsplash.com/photo-1616423640778-28d1b53229bd?w=800&q=80'} alt="cover preview" className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-20 transition-opacity grayscale" />
+            <img src={coverPreview || 'https://images.unsplash.com/photo-1616423640778-28d1b53229bd?w=800&q=80'} alt={t('afterDarkUiCover')} className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-20 transition-opacity grayscale" />
             <div className="relative z-10 flex flex-col items-center">
               <UploadCloud className="w-8 h-8 text-zinc-400 group-hover:text-white mb-2" />
               <span className="text-[9px] font-black uppercase text-zinc-400 group-hover:text-white">{t('adUploadNewCover')}</span>
@@ -1128,7 +1128,7 @@ export default function AfterDarkSettings() {
       {/* HEADER */}
       <header className="z-20 shrink-0 border-b-2 border-zinc-800 bg-zinc-950">
         <div className="flex w-full flex-col items-stretch justify-between gap-4 p-4 sm:flex-row sm:items-center md:p-6">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="hidden min-w-0 items-center gap-3 md:flex">
             <div className="border-2 border-zinc-600 bg-black p-1.5">
               <Sliders className="h-5 w-5 text-white" />
             </div>

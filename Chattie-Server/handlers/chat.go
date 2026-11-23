@@ -343,7 +343,7 @@ func NewWebSocketHandler(hub *Hub, repo *repository.ChatRepository, roomRepos ..
 func (h *WebSocketHandler) PinDirectMessage(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	var payload struct {
@@ -351,12 +351,12 @@ func (h *WebSocketHandler) PinDirectMessage(w http.ResponseWriter, r *http.Reque
 		Pinned    bool   `json:"pinned"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.MessageID == "" {
-		http.Error(w, "message_id is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMessageIdIsRequired", "message_id is required"), http.StatusBadRequest)
 		return
 	}
 	targetID := chi.URLParam(r, "target_id")
 	if targetID == "" || targetID == userID {
-		http.Error(w, "A conversation partner is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAConversationPartnerIsRequired", "A conversation partner is required"), http.StatusBadRequest)
 		return
 	}
 	chatUserID := userID
@@ -365,21 +365,21 @@ func (h *WebSocketHandler) PinDirectMessage(w http.ResponseWriter, r *http.Reque
 		chatUserID, err = h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, userID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				http.Error(w, "Assigned profile not found", http.StatusForbidden)
+				http.Error(w, localized(r.Context(), "ErrAssignedProfileNotFound2", "Assigned profile not found"), http.StatusForbidden)
 				return
 			}
 			log.Printf("[CHAT] Could not validate profile pin request for %s: %v", profileID, err)
-			http.Error(w, "Unable to validate profile access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrUnableToValidateProfileAccess", "Unable to validate profile access"), http.StatusInternalServerError)
 			return
 		}
 	}
 	if err := h.Repo.PinDirectMessage(chatUserID, targetID, payload.MessageID, payload.Pinned); err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Message not found in this conversation", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrMessageNotFoundInThisConversation3", "Message not found in this conversation"), http.StatusNotFound)
 			return
 		}
 		log.Printf("[CHAT] Failed to pin direct message %s for user %s: %v", payload.MessageID, userID, err)
-		http.Error(w, "Unable to update message pin", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrUnableToUpdateMessagePin2", "Unable to update message pin"), http.StatusInternalServerError)
 		return
 	}
 	if err := h.Hub.SendToUser(r.Context(), targetID, map[string]interface{}{
@@ -393,7 +393,7 @@ func (h *WebSocketHandler) PinDirectMessage(w http.ResponseWriter, r *http.Reque
 func (h *WebSocketHandler) RecordDirectCallEvent(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	var payload struct {
@@ -401,16 +401,16 @@ func (h *WebSocketHandler) RecordDirectCallEvent(w http.ResponseWriter, r *http.
 		Mode  string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "Invalid call event", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidCallEvent2", "Invalid call event"), http.StatusBadRequest)
 		return
 	}
 	if payload.Mode != "audio" && payload.Mode != "video" {
-		http.Error(w, "mode must be audio or video", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrModeMustBeAudioOrVideo2", "mode must be audio or video"), http.StatusBadRequest)
 		return
 	}
 	targetID := chi.URLParam(r, "target_id")
 	if targetID == "" || targetID == userID {
-		http.Error(w, "A conversation partner is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAConversationPartnerIsRequired2", "A conversation partner is required"), http.StatusBadRequest)
 		return
 	}
 	chatUserID := userID
@@ -419,11 +419,11 @@ func (h *WebSocketHandler) RecordDirectCallEvent(w http.ResponseWriter, r *http.
 		chatUserID, err = h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, userID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				http.Error(w, "Assigned profile not found", http.StatusForbidden)
+				http.Error(w, localized(r.Context(), "ErrAssignedProfileNotFound3", "Assigned profile not found"), http.StatusForbidden)
 				return
 			}
 			log.Printf("[CHAT] Could not validate profile call history request for %s: %v", profileID, err)
-			http.Error(w, "Unable to validate profile access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrUnableToValidateProfileAccess2", "Unable to validate profile access"), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -437,7 +437,7 @@ func (h *WebSocketHandler) RecordDirectCallEvent(w http.ResponseWriter, r *http.
 	}
 	label, validEvent := eventLabels[payload.Event]
 	if !validEvent {
-		http.Error(w, "Unsupported call event", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrUnsupportedCallEvent2", "Unsupported call event"), http.StatusBadRequest)
 		return
 	}
 
@@ -451,7 +451,7 @@ func (h *WebSocketHandler) RecordDirectCallEvent(w http.ResponseWriter, r *http.
 	}
 	if err := h.Repo.SaveMessage(message); err != nil {
 		log.Printf("[CHAT] Failed to save call event for user %s: %v", chatUserID, err)
-		http.Error(w, "Unable to save call history", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrUnableToSaveCallHistory2", "Unable to save call history"), http.StatusInternalServerError)
 		return
 	}
 	message.Type = "chat"
@@ -477,7 +477,7 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	userID, role, err := middlewares.ParseAuthTokenWithDB(r.Context(), tokenStr, h.Repo.DB)
 	if err != nil {
 		log.Printf("WS WARNING: JWT parsing failed: %v", err)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	countryCode := middlewares.CountryCodeFromContext(r.Context())
@@ -502,7 +502,7 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 	if err != nil {
 		log.Printf("WS WARNING: could not resolve country for user %s: %v", userID, err)
-		http.Error(w, "Unable to verify regional access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrUnableToVerifyRegionalAccess", "Unable to verify regional access"), http.StatusInternalServerError)
 		return
 	}
 	if countryCode != "" {
@@ -513,28 +513,28 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 			)
 		`, countryCode).Scan(&countryBlocked); err != nil {
 			log.Printf("WS WARNING: could not check country access for user %s: %v", userID, err)
-			http.Error(w, "Unable to verify regional access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrUnableToVerifyRegionalAccess2", "Unable to verify regional access"), http.StatusInternalServerError)
 			return
 		}
 		if countryBlocked {
-			http.Error(w, "This service is not available in your country", http.StatusUnavailableForLegalReasons)
+			http.Error(w, localized(r.Context(), "ErrThisServiceIsNotAvailableInYourCountry", "This service is not available in your country"), http.StatusUnavailableForLegalReasons)
 			return
 		}
 	}
 	chatUserID := userID
 	if profileID != "" {
 		if role != "model" && role != "operator" {
-			http.Error(w, "Creator role required for profile chat", http.StatusForbidden)
+			http.Error(w, localized(r.Context(), "ErrCreatorRoleRequiredForProfileChat", "Creator role required for profile chat"), http.StatusForbidden)
 			return
 		}
 		chatUserID, err = h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, userID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				http.Error(w, "Assigned profile not found", http.StatusForbidden)
+				http.Error(w, localized(r.Context(), "ErrAssignedProfileNotFound4", "Assigned profile not found"), http.StatusForbidden)
 				return
 			}
 			log.Printf("WS WARNING: could not validate profile chat for user %s: %v", userID, err)
-			http.Error(w, "Unable to validate profile chat access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrUnableToValidateProfileChatAccess", "Unable to validate profile chat access"), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -542,11 +542,11 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		isMember, err := h.Repo.IsRoomMember(r.Context(), roomID, userID)
 		if err != nil {
 			log.Printf("WS WARNING: could not validate room membership for user %s: %v", userID, err)
-			http.Error(w, "Unable to validate room access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrUnableToValidateRoomAccess", "Unable to validate room access"), http.StatusInternalServerError)
 			return
 		}
 		if !isMember {
-			http.Error(w, "Room membership required", http.StatusForbidden)
+			http.Error(w, localized(r.Context(), "ErrRoomMembershipRequired", "Room membership required"), http.StatusForbidden)
 			return
 		}
 	}
@@ -848,7 +848,7 @@ func (c *Client) readPump(repo *repository.ChatRepository) {
 				RecipientID: msg.RecipientID,
 				WSEventType: "NEW_MESSAGE",
 				WSPayload: map[string]interface{}{
-					"title": "New message", "message": "You received a new chat message.",
+					"title": localized(context.Background(), "MsgNewMessage2", "New message"), "message": localized(context.Background(), "MsgYouReceivedANewChatMessage", "You received a new chat message."),
 					"sender_id": c.UserID, "action_url": "/messages", "action_label": "Open chat", "category": "messages",
 				},
 				EmailTemplate:    "new_message",

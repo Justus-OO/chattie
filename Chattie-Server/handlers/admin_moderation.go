@@ -71,7 +71,7 @@ func (h *AdminHandler) ResolveIncident(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, localized(r.Context(), "ErrModerationIncidentChanged", "Incident is no longer pending or its target does not match"), http.StatusConflict)
 			return
 		}
-		http.Error(w, localizedMessage(r.Context(), "ErrFailedResolveIncident", "Failed to resolve incident: %s", map[string]interface{}{"Error": err.Error()}), http.StatusInternalServerError)
+		http.Error(w, localizedMessage(r.Context(), "ErrFailedResolveIncident", "Failed to resolve incident: {{.Error}}", map[string]interface{}{"Error": err.Error()}), http.StatusInternalServerError)
 		return
 	}
 
@@ -145,7 +145,7 @@ func (h *AdminHandler) ToggleFirewallRule(w http.ResponseWriter, r *http.Request
 	}
 	if err := h.Repo.ToggleFirewallRule(r.Context(), adminID, req.RuleID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Firewall rule not found", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrFirewallRuleNotFound", "Firewall rule not found"), http.StatusNotFound)
 			return
 		}
 		http.Error(w, localized(r.Context(), "ErrFailedToggleRule", "Failed to toggle rule"), http.StatusInternalServerError)
@@ -272,7 +272,7 @@ func (h *AdminHandler) ResolveAccountReview(w http.ResponseWriter, r *http.Reque
 		go h.Events.ProcessEvent(ctx, services.AppEvent{
 			RecipientID: userID,
 			WSEventType: "ACCOUNT_REINSTATED",
-			WSPayload:   map[string]string{"message": "Your account appeal was approved."},
+			WSPayload:   map[string]string{"message": localized(r.Context(), "MsgYourAccountAppealWasApproved", "Your account appeal was approved.")},
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")

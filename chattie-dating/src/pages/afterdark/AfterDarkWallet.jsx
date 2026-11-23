@@ -222,7 +222,7 @@ export default function AfterDarkWallet() {
       
       {/* HEADER */}
       <header className="z-20 flex shrink-0 flex-col justify-between gap-4 border-b-2 border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center md:p-6">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="hidden min-w-0 items-center gap-3 md:flex">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center border-2 border-zinc-600 bg-black">
             <Wallet className="h-5 w-5 text-white" />
           </div>

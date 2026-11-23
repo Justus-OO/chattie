@@ -26,7 +26,7 @@ func (h *AdminPerformerHandler) ListPendingApplications(w http.ResponseWriter, r
 	applications, err := h.Repo.ListPendingApplications(r.Context())
 	if err != nil {
 		log.Printf("[ADMIN CREATOR APPLICATIONS] Failed to list pending applications: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Could not load creator applications")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrCouldNotLoadCreatorApplications", "Could not load creator applications"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, applications)
@@ -35,12 +35,12 @@ func (h *AdminPerformerHandler) ListPendingApplications(w http.ResponseWriter, r
 func (h *AdminPerformerHandler) ReviewApplication(w http.ResponseWriter, r *http.Request) {
 	applicationID := chi.URLParam(r, "application_id")
 	if _, err := uuid.Parse(applicationID); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid creator application")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidCreatorApplication", "Invalid creator application"))
 		return
 	}
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
@@ -50,26 +50,26 @@ func (h *AdminPerformerHandler) ReviewApplication(w http.ResponseWriter, r *http
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid creator application decision")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidCreatorApplicationDecision", "Invalid creator application decision"))
 		return
 	}
 	if request.Decision != "approve" && request.Decision != "reject" {
-		sendAdminError(w, http.StatusBadRequest, "Decision must be approve or reject")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrDecisionMustBeApproveOrReject", "Decision must be approve or reject"))
 		return
 	}
 	if err := h.Repo.ReviewApplication(r.Context(), adminID, applicationID, request.Decision); err != nil {
 		switch {
 		case errors.Is(err, repository.ErrCreatorApplicationAlreadyApproved):
-			sendAdminError(w, http.StatusConflict, "This user already has an approved creator application")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "MsgThisUserAlreadyHasAnApprovedCreatorApplication", "This user already has an approved creator application"))
 		case errors.Is(err, repository.ErrCreatorApplicationPending):
-			sendAdminError(w, http.StatusConflict, "This user already has a pending creator application")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrThisUserAlreadyHasAPendingCreatorApplication", "This user already has a pending creator application"))
 		case errors.Is(err, repository.ErrCreatorApplicationNotEligible):
-			sendAdminError(w, http.StatusConflict, "Application does not meet the age, identity, and consent requirements for approval")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "MsgApplicationDoesNotMeetTheAgeIdentityAndConsentRequireme", "Application does not meet the age, identity, and consent requirements for approval"))
 		case errors.Is(err, sql.ErrNoRows):
-			sendAdminError(w, http.StatusConflict, "Application is no longer pending")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrApplicationIsNoLongerPending", "Application is no longer pending"))
 		default:
 			log.Printf("[ADMIN CREATOR APPLICATIONS] Failed to review application %s: %v", applicationID, err)
-			sendAdminError(w, http.StatusInternalServerError, "Could not review creator application")
+			sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrCouldNotReviewCreatorApplication", "Could not review creator application"))
 		}
 		return
 	}

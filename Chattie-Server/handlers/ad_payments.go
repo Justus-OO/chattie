@@ -503,13 +503,13 @@ func (h *ADPaymentsHandler) MpesaCallback(w http.ResponseWriter, r *http.Request
 
 func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
 	if h.Paystack == nil || h.Paystack.SecretKey == "" {
-		http.Error(w, "Paystack webhook is not configured", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrPaystackWebhookIsNotConfigured", "Paystack webhook is not configured"), http.StatusServiceUnavailable)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Invalid webhook body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidWebhookBody", "Invalid webhook body"), http.StatusBadRequest)
 		return
 	}
 	signature := r.Header.Get("X-Paystack-Signature")
@@ -519,7 +519,7 @@ func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Reque
 	provided, err := hex.DecodeString(signature)
 	expectedBytes, _ := hex.DecodeString(expected)
 	if err != nil || !hmac.Equal(provided, expectedBytes) {
-		http.Error(w, "Invalid webhook signature", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidWebhookSignature", "Invalid webhook signature"), http.StatusUnauthorized)
 		return
 	}
 	var event struct {
@@ -531,13 +531,13 @@ func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Reque
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &event); err != nil {
-		http.Error(w, "Invalid webhook payload", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidWebhookPayload", "Invalid webhook payload"), http.StatusBadRequest)
 		return
 	}
 	switch event.Event {
 	case "transfer.success", "transfer.failed", "transfer.reversed":
 		if event.Data.Reference == "" {
-			http.Error(w, "Missing transfer reference", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "ErrMissingTransferReference", "Missing transfer reference"), http.StatusBadRequest)
 			return
 		}
 		paid := event.Event == "transfer.success" && event.Data.Status == "success"
@@ -547,7 +547,7 @@ func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Reque
 		}
 		if err := h.Finance.CompleteWithdrawal(r.Context(), "paystack", event.Data.Reference, "", paid, reason); err != nil {
 			log.Printf("[AFTER DARK PAYOUT] Could not process Paystack transfer webhook: %v", err)
-			http.Error(w, "Could not process payout webhook", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrCouldNotProcessPayoutWebhook", "Could not process payout webhook"), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -561,7 +561,7 @@ func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			log.Printf("[AFTER DARK PAYMENT] Failed to lookup Paystack webhook intent: %v", err)
-			http.Error(w, "Could not process webhook", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrCouldNotProcessWebhook", "Could not process webhook"), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -569,7 +569,7 @@ func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Reque
 	}
 	if _, err := h.reconcile(r.Context(), intent, nil); err != nil {
 		log.Printf("[AFTER DARK PAYMENT] Paystack webhook reconciliation failed for %s: %v", intent.ID, err)
-		http.Error(w, "Could not reconcile payment", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrCouldNotReconcilePayment", "Could not reconcile payment"), http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -578,18 +578,18 @@ func (h *ADPaymentsHandler) PaystackWebhook(w http.ResponseWriter, r *http.Reque
 func (h *ADPaymentsHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 	secret := strings.TrimSpace(os.Getenv("STRIPE_AFTERDARK_WEBHOOK_SECRET"))
 	if secret == "" {
-		http.Error(w, "Stripe After Dark webhook is not configured", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrStripeAfterDarkWebhookIsNotConfigured", "Stripe After Dark webhook is not configured"), http.StatusServiceUnavailable)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Invalid webhook body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidWebhookBody2", "Invalid webhook body"), http.StatusBadRequest)
 		return
 	}
 	event, err := webhook.ConstructEvent(body, r.Header.Get("Stripe-Signature"), secret)
 	if err != nil {
-		http.Error(w, "Invalid Stripe webhook signature", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidStripeWebhookSignature", "Invalid Stripe webhook signature"), http.StatusUnauthorized)
 		return
 	}
 	if event.Type != stripe.EventTypeCheckoutSessionCompleted &&
@@ -602,7 +602,7 @@ func (h *ADPaymentsHandler) StripeWebhook(w http.ResponseWriter, r *http.Request
 
 	var checkout stripe.CheckoutSession
 	if err := json.Unmarshal(event.Data.Raw, &checkout); err != nil || checkout.ID == "" {
-		http.Error(w, "Invalid Stripe checkout event", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidStripeCheckoutEvent", "Invalid Stripe checkout event"), http.StatusBadRequest)
 		return
 	}
 	intent, err := h.Finance.GetADPaymentByProviderSession(r.Context(), "stripe", checkout.ID)
@@ -612,13 +612,13 @@ func (h *ADPaymentsHandler) StripeWebhook(w http.ResponseWriter, r *http.Request
 	}
 	if err != nil {
 		log.Printf("[AFTER DARK PAYMENT] Failed to load Stripe webhook intent: %v", err)
-		http.Error(w, "Could not process Stripe webhook", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotProcessStripeWebhook", "Could not process Stripe webhook"), http.StatusInternalServerError)
 		return
 	}
 	if event.Type == stripe.EventTypeCheckoutSessionExpired || event.Type == stripe.EventTypeCheckoutSessionAsyncPaymentFailed {
 		if _, err := h.Finance.MarkADPaymentFailed(r.Context(), intent.ID); err != nil {
 			log.Printf("[AFTER DARK PAYMENT] Could not mark expired Stripe intent failed: %v", err)
-			http.Error(w, "Could not update Stripe checkout status", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrCouldNotUpdateStripeCheckoutStatus", "Could not update Stripe checkout status"), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -626,7 +626,7 @@ func (h *ADPaymentsHandler) StripeWebhook(w http.ResponseWriter, r *http.Request
 	}
 	if _, err := h.reconcile(r.Context(), intent, nil); err != nil {
 		log.Printf("[AFTER DARK PAYMENT] Stripe webhook reconciliation failed for %s: %v", intent.ID, err)
-		http.Error(w, "Could not reconcile Stripe payment", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrCouldNotReconcileStripePayment", "Could not reconcile Stripe payment"), http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -812,7 +812,7 @@ func (h *ADPaymentsHandler) notifyADPaymentCompleted(ctx context.Context, intent
 		RecipientID: intent.CreatorID,
 		WSEventType: "AFTER_DARK_PAYMENT",
 		WSPayload: map[string]interface{}{
-			"title":     "After Dark payment received",
+			"title": localized(detachedCtx, "MsgAfterDarkPaymentReceived", "After Dark payment received"),
 			"message":   fmt.Sprintf("A customer completed a %s purchase for %s %s via %s.", strings.ReplaceAll(intent.PaymentType, "_", " "), currency, formattedAmount, paymentMethod),
 			"reference": intent.ID,
 		},

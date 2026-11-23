@@ -23,7 +23,7 @@ func NewADSubscriptionHandler(repo *repository.ADSubscriptionRepository) *ADSubs
 func (h *ADSubscriptionHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -32,18 +32,18 @@ func (h *ADSubscriptionHandler) Subscribe(w http.ResponseWriter, r *http.Request
 	err := h.Repo.Subscribe(r.Context(), userID, creatorID)
 	if err != nil {
 		if err.Error() == "insufficient funds" {
-			http.Error(w, "Insufficient wallet balance", http.StatusPaymentRequired)
+			http.Error(w, localized(r.Context(), "ErrInsufficientWalletBalance3", "Insufficient wallet balance"), http.StatusPaymentRequired)
 			return
 		}
 		if err == sql.ErrNoRows {
-			http.Error(w, "Creator not found", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrCreatorNotFound4", "Creator not found"), http.StatusNotFound)
 			return
 		}
 		if err.Error() == "cannot subscribe to yourself" || err.Error() == "creator subscription is not available" {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, "Subscription failed", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrSubscriptionFailed", "Subscription failed"), http.StatusInternalServerError)
 		return
 	}
 
@@ -51,7 +51,7 @@ func (h *ADSubscriptionHandler) Subscribe(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "success",
-		"message": "Subscribed successfully",
+		"message": localized(r.Context(), "MsgSubscribedSuccessfully", "Subscribed successfully"),
 	})
 }
 
@@ -59,13 +59,13 @@ func (h *ADSubscriptionHandler) Subscribe(w http.ResponseWriter, r *http.Request
 func (h *ADSubscriptionHandler) GetMySubscriptions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	subs, err := h.Repo.GetMySubscriptions(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch subscriptions", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchSubscriptions", "Failed to fetch subscriptions"), http.StatusInternalServerError)
 		return
 	}
 

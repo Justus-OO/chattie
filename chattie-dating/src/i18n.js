@@ -4,6 +4,9 @@ import commonUiTranslations from './locales/commonUi.js';
 import adminUiTranslations from './locales/adminUi.js';
 import afterDarkPageTranslations from './locales/afterdark.js';
 import { coreUi as coreUiTranslations } from './locales/coreUi.js';
+import baseHiTranslations from './locales/baseHi.js';
+import baseZhCNTranslations from './locales/baseZhCN.js';
+import baseSwTranslations from './locales/baseSw.js';
 
 export const SUPPORTED_LANGUAGES = [
   { code: 'en', label: 'English', locale: 'en-US' },
@@ -849,6 +852,179 @@ const interactionLocaleCompletions = {
 };
 
 Object.entries(interactionLocaleCompletions).forEach(([language, values]) => {
+  Object.entries(values).forEach(([key, value]) => {
+    if (!translations[language][key]) translations[language][key] = value;
+  });
+});
+
+const chatCallLocaleCompletions = {
+  fr: {
+    toggleMicrophone: 'Activer ou couper le micro', toggleCamera: 'Activer ou couper la caméra',
+    toggleScreenSharing: 'Activer ou arrêter le partage d’écran', endCall: 'Terminer l’appel',
+    callConnectionFailed: 'La connexion à l’appel a échoué.',
+    microphonePermissionFailed: 'Impossible d’accéder au micro. Vérifiez les autorisations du navigateur et réessayez.',
+    fallbackPartnerBio: 'JE CHERCHE QUELQU’UN POUR EXPLORER LA VILLE ET BOIRE UN CAFÉ À 3 H DU MATIN. SI VOUS AIMEZ LES VIRÉES NOCTURNES, LA MUSIQUE INDÉPENDANTE ET LES MEILLEURS TACOS DE LA VILLE, ON VA BIEN S’ENTENDRE.',
+    chatHistoryFetchFailed: 'Impossible de récupérer l’historique de la conversation.',
+    callConnectFailed: 'Impossible de connecter l’appel. Réessayez.',
+    unknownUser: 'Utilisateur inconnu', matchedUser: 'Utilisateur correspondant',
+    tierFlagged: 'Signalé', tierWhale: 'Très gros client', tierPremium: 'Premium', tierStandard: 'Standard', tierUser: 'Utilisateur',
+    callingUser: 'Appel de {name}…', calling: 'Appel en cours…', audio: 'Audio', video: 'Vidéo',
+    pinnedCount: '{count} épinglé(s)', pinned: 'Épinglé', attachment: 'Pièce jointe', cancelCall: 'Annuler',
+    incomingVideoCallLabel: 'Appel vidéo entrant', incomingAudioCallLabel: 'Appel vocal entrant',
+    sayHelloTo: 'Dites bonjour à {name} !', aiGeneratedReply: 'Réponse générée par l’IA', reconnectCall: 'Reconnexion',
+    replyingToYourself: 'Réponse à vous-même', replyingToUser: 'Réponse à {name}',
+    pinMessage: 'Épingler le message', unpinMessage: 'Désépingler le message', draftAiReplies: 'Rédiger des réponses avec l’IA',
+    generatingReplies: 'Génération en cours…', aiAutoReplyOn: 'Réponse automatique IA activée · 5 h',
+    aiAutoReplyOff: 'Réponse automatique IA désactivée · 5 h',
+    aiSuggestionContext: 'Les messages récents sont envoyés à Gemini pour rédiger des réponses. Les réponses automatiques sont signalées comme générées par l’IA.',
+    chooseEmoji: 'Choisir un emoji', unmuteChat: 'Réactiver le son du chat', muteNotifications: 'Désactiver les notifications',
+    callConnected: 'Appel {type} connecté', sharedMedia: 'Médias partagés', seeAll: 'Tout afficher', mic: 'Micro',
+    messageSingular: 'Message', thisUser: 'cet utilisateur', thisConversation: 'cette conversation',
+    aiAutoReplyLoadFailed: 'Impossible de charger le réglage de réponse automatique par IA.',
+    aiSuggestionsUnavailable: 'Les suggestions de l’IA sont momentanément indisponibles.',
+    aiAutoReplyEnabled: 'Les réponses par IA seront activées pour ce chat après 5 heures sans réponse de votre part.',
+    aiAutoReplyDisabled: 'Les réponses par IA sont désactivées pour ce chat.',
+    aiAutoReplyUpdateFailed: 'Impossible de modifier le réglage de réponse automatique par IA.',
+    callHistorySaveFailed: 'L’appel a été connecté, mais son historique n’a pas pu être enregistré.',
+    callHistorySaveFailedStarted: 'L’appel a commencé, mais son historique n’a pas pu être enregistré.',
+    unansweredCallHistoryFailed: 'L’appel sans réponse n’a pas pu être ajouté à l’historique.',
+    endedCallHistoryFailed: 'L’appel est terminé, mais son historique n’a pas pu être enregistré.',
+    declinedCallHistoryFailed: 'L’appel a été refusé, mais son historique n’a pas pu être enregistré.',
+    declineNoticeFailed: 'Impossible d’envoyer la notification de refus. Vérifiez votre connexion.',
+    missedCallHistoryFailed: 'L’appel manqué n’a pas pu être ajouté à l’historique.',
+    otherCallBusy: 'Cette personne est déjà en ligne avec quelqu’un.',
+    messagePinned: 'Message épinglé', messageUnpinned: 'Message désépinglé',
+    pinUpdateFailed: 'Impossible de modifier l’épinglage du message.', fileUploadFailed: 'Échec de l’envoi du fichier',
+    conversationDeletedToast: 'Conversation supprimée.', deleteConversationFailedToast: 'Impossible de supprimer la conversation.',
+    vaultPhotoUploadedToast: 'Photo envoyée dans votre coffre.', uploadFailedToast: 'Échec de l’envoi.',
+    blockFailedToast: 'Impossible de bloquer cet utilisateur.',
+  },
+  de: {
+    toggleMicrophone: 'Mikrofon ein- oder ausschalten', toggleCamera: 'Kamera ein- oder ausschalten',
+    toggleScreenSharing: 'Bildschirmfreigabe ein- oder ausschalten', endCall: 'Anruf beenden',
+    callConnectionFailed: 'Die Anrufverbindung ist fehlgeschlagen.',
+    microphonePermissionFailed: 'Kein Zugriff auf das Mikrofon. Prüfe die Browserberechtigungen und versuche es erneut.',
+    fallbackPartnerBio: 'ICH SUCHE JEMANDEN, UM DIE STADT ZU ERKUNDEN UND UM 3 UHR MORGENS KAFFEE ZU TRINKEN. WENN DU NACHTFAHRTEN, INDIE-MUSIK UND DIE BESTEN TACOS DER STADT MAGST, VERSTEHEN WIR UNS BESTIMMT.',
+    chatHistoryFetchFailed: 'Der Chatverlauf konnte nicht geladen werden.',
+    callConnectFailed: 'Der Anruf konnte nicht verbunden werden. Bitte versuche es erneut.',
+    unknownUser: 'Unbekannter Benutzer', matchedUser: 'Zugeordneter Benutzer',
+    tierFlagged: 'Markiert', tierWhale: 'Top-Kunde', tierPremium: 'Premium', tierStandard: 'Standard', tierUser: 'Benutzer',
+    callingUser: '{name} wird angerufen…', calling: 'Anruf läuft…', audio: 'Audio', video: 'Video',
+    pinnedCount: '{count} angeheftet', pinned: 'Angeheftet', attachment: 'Anhang', cancelCall: 'Abbrechen',
+    incomingVideoCallLabel: 'Eingehender Videoanruf', incomingAudioCallLabel: 'Eingehender Sprachanruf',
+    sayHelloTo: 'Sag {name} Hallo!', aiGeneratedReply: 'KI-generierte Antwort', reconnectCall: 'Erneut verbinden',
+    replyingToYourself: 'Antwort an dich selbst', replyingToUser: 'Antwort an {name}',
+    pinMessage: 'Nachricht anheften', unpinMessage: 'Anheftung lösen', draftAiReplies: 'KI-Antworten entwerfen',
+    generatingReplies: 'Wird erstellt…', aiAutoReplyOn: 'KI-Antwortautomatik an · 5 Std.',
+    aiAutoReplyOff: 'KI-Antwortautomatik aus · 5 Std.',
+    aiSuggestionContext: 'Aktuelle Nachrichten werden zum Erstellen von Entwürfen an Gemini gesendet. Automatische Antworten sind als KI-generiert gekennzeichnet.',
+    chooseEmoji: 'Emoji auswählen', unmuteChat: 'Chat wieder aktivieren', muteNotifications: 'Benachrichtigungen stummschalten',
+    callConnected: '{type}-Anruf verbunden', sharedMedia: 'Geteilte Medien', seeAll: 'Alle anzeigen', mic: 'Mikrofon',
+    messageSingular: 'Nachricht', thisUser: 'diese Person', thisConversation: 'diese Unterhaltung',
+    aiAutoReplyLoadFailed: 'Die Einstellung für automatische KI-Antworten konnte nicht geladen werden.',
+    aiSuggestionsUnavailable: 'KI-Vorschläge sind derzeit nicht verfügbar.',
+    aiAutoReplyEnabled: 'KI-Antworten werden in diesem Chat aktiviert, wenn du 5 Stunden lang nicht geantwortet hast.',
+    aiAutoReplyDisabled: 'KI-Antworten sind für diesen Chat deaktiviert.',
+    aiAutoReplyUpdateFailed: 'Die Einstellung für automatische KI-Antworten konnte nicht geändert werden.',
+    callHistorySaveFailed: 'Der Anruf wurde verbunden, aber der Verlauf konnte nicht gespeichert werden.',
+    callHistorySaveFailedStarted: 'Der Anruf wurde gestartet, aber der Verlauf konnte nicht gespeichert werden.',
+    unansweredCallHistoryFailed: 'Der unbeantwortete Anruf konnte nicht zum Chatverlauf hinzugefügt werden.',
+    endedCallHistoryFailed: 'Der Anruf wurde beendet, aber der Verlauf konnte nicht gespeichert werden.',
+    declinedCallHistoryFailed: 'Der Anruf wurde abgelehnt, aber der Verlauf konnte nicht gespeichert werden.',
+    declineNoticeFailed: 'Die Ablehnungsbenachrichtigung konnte nicht gesendet werden. Prüfe deine Verbindung.',
+    missedCallHistoryFailed: 'Der verpasste Anruf konnte nicht zum Chatverlauf hinzugefügt werden.',
+    otherCallBusy: 'Diese Person telefoniert bereits.',
+    messagePinned: 'Nachricht angeheftet', messageUnpinned: 'Anheftung der Nachricht aufgehoben',
+    pinUpdateFailed: 'Die Anheftung der Nachricht konnte nicht geändert werden.', fileUploadFailed: 'Datei konnte nicht hochgeladen werden',
+    conversationDeletedToast: 'Unterhaltung gelöscht.', deleteConversationFailedToast: 'Unterhaltung konnte nicht gelöscht werden.',
+    vaultPhotoUploadedToast: 'Foto in den Tresor hochgeladen.', uploadFailedToast: 'Upload fehlgeschlagen.',
+    blockFailedToast: 'Benutzer konnte nicht blockiert werden.',
+  },
+  pt: {
+    toggleMicrophone: 'Ativar ou desativar o microfone', toggleCamera: 'Ativar ou desativar a câmera',
+    toggleScreenSharing: 'Ativar ou desativar o compartilhamento de tela', endCall: 'Encerrar chamada',
+    callConnectionFailed: 'A conexão da chamada falhou.',
+    microphonePermissionFailed: 'Não foi possível acessar o microfone. Verifique as permissões do navegador e tente novamente.',
+    fallbackPartnerBio: 'PROCURO ALGUÉM PARA EXPLORAR A CIDADE E TOMAR CAFÉ ÀS 3 DA MANHÃ. SE VOCÊ GOSTA DE DIRIGIR À NOITE, OUVIR MÚSICA INDIE E DESCOBRIR OS MELHORES TACOS DA CIDADE, VAMOS NOS DAR MUITO BEM.',
+    chatHistoryFetchFailed: 'Não foi possível carregar o histórico da conversa.',
+    callConnectFailed: 'Não foi possível conectar a chamada. Tente novamente.',
+    unknownUser: 'Usuário desconhecido', matchedUser: 'Usuário correspondente',
+    tierFlagged: 'Sinalizado', tierWhale: 'Grande cliente', tierPremium: 'Premium', tierStandard: 'Padrão', tierUser: 'Usuário',
+    callingUser: 'Ligando para {name}…', calling: 'Chamando…', audio: 'Áudio', video: 'Vídeo',
+    pinnedCount: '{count} fixado(s)', pinned: 'Fixada', attachment: 'Anexo', cancelCall: 'Cancelar',
+    incomingVideoCallLabel: 'Chamada de vídeo recebida', incomingAudioCallLabel: 'Chamada de voz recebida',
+    sayHelloTo: 'Diga oi para {name}!', aiGeneratedReply: 'Resposta gerada por IA', reconnectCall: 'Reconectar',
+    replyingToYourself: 'Respondendo a si mesmo', replyingToUser: 'Respondendo a {name}',
+    pinMessage: 'Fixar mensagem', unpinMessage: 'Desafixar mensagem', draftAiReplies: 'Criar respostas com IA',
+    generatingReplies: 'Gerando…', aiAutoReplyOn: 'Resposta automática por IA ativada · 5 h',
+    aiAutoReplyOff: 'Resposta automática por IA desativada · 5 h',
+    aiSuggestionContext: 'Mensagens recentes são enviadas ao Gemini para criar sugestões. Respostas automáticas são identificadas como geradas por IA.',
+    chooseEmoji: 'Escolher emoji', unmuteChat: 'Ativar notificações do chat', muteNotifications: 'Silenciar notificações',
+    callConnected: 'Chamada de {type} conectada', sharedMedia: 'Mídia compartilhada', seeAll: 'Ver tudo', mic: 'Microfone',
+    messageSingular: 'Mensagem', thisUser: 'este usuário', thisConversation: 'esta conversa',
+    aiAutoReplyLoadFailed: 'Não foi possível carregar a configuração de resposta automática por IA.',
+    aiSuggestionsUnavailable: 'As sugestões de IA estão indisponíveis no momento.',
+    aiAutoReplyEnabled: 'As respostas por IA serão ativadas neste chat após 5 horas sem uma resposta sua.',
+    aiAutoReplyDisabled: 'As respostas por IA estão desativadas neste chat.',
+    aiAutoReplyUpdateFailed: 'Não foi possível atualizar a configuração de resposta automática por IA.',
+    callHistorySaveFailed: 'A chamada foi conectada, mas não foi possível salvar o histórico.',
+    callHistorySaveFailedStarted: 'A chamada começou, mas não foi possível salvar o histórico.',
+    unansweredCallHistoryFailed: 'Não foi possível adicionar a chamada não atendida ao histórico.',
+    endedCallHistoryFailed: 'A chamada terminou, mas não foi possível salvar o histórico.',
+    declinedCallHistoryFailed: 'A chamada foi recusada, mas não foi possível salvar o histórico.',
+    declineNoticeFailed: 'Não foi possível enviar o aviso de recusa. Verifique sua conexão.',
+    missedCallHistoryFailed: 'Não foi possível adicionar a chamada perdida ao histórico.',
+    otherCallBusy: 'Esta pessoa já está em outra chamada.',
+    messagePinned: 'Mensagem fixada', messageUnpinned: 'Mensagem desafixada',
+    pinUpdateFailed: 'Não foi possível atualizar a fixação da mensagem.', fileUploadFailed: 'Falha ao enviar o arquivo',
+    conversationDeletedToast: 'Conversa excluída.', deleteConversationFailedToast: 'Não foi possível excluir a conversa.',
+    vaultPhotoUploadedToast: 'Foto enviada para o cofre.', uploadFailedToast: 'Falha no envio.',
+    blockFailedToast: 'Não foi possível bloquear o usuário.',
+  },
+  ja: {
+    toggleMicrophone: 'マイクを切り替え', toggleCamera: 'カメラを切り替え',
+    toggleScreenSharing: '画面共有を切り替え', endCall: '通話を終了',
+    callConnectionFailed: '通話に接続できませんでした。',
+    microphonePermissionFailed: 'マイクにアクセスできません。ブラウザーの権限を確認して、もう一度お試しください。',
+    fallbackPartnerBio: '街を散策して、深夜3時にコーヒーを飲める人を探しています。夜のドライブやインディーズ音楽、街で一番おいしいタコス探しが好きなら、きっと気が合います。',
+    chatHistoryFetchFailed: 'チャット履歴を取得できませんでした。',
+    callConnectFailed: '通話に接続できませんでした。もう一度お試しください。',
+    unknownUser: '不明なユーザー', matchedUser: 'マッチしたユーザー',
+    tierFlagged: '要確認', tierWhale: '上位顧客', tierPremium: 'プレミアム', tierStandard: 'スタンダード', tierUser: 'ユーザー',
+    callingUser: '{name}に発信中…', calling: '発信中…', audio: '音声', video: 'ビデオ',
+    pinnedCount: '{count}件を固定', pinned: '固定済み', attachment: '添付ファイル', cancelCall: 'キャンセル',
+    incomingVideoCallLabel: 'ビデオ通話の着信', incomingAudioCallLabel: '音声通話の着信',
+    sayHelloTo: '{name}に挨拶しましょう！', aiGeneratedReply: 'AI生成の返信', reconnectCall: '再接続',
+    replyingToYourself: '自分への返信', replyingToUser: '{name}への返信',
+    pinMessage: 'メッセージを固定', unpinMessage: '固定を解除', draftAiReplies: 'AIで返信案を作成',
+    generatingReplies: '生成中…', aiAutoReplyOn: 'AI自動返信オン · 5時間',
+    aiAutoReplyOff: 'AI自動返信オフ · 5時間',
+    aiSuggestionContext: '返信案の作成に最近のメッセージがGeminiに送信されます。自動返信にはAI生成と表示されます。',
+    chooseEmoji: '絵文字を選択', unmuteChat: 'チャットのミュートを解除', muteNotifications: '通知をミュート',
+    callConnected: '{type}通話に接続しました', sharedMedia: '共有メディア', seeAll: 'すべて表示', mic: 'マイク',
+    messageSingular: 'メッセージ', thisUser: 'このユーザー', thisConversation: 'この会話',
+    aiAutoReplyLoadFailed: 'AI自動返信の設定を読み込めませんでした。',
+    aiSuggestionsUnavailable: '現在、AIの提案を利用できません。',
+    aiAutoReplyEnabled: '5時間返信がない場合、このチャットでAI返信が有効になります。',
+    aiAutoReplyDisabled: 'このチャットではAI返信が無効になっています。',
+    aiAutoReplyUpdateFailed: 'AI自動返信の設定を更新できませんでした。',
+    callHistorySaveFailed: '通話に接続しましたが、履歴を保存できませんでした。',
+    callHistorySaveFailedStarted: '通話を開始しましたが、履歴を保存できませんでした。',
+    unansweredCallHistoryFailed: '応答のなかった通話をチャット履歴に追加できませんでした。',
+    endedCallHistoryFailed: '通話は終了しましたが、履歴を保存できませんでした。',
+    declinedCallHistoryFailed: '通話は拒否されましたが、履歴を保存できませんでした。',
+    declineNoticeFailed: '拒否通知を送信できませんでした。接続を確認してください。',
+    missedCallHistoryFailed: '不在着信をチャット履歴に追加できませんでした。',
+    otherCallBusy: 'このユーザーは別の通話中です。',
+    messagePinned: 'メッセージを固定しました', messageUnpinned: 'メッセージの固定を解除しました',
+    pinUpdateFailed: 'メッセージの固定を更新できませんでした。', fileUploadFailed: 'ファイルをアップロードできませんでした',
+    conversationDeletedToast: '会話を削除しました。', deleteConversationFailedToast: '会話を削除できませんでした。',
+    vaultPhotoUploadedToast: '写真を保管庫にアップロードしました。', uploadFailedToast: 'アップロードに失敗しました。',
+    blockFailedToast: 'ユーザーをブロックできませんでした。',
+  },
+};
+
+Object.entries(chatCallLocaleCompletions).forEach(([language, values]) => {
   Object.entries(values).forEach(([key, value]) => {
     if (!translations[language][key]) translations[language][key] = value;
   });
@@ -2589,6 +2765,16 @@ Object.entries(adminReportTranslations).forEach(([language, values]) => {
   translations[language] = { ...translations[language], ...values };
 });
 
+Object.entries(baseHiTranslations).forEach(([key, value]) => {
+  translations.hi[key] = value;
+});
+Object.entries(baseZhCNTranslations).forEach(([key, value]) => {
+  translations['zh-CN'][key] = value;
+});
+Object.entries(baseSwTranslations).forEach(([key, value]) => {
+  translations.sw[key] = value;
+});
+
 const supplementalTranslationResources = [
   commonUiTranslations,
   adminUiTranslations,
@@ -2650,7 +2836,10 @@ export function useI18n() {
     (key, params = {}) => interpolate(dictionary[key] || translations.en[key] || key, params),
     [dictionary]
   );
-  const setLanguage = (nextLanguage) => updatePreferences({ language: languageByCode(nextLanguage).code });
+  const setLanguage = useCallback(
+    (nextLanguage) => updatePreferences({ language: languageByCode(nextLanguage).code }),
+    [updatePreferences]
+  );
   const formatNumber = (value, options) => new Intl.NumberFormat(getLocale(language), options).format(value);
   const formatCurrency = (value, currency = 'USD') => new Intl.NumberFormat(getLocale(language), { style: 'currency', currency }).format(value);
   const formatDate = (value, options) => new Intl.DateTimeFormat(getLocale(language), options).format(new Date(value));

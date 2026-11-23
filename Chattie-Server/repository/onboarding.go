@@ -3,6 +3,7 @@ package repository
 import (
 	"chattie-backend/models"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -260,6 +261,20 @@ func (r *Repository) ActivateUserSecure(ctx context.Context, userID string, cons
 	}
 
 	return nil, tx.Commit()
+}
+
+func (r *Repository) GetUserLanguageByEmail(ctx context.Context, email string) (sql.NullString, error) {
+	var language sql.NullString
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT us.language
+		FROM users u
+		LEFT JOIN user_settings us ON us.user_id = u.id
+		WHERE u.email = $1
+	`, email).Scan(&language)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sql.NullString{}, nil
+	}
+	return language, err
 }
 
 func (r *Repository) GetUserByID(ctx context.Context, userID string) (*models.User, error) {

@@ -41,14 +41,14 @@ func (h *AdminAfterDarkHandler) ListPosts(w http.ResponseWriter, r *http.Request
 	switch status {
 	case "all", "draft", "processing", "published", "scheduled", "rejected", "deleted":
 	default:
-		sendAdminError(w, http.StatusBadRequest, "Unsupported After Dark post status")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrUnsupportedAfterDarkPostStatus", "Unsupported After Dark post status"))
 		return
 	}
 	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > 100 {
-			sendAdminError(w, http.StatusBadRequest, "Limit must be between 1 and 100")
+			sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrLimitMustBeBetween1And100", "Limit must be between 1 and 100"))
 			return
 		}
 		limit = parsed
@@ -57,7 +57,7 @@ func (h *AdminAfterDarkHandler) ListPosts(w http.ResponseWriter, r *http.Request
 	if raw := r.URL.Query().Get("offset"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 0 {
-			sendAdminError(w, http.StatusBadRequest, "Offset must be zero or greater")
+			sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrOffsetMustBeZeroOrGreater", "Offset must be zero or greater"))
 			return
 		}
 		offset = parsed
@@ -65,7 +65,7 @@ func (h *AdminAfterDarkHandler) ListPosts(w http.ResponseWriter, r *http.Request
 	posts, err := h.Repo.ListAfterDarkPosts(r.Context(), status, limit, offset)
 	if err != nil {
 		log.Printf("Failed to load After Dark admin posts: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load After Dark posts")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToLoadAfterDarkPosts", "Failed to load After Dark posts"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, posts)
@@ -73,29 +73,29 @@ func (h *AdminAfterDarkHandler) ListPosts(w http.ResponseWriter, r *http.Request
 
 func (h *AdminAfterDarkHandler) GetPostMediaURL(w http.ResponseWriter, r *http.Request) {
 	if h.UploadService == nil {
-		sendAdminError(w, http.StatusServiceUnavailable, "After Dark media storage is unavailable")
+		sendAdminError(w, http.StatusServiceUnavailable, localized(r.Context(), "ErrAfterDarkMediaStorageIsUnavailable", "After Dark media storage is unavailable"))
 		return
 	}
 	postID := chi.URLParam(r, "postId")
 	if _, err := uuid.Parse(postID); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid post ID")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidPostID", "Invalid post ID"))
 		return
 	}
 	asset, err := h.Repo.GetAfterDarkPostAsset(r.Context(), postID)
 	if errors.Is(err, sql.ErrNoRows) {
-		sendAdminError(w, http.StatusNotFound, "Post media not found")
+		sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrPostMediaNotFound", "Post media not found"))
 		return
 	}
 	if err != nil {
 		log.Printf("Failed to load After Dark post media for admin: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Could not load post media")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrCouldNotLoadPostMedia", "Could not load post media"))
 		return
 	}
 	const urlLifetime = 3 * time.Minute
 	mediaURL, err := h.UploadService.ReadURL(r.Context(), asset.StorageKey, urlLifetime)
 	if err != nil {
 		log.Printf("Failed to sign After Dark post media for admin: %v", err)
-		sendAdminError(w, http.StatusBadGateway, "Could not provide post media")
+		sendAdminError(w, http.StatusBadGateway, localized(r.Context(), "ErrCouldNotProvidePostMedia", "Could not provide post media"))
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
@@ -108,12 +108,12 @@ func (h *AdminAfterDarkHandler) GetPostMediaURL(w http.ResponseWriter, r *http.R
 func (h *AdminAfterDarkHandler) ModeratePost(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	postID := chi.URLParam(r, "postId")
 	if _, err := uuid.Parse(postID); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid post ID")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidPostID2", "Invalid post ID"))
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
@@ -122,29 +122,29 @@ func (h *AdminAfterDarkHandler) ModeratePost(w http.ResponseWriter, r *http.Requ
 		Reason string `json:"reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid moderation request")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidModerationRequest", "Invalid moderation request"))
 		return
 	}
 	if request.Action != "approve" && request.Action != "reject" {
-		sendAdminError(w, http.StatusBadRequest, "Action must be approve or reject")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrActionMustBeApproveOrReject", "Action must be approve or reject"))
 		return
 	}
 	if strings.TrimSpace(request.Reason) == "" || len(request.Reason) > 1000 {
-		sendAdminError(w, http.StatusBadRequest, "A moderation reason of 1 to 1000 characters is required")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrAModerationReasonOf1To1000CharactersIsRequired", "A moderation reason of 1 to 1000 characters is required"))
 		return
 	}
 	err := h.Repo.ModerateAfterDarkPost(r.Context(), adminID, postID, request.Action, request.Reason)
 	if errors.Is(err, repository.ErrAdminAfterDarkPostUnavailable) {
-		sendAdminError(w, http.StatusNotFound, "Post is unavailable for moderation")
+		sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrPostIsUnavailableForModeration", "Post is unavailable for moderation"))
 		return
 	}
 	if errors.Is(err, repository.ErrAdminAfterDarkAssetNotReady) {
-		sendAdminError(w, http.StatusConflict, "Post media is not ready for approval")
+		sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrPostMediaIsNotReadyForApproval", "Post media is not ready for approval"))
 		return
 	}
 	if err != nil {
 		log.Printf("Failed to moderate After Dark post %s: %v", postID, err)
-		sendAdminError(w, http.StatusInternalServerError, "Could not apply moderation action")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrCouldNotApplyModerationAction", "Could not apply moderation action"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, map[string]string{"status": "updated", "action": request.Action})
@@ -152,26 +152,26 @@ func (h *AdminAfterDarkHandler) ModeratePost(w http.ResponseWriter, r *http.Requ
 
 func (h *AdminAfterDarkHandler) ScorePostSafety(w http.ResponseWriter, r *http.Request) {
 	if h.Gemini == nil || !h.Gemini.Available() {
-		sendAdminError(w, http.StatusServiceUnavailable, "AI safety assessment is not configured")
+		sendAdminError(w, http.StatusServiceUnavailable, localized(r.Context(), "ErrAISafetyAssessmentIsNotConfigured", "AI safety assessment is not configured"))
 		return
 	}
 	postID := chi.URLParam(r, "postId")
 	if _, err := uuid.Parse(postID); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid post ID")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidPostID3", "Invalid post ID"))
 		return
 	}
 	post, err := h.Repo.GetAfterDarkSafetyInput(r.Context(), postID)
 	if errors.Is(err, sql.ErrNoRows) {
-		sendAdminError(w, http.StatusNotFound, "Post is unavailable for AI assessment")
+		sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrPostIsUnavailableForAIAssessment", "Post is unavailable for AI assessment"))
 		return
 	}
 	if err != nil {
 		log.Printf("Failed to load After Dark post %s for safety assessment: %v", postID, err)
-		sendAdminError(w, http.StatusInternalServerError, "Could not load post for AI assessment")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrCouldNotLoadPostForAIAssessment", "Could not load post for AI assessment"))
 		return
 	}
 	if strings.TrimSpace(post.Caption) == "" {
-		sendAdminError(w, http.StatusUnprocessableEntity, "Add a caption before requesting a caption-based safety assessment")
+		sendAdminError(w, http.StatusUnprocessableEntity, localized(r.Context(), "ErrAddACaptionBeforeRequestingACaptionBasedSafetyAssessmen", "Add a caption before requesting a caption-based safety assessment"))
 		return
 	}
 
@@ -190,7 +190,7 @@ func (h *AdminAfterDarkHandler) ScorePostSafety(w http.ResponseWriter, r *http.R
 	)
 	if err != nil {
 		log.Printf("AI safety assessment failed for After Dark post %s: %v", postID, err)
-		sendAdminError(w, http.StatusBadGateway, "AI safety assessment failed")
+		sendAdminError(w, http.StatusBadGateway, localized(r.Context(), "ErrAISafetyAssessmentFailed", "AI safety assessment failed"))
 		return
 	}
 	var result assessment
@@ -198,16 +198,16 @@ func (h *AdminAfterDarkHandler) ScorePostSafety(w http.ResponseWriter, r *http.R
 		result.SafeConfidence < 0 || result.SafeConfidence > 100 ||
 		strings.TrimSpace(result.Rationale) == "" || len(result.Rationale) > 500 {
 		log.Printf("AI returned an invalid safety assessment for After Dark post %s", postID)
-		sendAdminError(w, http.StatusBadGateway, "AI returned an invalid safety assessment")
+		sendAdminError(w, http.StatusBadGateway, localized(r.Context(), "ErrAIReturnedAnInvalidSafetyAssessment", "AI returned an invalid safety assessment"))
 		return
 	}
 	if err := h.Repo.SaveAfterDarkSafetyAssessment(r.Context(), postID, result.SafeConfidence, result.Rationale); err != nil {
 		if errors.Is(err, repository.ErrAdminAfterDarkPostUnavailable) {
-			sendAdminError(w, http.StatusConflict, "Post changed and is no longer available for AI assessment")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrPostChangedAndIsNoLongerAvailableForAIAssessment", "Post changed and is no longer available for AI assessment"))
 			return
 		}
 		log.Printf("Failed to save AI safety assessment for After Dark post %s: %v", postID, err)
-		sendAdminError(w, http.StatusInternalServerError, "Could not save AI safety assessment")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrCouldNotSaveAISafetyAssessment", "Could not save AI safety assessment"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, map[string]interface{}{
@@ -221,13 +221,13 @@ func (h *AdminAfterDarkHandler) ScorePostSafety(w http.ResponseWriter, r *http.R
 func (h *AdminAfterDarkHandler) AutoApproveSafePosts(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	approved, err := h.Repo.AutoApproveSafeAfterDarkPosts(r.Context(), adminID)
 	if err != nil {
 		log.Printf("Failed to auto-approve eligible After Dark posts: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Could not approve eligible posts")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrCouldNotApproveEligiblePosts", "Could not approve eligible posts"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, map[string]interface{}{

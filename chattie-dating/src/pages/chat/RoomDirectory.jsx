@@ -319,11 +319,11 @@ export default function RoomDirectory() {
       <header className="flex flex-col border-b-2 border-zinc-800 bg-black shrink-0 shadow-[0_4px_20px_rgba(var(--shadow-rgb), 0.5)] z-20">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 border-2 bg-zinc-900 border-zinc-500 flex items-center justify-center font-black text-white text-xl">
+            <div className="hidden md:flex w-10 h-10 border-2 bg-zinc-900 border-zinc-500 items-center justify-center font-black text-white text-xl">
               🐾
             </div>
             <div>
-              <h1 className="text-lg font-black text-white uppercase tracking-widest flex items-center gap-2">
+              <h1 className="hidden md:flex text-lg font-black text-white uppercase tracking-widest items-center gap-2">
                 {t('lounge')}
               </h1>
               <span className="text-[9px] font-bold text-green-400 uppercase tracking-widest flex items-center gap-1">

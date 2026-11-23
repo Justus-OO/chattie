@@ -41,7 +41,7 @@ func (h *BillingHandler) UpgradeTier(w http.ResponseWriter, r *http.Request) {
 	var req models.UpgradeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload")})
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *BillingHandler) UpgradeTier(w http.ResponseWriter, r *http.Request) {
 	price, err := h.Repo.GetPlanPrice(r.Context(), months)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid or inactive billing plan"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidOrInactiveBillingPlan", "Invalid or inactive billing plan")})
 		return
 	}
 
@@ -272,14 +272,14 @@ func (h *BillingHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[BILLING DB ERROR] Failed to reconcile paid intent for %s: %v", userID, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Payment verified but database upgrade failed. Contact support."})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrPaymentVerifiedButDatabaseUpgradeFailedContactSupport", "Payment verified but database upgrade failed. Contact support.")})
 		return
 	}
 	if upgraded {
 		h.notifyPremiumUpgrade(r.Context(), userID, months, payment)
 	}
 	response := map[string]interface{}{
-		"message": "Payment verified! Premium status activated successfully.",
+		"message": localized(r.Context(), "MsgPaymentVerifiedPremiumStatusActivatedSuccessfully", "Payment verified! Premium status activated successfully."),
 	}
 	if verification.PaymentMethod != nil {
 		saved, saveErr := h.saveVerifiedPaymentMethod(r.Context(), userID, provider, verification.PaymentMethod)
@@ -437,12 +437,12 @@ func (h *BillingHandler) MpesaCallback(w http.ResponseWriter, r *http.Request) {
 		} `json:"Body"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&callback); err != nil {
-		http.Error(w, "invalid callback", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidCallback", "invalid callback"), http.StatusBadRequest)
 		return
 	}
 	checkoutID := strings.TrimSpace(callback.Body.Callback.CheckoutRequestID)
 	if checkoutID == "" {
-		http.Error(w, "missing checkout request ID", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMissingCheckoutRequestID", "missing checkout request ID"), http.StatusBadRequest)
 		return
 	}
 	payment, err := h.Repo.GetBillingPaymentByProviderSession(r.Context(), "mpesa", checkoutID)
@@ -512,7 +512,7 @@ func (h *BillingHandler) notifyPremiumUpgrade(ctx context.Context, userID string
 	go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 		RecipientID:   userID,
 		WSEventType:   "VIP_UPGRADE_SUCCESS",
-		WSPayload:     map[string]interface{}{"months": months, "message": "Welcome to Premium!"},
+		WSPayload:     map[string]interface{}{"months": months, "message": localized(detachedCtx, "MsgWelcomePremium", "Welcome to Premium!")},
 		EmailTemplate: "premium_welcome",
 		EmailData:     map[string]interface{}{"Months": months},
 	})
@@ -558,7 +558,7 @@ func (h *BillingHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[BILLING DB ERROR] Failed to fetch billing plans: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load pricing plans"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedToLoadPricingPlans", "Failed to load pricing plans")})
 		return
 	}
 	// TODO: Add retry backoff for M-Pesa callback webhook timeout

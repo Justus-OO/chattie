@@ -20,7 +20,7 @@ func (h *AuthHandler) sendLoginOrChallenge(w http.ResponseWriter, r *http.Reques
 	details, err := h.Repo.GetAuthDetailsByUserID(r.Context(), user.ID)
 	if err != nil {
 		log.Printf("[AUTH] Failed to load security settings for %s: %v", user.ID, err)
-		http.Error(w, "Could not complete sign-in", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "MsgCouldNotCompleteSignIn", "Could not complete sign-in"), http.StatusInternalServerError)
 		return
 	}
 	user.Provider = details.Provider
@@ -32,11 +32,11 @@ func (h *AuthHandler) sendLoginOrChallenge(w http.ResponseWriter, r *http.Reques
 	challengeID, err := h.startAuthChallenge(r, details, "login_2fa", details.TwoFactorChannel)
 	if err != nil {
 		if errors.Is(err, repository.ErrAuthChallengeRateLimited) {
-			http.Error(w, "Too many verification codes requested. Try again later.", http.StatusTooManyRequests)
+			http.Error(w, localized(r.Context(), "ErrTooManyVerificationCodesRequestedTryAgainLater", "Too many verification codes requested. Try again later."), http.StatusTooManyRequests)
 			return
 		}
 		log.Printf("[AUTH] Failed to start sign-in verification for %s: %v", user.ID, err)
-		http.Error(w, "Could not send sign-in verification code", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrCouldNotSendSignInVerificationCode", "Could not send sign-in verification code"), http.StatusServiceUnavailable)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
@@ -45,20 +45,20 @@ func (h *AuthHandler) sendLoginOrChallenge(w http.ResponseWriter, r *http.Reques
 		"challenge_id":        challengeID,
 		"channel":             details.TwoFactorChannel,
 		"destination":         maskedDestination(details, details.TwoFactorChannel),
-		"message":             "Enter the code sent to your registered security method.",
+		"message": localized(r.Context(), "MsgEnterTheCodeSentToYourRegisteredSecurityMethod", "Enter the code sent to your registered security method."),
 	})
 }
 
 func (h *AuthHandler) GetTwoFactorSettings(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	details, err := h.Repo.GetAuthDetailsByUserID(r.Context(), userID)
 	if err != nil {
 		log.Printf("[AUTH] Failed to load two-factor settings for %s: %v", userID, err)
-		http.Error(w, "Could not load security settings", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotLoadSecuritySettings", "Could not load security settings"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -74,7 +74,7 @@ func (h *AuthHandler) GetTwoFactorSettings(w http.ResponseWriter, r *http.Reques
 func (h *AuthHandler) RequestTwoFactorChange(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	var req struct {
@@ -82,23 +82,23 @@ func (h *AuthHandler) RequestTwoFactorChange(w http.ResponseWriter, r *http.Requ
 		Channel string `json:"channel"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	details, err := h.Repo.GetAuthDetailsByUserID(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Could not load account security details", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotLoadAccountSecurityDetails", "Could not load account security details"), http.StatusInternalServerError)
 		return
 	}
 	if !req.Enabled {
 		user, err := h.Repo.GetUserByID(r.Context(), userID)
 		if err != nil {
 			log.Printf("[AUTH] Could not verify role before disabling two-factor for %s: %v", userID, err)
-			http.Error(w, "Could not verify account security settings", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrCouldNotVerifyAccountSecuritySettings", "Could not verify account security settings"), http.StatusInternalServerError)
 			return
 		}
 		if user.Role == "admin" {
-			http.Error(w, "Administrator accounts must keep two-factor authentication enabled", http.StatusForbidden)
+			http.Error(w, localized(r.Context(), "ErrAdministratorAccountsMustKeepTwoFactorAuthenticationEna", "Administrator accounts must keep two-factor authentication enabled"), http.StatusForbidden)
 			return
 		}
 	}
@@ -106,28 +106,28 @@ func (h *AuthHandler) RequestTwoFactorChange(w http.ResponseWriter, r *http.Requ
 	purpose := "enable_2fa"
 	if !req.Enabled {
 		if !details.TwoFactorEnabled {
-			http.Error(w, "Two-factor authentication is already disabled", http.StatusConflict)
+			http.Error(w, localized(r.Context(), "ErrTwoFactorAuthenticationIsAlreadyDisabled", "Two-factor authentication is already disabled"), http.StatusConflict)
 			return
 		}
 		purpose = "disable_2fa"
 		channel = details.TwoFactorChannel
 	}
 	if channel != "email" && channel != "sms" {
-		http.Error(w, "Choose email or SMS for verification", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrChooseEmailOrSMSForVerification", "Choose email or SMS for verification"), http.StatusBadRequest)
 		return
 	}
 	if channel == "sms" && details.PhoneNumber == "" {
-		http.Error(w, "Add a phone number to your Chattie profile before choosing SMS", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAddAPhoneNumberToYourChattieProfileBeforeChoosingSMS", "Add a phone number to your Chattie profile before choosing SMS"), http.StatusBadRequest)
 		return
 	}
 	challengeID, err := h.startAuthChallenge(r, details, purpose, channel)
 	if err != nil {
 		if errors.Is(err, repository.ErrAuthChallengeRateLimited) {
-			http.Error(w, "Too many verification codes requested. Try again later.", http.StatusTooManyRequests)
+			http.Error(w, localized(r.Context(), "ErrTooManyVerificationCodesRequestedTryAgainLater2", "Too many verification codes requested. Try again later."), http.StatusTooManyRequests)
 			return
 		}
 		log.Printf("[AUTH] Failed to send two-factor setup code for %s: %v", userID, err)
-		http.Error(w, "Could not send verification code", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrCouldNotSendVerificationCode", "Could not send verification code"), http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -137,14 +137,14 @@ func (h *AuthHandler) RequestTwoFactorChange(w http.ResponseWriter, r *http.Requ
 		"enabled":      req.Enabled,
 		"channel":      channel,
 		"destination":  maskedDestination(details, channel),
-		"message":      "Enter the code to confirm this security change.",
+		"message": localized(r.Context(), "MsgEnterTheCodeToConfirmThisSecurityChange", "Enter the code to confirm this security change."),
 	})
 }
 
 func (h *AuthHandler) VerifyTwoFactorChange(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	var req struct {
@@ -153,7 +153,7 @@ func (h *AuthHandler) VerifyTwoFactorChange(w http.ResponseWriter, r *http.Reque
 		Enabled     bool   `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	purpose := "disable_2fa"
@@ -162,28 +162,28 @@ func (h *AuthHandler) VerifyTwoFactorChange(w http.ResponseWriter, r *http.Reque
 	}
 	challenge, err := h.Repo.GetAuthChallenge(r.Context(), req.ChallengeID, purpose)
 	if err != nil || challenge.UserID != userID {
-		http.Error(w, "Invalid or expired verification code", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidOrExpiredVerificationCode", "Invalid or expired verification code"), http.StatusUnauthorized)
 		return
 	}
 	if _, err := h.verifyAuthCode(r, req.ChallengeID, purpose, req.Code, userID); err != nil {
-		http.Error(w, "Invalid or expired verification code", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidOrExpiredVerificationCode2", "Invalid or expired verification code"), http.StatusUnauthorized)
 		return
 	}
 	if !req.Enabled {
 		user, err := h.Repo.GetUserByID(r.Context(), userID)
 		if err != nil {
 			log.Printf("[AUTH] Could not verify role before disabling two-factor for %s: %v", userID, err)
-			http.Error(w, "Could not verify account security settings", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrCouldNotVerifyAccountSecuritySettings2", "Could not verify account security settings"), http.StatusInternalServerError)
 			return
 		}
 		if user.Role == "admin" {
-			http.Error(w, "Administrator accounts must keep two-factor authentication enabled", http.StatusForbidden)
+			http.Error(w, localized(r.Context(), "ErrAdministratorAccountsMustKeepTwoFactorAuthenticationEna2", "Administrator accounts must keep two-factor authentication enabled"), http.StatusForbidden)
 			return
 		}
 	}
 	if err := h.Repo.SetTwoFactor(r.Context(), userID, req.Enabled, challenge.Channel); err != nil {
 		log.Printf("[AUTH] Failed to save two-factor setting for %s: %v", userID, err)
-		http.Error(w, "Could not update two-factor settings", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotUpdateTwoFactorSettings", "Could not update two-factor settings"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -196,18 +196,18 @@ func (h *AuthHandler) VerifyLoginTwoFactor(w http.ResponseWriter, r *http.Reques
 		Code        string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	userID, err := h.verifyAuthCode(r, req.ChallengeID, "login_2fa", req.Code, "")
 	if err != nil {
-		http.Error(w, "Invalid or expired verification code", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidOrExpiredVerificationCode3", "Invalid or expired verification code"), http.StatusUnauthorized)
 		return
 	}
 	user, err := h.Repo.GetUserByID(r.Context(), userID)
 	if err != nil {
 		log.Printf("[AUTH] Failed to load user after two-factor verification: %v", err)
-		http.Error(w, "Could not complete sign-in", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "MsgCouldNotCompleteSignIn2", "Could not complete sign-in"), http.StatusInternalServerError)
 		return
 	}
 	h.sendAuthResponse(w, r, user)
@@ -219,7 +219,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 		Channel string `json:"channel"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
@@ -238,7 +238,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"challenge_id": decoyID,
-		"message":      "If an eligible account matches those details, a password reset code has been sent.",
+		"message": localized(r.Context(), "MsgIfAnEligibleAccountMatchesThoseDetailsAPasswordResetCod", "If an eligible account matches those details, a password reset code has been sent."),
 	})
 }
 
@@ -249,34 +249,34 @@ func (h *AuthHandler) CompletePasswordReset(w http.ResponseWriter, r *http.Reque
 		NewPassword string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	if len(req.NewPassword) < 8 {
-		http.Error(w, "Password must be at least 8 characters", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrPasswordMustBeAtLeast8Characters", "Password must be at least 8 characters"), http.StatusBadRequest)
 		return
 	}
 	challenge, err := h.Repo.GetAuthChallenge(r.Context(), req.ChallengeID, "password_reset")
 	if err != nil {
-		http.Error(w, "Invalid or expired verification code", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidOrExpiredVerificationCode4", "Invalid or expired verification code"), http.StatusUnauthorized)
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(challenge.CodeHash), []byte(req.Code)) != nil {
 		_ = h.Repo.RecordAuthChallengeFailure(r.Context(), req.ChallengeID)
-		http.Error(w, "Invalid or expired verification code", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidOrExpiredVerificationCode5", "Invalid or expired verification code"), http.StatusUnauthorized)
 		return
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Could not update password", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotUpdatePassword", "Could not update password"), http.StatusInternalServerError)
 		return
 	}
 	if err := h.Repo.CompletePasswordReset(r.Context(), req.ChallengeID, challenge.UserID, string(passwordHash)); err != nil {
-		http.Error(w, "Invalid or expired verification code", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidOrExpiredVerificationCode6", "Invalid or expired verification code"), http.StatusUnauthorized)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Password reset successful. You can now sign in."})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgPasswordResetSuccessfulYouCanNowSignIn", "Password reset successful. You can now sign in.")})
 }
 
 func (h *AuthHandler) startAuthChallenge(r *http.Request, details *repository.AuthDetails, purpose, channel string) (string, error) {

@@ -90,7 +90,7 @@ func (h *ADProfileHandler) UpdateMyPerformerProfile(w http.ResponseWriter, r *ht
 	}
 	if req.SubscriptionPriceCents != nil {
 		if *req.SubscriptionPriceCents < 0 {
-			http.Error(w, "Subscription price cannot be negative", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "ErrSubscriptionPriceCannotBeNegative", "Subscription price cannot be negative"), http.StatusBadRequest)
 			return
 		}
 		profile.SubscriptionPriceCents = *req.SubscriptionPriceCents
@@ -120,13 +120,13 @@ func (h *ADProfileHandler) UpdateMyPerformerProfile(w http.ResponseWriter, r *ht
 func (h *ADProfileHandler) GetSubscribers(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	subscribers, err := h.Repo.GetSubscribers(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch subscribers", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchSubscribers", "Failed to fetch subscribers"), http.StatusInternalServerError)
 		return
 	}
 

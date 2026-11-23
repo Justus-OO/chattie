@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -39,7 +40,7 @@ func notificationUserID(r *http.Request) (string, bool) {
 func (h *NotificationHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID, ok := notificationUserID(r)
 	if !ok {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized")), http.StatusUnauthorized)
 		return
 	}
 
@@ -64,7 +65,7 @@ func (h *NotificationHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *NotificationHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	userID, ok := notificationUserID(r)
 	if !ok {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized")), http.StatusUnauthorized)
 		return
 	}
 
@@ -108,7 +109,7 @@ func (h *NotificationHandler) MarkAllRead(w http.ResponseWriter, r *http.Request
 func (h *NotificationHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID, ok := notificationUserID(r)
 	if !ok {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized")), http.StatusUnauthorized)
 		return
 	}
 
@@ -131,7 +132,7 @@ func (h *NotificationHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 func (h *NotificationHandler) GetVAPIDPublicKey(w http.ResponseWriter, r *http.Request) {
 	if h.Push == nil || !h.Push.Configured() {
-		http.Error(w, `{"error":"Background notifications are not configured"}`, http.StatusServiceUnavailable)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrBackgroundNotificationsAreNotConfigured", "Background notifications are not configured")), http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -141,11 +142,11 @@ func (h *NotificationHandler) GetVAPIDPublicKey(w http.ResponseWriter, r *http.R
 func (h *NotificationHandler) SavePushSubscription(w http.ResponseWriter, r *http.Request) {
 	userID, ok := notificationUserID(r)
 	if !ok {
-		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized")), http.StatusUnauthorized)
 		return
 	}
 	if h.Push == nil || !h.Push.Configured() {
-		http.Error(w, `{"error":"Background notifications are not configured"}`, http.StatusServiceUnavailable)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrBackgroundNotificationsAreNotConfigured2", "Background notifications are not configured")), http.StatusServiceUnavailable)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
@@ -157,7 +158,7 @@ func (h *NotificationHandler) SavePushSubscription(w http.ResponseWriter, r *htt
 		} `json:"keys"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid subscription payload"}`, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrInvalidSubscriptionPayload", "Invalid subscription payload")), http.StatusBadRequest)
 		return
 	}
 	req.Endpoint = strings.TrimSpace(req.Endpoint)
@@ -165,7 +166,7 @@ func (h *NotificationHandler) SavePushSubscription(w http.ResponseWriter, r *htt
 	if err != nil || parsedEndpoint.Scheme != "https" || parsedEndpoint.Host == "" ||
 		len(req.Endpoint) > 4096 || req.Keys.P256DH == "" || req.Keys.Auth == "" ||
 		len(req.Keys.P256DH) > 512 || len(req.Keys.Auth) > 512 {
-		http.Error(w, `{"error":"Invalid browser push subscription"}`, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrInvalidBrowserPushSubscription", "Invalid browser push subscription")), http.StatusBadRequest)
 		return
 	}
 	if err := h.Repo.SaveWebPushSubscription(r.Context(), userID, repository.WebPushSubscription{
@@ -174,11 +175,11 @@ func (h *NotificationHandler) SavePushSubscription(w http.ResponseWriter, r *htt
 		Auth:     req.Keys.Auth,
 	}); err != nil {
 		if errors.Is(err, repository.ErrWebPushSubscriptionOwned) {
-			http.Error(w, `{"error":"This browser push subscription is associated with another account. Disable it there before transferring it."}`, http.StatusConflict)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrThisBrowserPushSubscriptionIsAssociatedWithAnotherAccou", "This browser push subscription is associated with another account. Disable it there before transferring it.")), http.StatusConflict)
 			return
 		}
 		log.Printf("[PUSH ERROR] Failed to save subscription for %s: %v", userID, err)
-		http.Error(w, `{"error":"Could not save push subscription"}`, http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrCouldNotSavePushSubscription", "Could not save push subscription")), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -187,7 +188,7 @@ func (h *NotificationHandler) SavePushSubscription(w http.ResponseWriter, r *htt
 func (h *NotificationHandler) DeletePushSubscription(w http.ResponseWriter, r *http.Request) {
 	userID, ok := notificationUserID(r)
 	if !ok {
-		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized")), http.StatusUnauthorized)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
@@ -195,12 +196,12 @@ func (h *NotificationHandler) DeletePushSubscription(w http.ResponseWriter, r *h
 		Endpoint string `json:"endpoint"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Endpoint) == "" {
-		http.Error(w, `{"error":"Push endpoint is required"}`, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrPushEndpointIsRequired", "Push endpoint is required")), http.StatusBadRequest)
 		return
 	}
 	if err := h.Repo.DeleteWebPushSubscription(r.Context(), userID, strings.TrimSpace(req.Endpoint)); err != nil {
 		log.Printf("[PUSH ERROR] Failed to remove subscription for %s: %v", userID, err)
-		http.Error(w, `{"error":"Could not remove push subscription"}`, http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrCouldNotRemovePushSubscription", "Could not remove push subscription")), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

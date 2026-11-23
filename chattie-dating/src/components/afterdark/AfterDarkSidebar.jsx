@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
-  Flame, Users, Wallet, Settings, Sparkles, MessageCircle,
+  Flame, Users, Wallet, Settings, Sparkles, MessageCircle, X,
   Crown, ChevronRight, Image as ImageIcon,
   TrendingUp, ShieldAlert, LogOut, PlusSquare, Loader2
 } from 'lucide-react';
@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { afterDarkService } from '../../api/afterdark.service';
 import { useI18n } from '../../i18n';
 
-export default function AfterDarkSidebar() {
+export default function AfterDarkSidebar({ onClose }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useI18n();
@@ -143,6 +143,28 @@ export default function AfterDarkSidebar() {
 
   return (
     <aside className="w-full h-full flex flex-col bg-zinc-950 border-r border-zinc-800 font-mono text-zinc-300">
+
+      <div className="flex md:hidden items-center justify-between gap-3 border-b border-zinc-800 bg-black px-4 py-3 shrink-0">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-zinc-700 bg-zinc-950 text-white">
+            <Flame className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-black uppercase tracking-widest text-white">AFTER DARK</h2>
+            <span className="mt-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+              <ShieldAlert className="h-3 w-3 shrink-0" /> {t('adAdultsOnly')}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="shrink-0 border-2 border-zinc-800 bg-black p-2 text-zinc-400 transition-colors hover:border-yellow-500 hover:text-white"
+          aria-label={t('closeMenu')}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
       
       {/* DESKTOP HEADER */}
       <div className="hidden md:flex items-center justify-between p-4 border-b border-zinc-800 bg-black shrink-0">

@@ -728,7 +728,7 @@ export default function AfterDarkMyChannel() {
                     className="h-full w-full object-contain"
                   />
                 ) : (
-                  <img src={post.url} alt="media" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity rounded-none" />
+                  <img src={post.url} alt={t('afterDarkUiMedia')} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity rounded-none" />
                 )}
                 
                 <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-20">

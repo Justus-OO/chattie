@@ -43,63 +43,63 @@ func NewAIChatHandler(chatRepo *repository.ChatRepository, aiRepo *repository.AI
 func (h *AIChatHandler) GenerateModelSuggestions(w http.ResponseWriter, r *http.Request) {
 	modelID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || modelID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	if h.CreatorRepo == nil || h.ChatRepo == nil || h.Gemini == nil || !h.Gemini.Available() {
-		http.Error(w, "AI assistant is not configured", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrAIAssistantIsNotConfigured", "AI assistant is not configured"), http.StatusServiceUnavailable)
 		return
 	}
 
 	profileID := chi.URLParam(r, "profile_id")
 	partnerID := chi.URLParam(r, "partner_id")
 	if _, err := uuid.Parse(profileID); err != nil {
-		http.Error(w, "A valid assigned profile is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidAssignedProfileIsRequired", "A valid assigned profile is required"), http.StatusBadRequest)
 		return
 	}
 	if _, err := uuid.Parse(partnerID); err != nil {
-		http.Error(w, "A valid chat partner is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidChatPartnerIsRequired", "A valid chat partner is required"), http.StatusBadRequest)
 		return
 	}
 
 	enabled, err := h.CreatorRepo.IsModelAIDraftsEnabled(r.Context(), modelID)
 	if err != nil {
 		log.Printf("[AI CHAT] Failed to load model draft preference for %s: %v", modelID, err)
-		http.Error(w, "Could not load model AI setting", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotLoadModelAISetting", "Could not load model AI setting"), http.StatusInternalServerError)
 		return
 	}
 	if !enabled {
-		http.Error(w, "Enable AI chat drafts in model settings first", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrEnableAIChatDraftsInModelSettingsFirst", "Enable AI chat drafts in model settings first"), http.StatusForbidden)
 		return
 	}
 
 	profileChatUserID, err := h.CreatorRepo.ResolveManagedProfileChatIdentity(r.Context(), profileID, modelID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Assigned profile not found", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrAssignedProfileNotFound", "Assigned profile not found"), http.StatusNotFound)
 			return
 		}
 		log.Printf("[AI CHAT] Failed to validate assigned profile %s for %s: %v", profileID, modelID, err)
-		http.Error(w, "Could not validate assigned profile", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotValidateAssignedProfile", "Could not validate assigned profile"), http.StatusInternalServerError)
 		return
 	}
 	if profileChatUserID == partnerID {
-		http.Error(w, "A different chat partner is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrADifferentChatPartnerIsRequired", "A different chat partner is required"), http.StatusBadRequest)
 		return
 	}
 	if !h.allowSuggestion(modelID, time.Now()) {
-		http.Error(w, "Please wait before requesting more suggestions", http.StatusTooManyRequests)
+		http.Error(w, localized(r.Context(), "ErrPleaseWaitBeforeRequestingMoreSuggestions", "Please wait before requesting more suggestions"), http.StatusTooManyRequests)
 		return
 	}
 
 	messages, err := h.ChatRepo.GetDirectMessages(profileChatUserID, partnerID, 12)
 	if err != nil {
 		log.Printf("[AI CHAT] Failed to load model conversation for profile %s and partner %s: %v", profileID, partnerID, err)
-		http.Error(w, "Could not load conversation context", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotLoadConversationContext", "Could not load conversation context"), http.StatusInternalServerError)
 		return
 	}
 	if len(messages) == 0 {
-		http.Error(w, "Start a conversation before requesting suggestions", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrStartAConversationBeforeRequestingSuggestions", "Start a conversation before requesting suggestions"), http.StatusBadRequest)
 		return
 	}
 
@@ -115,27 +115,27 @@ func (h *AIChatHandler) GenerateModelSuggestions(w http.ResponseWriter, r *http.
 	)
 	if err != nil {
 		log.Printf("[AI CHAT] Model suggestion generation failed for model %s: %v", modelID, err)
-		http.Error(w, "AI suggestions are temporarily unavailable", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrAISuggestionsAreTemporarilyUnavailable", "AI suggestions are temporarily unavailable"), http.StatusBadGateway)
 		return
 	}
 
 	generated, err = services.NormalizeGeminiJSON(generated)
 	if err != nil {
 		log.Printf("[AI CHAT] Model suggestions returned invalid JSON for model %s: %v", modelID, err)
-		http.Error(w, "AI returned an invalid suggestion response", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrAIReturnedAnInvalidSuggestionResponse", "AI returned an invalid suggestion response"), http.StatusBadGateway)
 		return
 	}
 	var result struct {
 		Suggestions []string `json:"suggestions"`
 	}
 	if err := json.Unmarshal([]byte(generated), &result); err != nil || len(result.Suggestions) < 3 {
-		http.Error(w, "AI returned an invalid suggestion response", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrAIReturnedAnInvalidSuggestionResponse2", "AI returned an invalid suggestion response"), http.StatusBadGateway)
 		return
 	}
 	for i := 0; i < 3; i++ {
 		result.Suggestions[i] = strings.TrimSpace(result.Suggestions[i])
 		if result.Suggestions[i] == "" || utf8.RuneCountInString(result.Suggestions[i]) > 400 {
-			http.Error(w, "AI returned an invalid suggestion response", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrAIReturnedAnInvalidSuggestionResponse3", "AI returned an invalid suggestion response"), http.StatusBadGateway)
 			return
 		}
 	}
@@ -148,32 +148,32 @@ func (h *AIChatHandler) GenerateModelSuggestions(w http.ResponseWriter, r *http.
 func (h *AIChatHandler) GenerateSuggestions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	if !h.Gemini.Available() {
-		http.Error(w, "AI assistant is not configured", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrAIAssistantIsNotConfigured2", "AI assistant is not configured"), http.StatusServiceUnavailable)
 		return
 	}
 
 	partnerID := chi.URLParam(r, "target_id")
 	if _, err := uuid.Parse(partnerID); err != nil || partnerID == userID {
-		http.Error(w, "A valid chat partner is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidChatPartnerIsRequired2", "A valid chat partner is required"), http.StatusBadRequest)
 		return
 	}
 	if !h.allowSuggestion(userID, time.Now()) {
-		http.Error(w, "Please wait before requesting more suggestions", http.StatusTooManyRequests)
+		http.Error(w, localized(r.Context(), "ErrPleaseWaitBeforeRequestingMoreSuggestions2", "Please wait before requesting more suggestions"), http.StatusTooManyRequests)
 		return
 	}
 
 	messages, err := h.ChatRepo.GetDirectMessages(userID, partnerID, 12)
 	if err != nil {
 		log.Printf("[AI CHAT] Failed to load context for user %s: %v", userID, err)
-		http.Error(w, "Could not load conversation context", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotLoadConversationContext2", "Could not load conversation context"), http.StatusInternalServerError)
 		return
 	}
 	if len(messages) == 0 {
-		http.Error(w, "Start a conversation before requesting suggestions", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrStartAConversationBeforeRequestingSuggestions2", "Start a conversation before requesting suggestions"), http.StatusBadRequest)
 		return
 	}
 
@@ -187,14 +187,14 @@ func (h *AIChatHandler) GenerateSuggestions(w http.ResponseWriter, r *http.Reque
 	)
 	if err != nil {
 		log.Printf("[AI CHAT] Suggestion generation failed for user %s: %v", userID, err)
-		http.Error(w, "AI suggestions are temporarily unavailable", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrAISuggestionsAreTemporarilyUnavailable2", "AI suggestions are temporarily unavailable"), http.StatusBadGateway)
 		return
 	}
 
 	generated, err = services.NormalizeGeminiJSON(generated)
 	if err != nil {
 		log.Printf("[AI CHAT] Suggestions returned invalid JSON for user %s: %v", userID, err)
-		http.Error(w, "AI returned an invalid suggestion response", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrAIReturnedAnInvalidSuggestionResponse4", "AI returned an invalid suggestion response"), http.StatusBadGateway)
 		return
 	}
 	var result struct {
@@ -202,17 +202,17 @@ func (h *AIChatHandler) GenerateSuggestions(w http.ResponseWriter, r *http.Reque
 	}
 	if err := json.Unmarshal([]byte(generated), &result); err != nil {
 		log.Printf("[AI CHAT] Gemini returned invalid suggestion format for user %s", userID)
-		http.Error(w, "AI returned an invalid suggestion response", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrAIReturnedAnInvalidSuggestionResponse5", "AI returned an invalid suggestion response"), http.StatusBadGateway)
 		return
 	}
 	if len(result.Suggestions) < 3 {
-		http.Error(w, "AI returned too few suggestions", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrAIReturnedTooFewSuggestions", "AI returned too few suggestions"), http.StatusBadGateway)
 		return
 	}
 	for i := 0; i < 3; i++ {
 		result.Suggestions[i] = strings.TrimSpace(result.Suggestions[i])
 		if result.Suggestions[i] == "" || utf8.RuneCountInString(result.Suggestions[i]) > 400 {
-			http.Error(w, "AI returned an invalid suggestion", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrAIReturnedAnInvalidSuggestion", "AI returned an invalid suggestion"), http.StatusBadGateway)
 			return
 		}
 	}
@@ -226,18 +226,18 @@ func (h *AIChatHandler) GenerateSuggestions(w http.ResponseWriter, r *http.Reque
 func (h *AIChatHandler) GetAutoReplyPreference(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	partnerID := chi.URLParam(r, "target_id")
 	if _, err := uuid.Parse(partnerID); err != nil || partnerID == userID {
-		http.Error(w, "A valid chat partner is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidChatPartnerIsRequired3", "A valid chat partner is required"), http.StatusBadRequest)
 		return
 	}
 	enabled, err := h.AIRepo.GetAutoReplyEnabled(r.Context(), userID, partnerID)
 	if err != nil {
 		log.Printf("[AI CHAT] Failed to load auto-reply preference for user %s: %v", userID, err)
-		http.Error(w, "Could not load AI auto-reply setting", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotLoadAIAutoReplySetting", "Could not load AI auto-reply setting"), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"enabled": enabled, "idle_hours": 5})
@@ -246,12 +246,12 @@ func (h *AIChatHandler) GetAutoReplyPreference(w http.ResponseWriter, r *http.Re
 func (h *AIChatHandler) SetAutoReplyPreference(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	partnerID := chi.URLParam(r, "target_id")
 	if _, err := uuid.Parse(partnerID); err != nil || partnerID == userID {
-		http.Error(w, "A valid chat partner is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidChatPartnerIsRequired4", "A valid chat partner is required"), http.StatusBadRequest)
 		return
 	}
 	var request struct {
@@ -260,20 +260,20 @@ func (h *AIChatHandler) SetAutoReplyPreference(w http.ResponseWriter, r *http.Re
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		http.Error(w, "Invalid auto-reply setting", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidAutoReplySetting", "Invalid auto-reply setting"), http.StatusBadRequest)
 		return
 	}
 	if request.Enabled && !h.Gemini.Available() {
-		http.Error(w, "AI assistant is not configured", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrAIAssistantIsNotConfigured3", "AI assistant is not configured"), http.StatusServiceUnavailable)
 		return
 	}
 	if err := h.AIRepo.SetAutoReplyEnabled(r.Context(), userID, partnerID, request.Enabled); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Conversation not found", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrConversationNotFound9", "Conversation not found"), http.StatusNotFound)
 			return
 		}
 		log.Printf("[AI CHAT] Failed to save auto-reply preference for user %s: %v", userID, err)
-		http.Error(w, "Could not save AI auto-reply setting", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotSaveAIAutoReplySetting", "Could not save AI auto-reply setting"), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"enabled": request.Enabled, "idle_hours": 5})

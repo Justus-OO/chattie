@@ -42,7 +42,7 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	var payload OTPRequestPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload")})
 		return
 	}
 
@@ -51,7 +51,7 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 
 	if payload.Channel != "sms" && payload.Channel != "email" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Channel must be 'sms' or 'email'"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrChannelMustBeSmsOrEmail", "Channel must be 'sms' or 'email'")})
 		return
 	}
 
@@ -66,29 +66,29 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("[OTP ERROR] Failed to load email destination for user %s: %v", userID, err)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Could not load account email"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrCouldNotLoadAccountEmail", "Could not load account email")})
 			return
 		}
 		payload.Target = strings.TrimSpace(user.Email)
 		if payload.Target == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "No email address is set on this account"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrNoEmailAddressIsSetOnThisAccount", "No email address is set on this account")})
 			return
 		}
 		if h.Email == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Email delivery is unavailable"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrEmailDeliveryIsUnavailable", "Email delivery is unavailable")})
 			return
 		}
 	} else {
 		if payload.Target == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "A phone number is required"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrAPhoneNumberIsRequired", "A phone number is required")})
 			return
 		}
 		if h.SMS == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"error": "SMS delivery is unavailable"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrSMSDeliveryIsUnavailable", "SMS delivery is unavailable")})
 			return
 		}
 	}
@@ -106,12 +106,12 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	if err := h.Repo.SaveOTP(r.Context(), userID, otpCode, expiresAt); err != nil {
 		if errors.Is(err, repository.ErrOTPRequestRateLimited) {
 			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Please wait 60 seconds before requesting another code"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrPleaseWait60SecondsBeforeRequestingAnotherCode", "Please wait 60 seconds before requesting another code")})
 			return
 		}
 		log.Printf("[OTP ERROR] Failed to save OTP for user %s: %v", userID, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to process OTP request"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedToProcessOTPRequest", "Failed to process OTP request")})
 		return
 	}
 
@@ -121,21 +121,21 @@ func (h *OTPHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 		if err := h.SMS.QueueTemplatedSMS(r.Context(), payload.Target, "otp_verification_sms", templateData); err != nil {
 			log.Printf("[SMS QUEUE ERROR] Failed to queue OTP for %s: %v", payload.Target, err)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to queue SMS delivery"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedToQueueSMSDelivery", "Failed to queue SMS delivery")})
 			return
 		}
 	} else if payload.Channel == "email" {
 		if err := h.Email.SendOTPEmail(r.Context(), payload.Target, otpCode); err != nil {
 			log.Printf("[EMAIL QUEUE ERROR] Failed to queue OTP for %s: %v", payload.Target, err)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to queue Email delivery"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedToQueueEmailDelivery", "Failed to queue Email delivery")})
 			return
 		}
 	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Verification code sent successfully",
+		"message": localized(r.Context(), "MsgVerificationCodeSentSuccessfully", "Verification code sent successfully"),
 	})
 }
 

@@ -64,11 +64,11 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	disposable, err := h.isDisposableEmail(r.Context(), user.Email)
 	if err != nil {
 		log.Printf("[AUTH] Could not check disposable-email rule: %v", err)
-		http.Error(w, "Registration is temporarily unavailable", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrRegistrationIsTemporarilyUnavailable", "Registration is temporarily unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	if disposable {
-		http.Error(w, "Disposable email providers are not supported", http.StatusUnprocessableEntity)
+		http.Error(w, localized(r.Context(), "ErrDisposableEmailProvidersAreNotSupported", "Disposable email providers are not supported"), http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -129,7 +129,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Prevent social logins from using an empty/dummy password to login locally
 	if user.Provider != "local" && user.Provider != "" {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": localizedMessage(r.Context(), "TplLoginProviderRequired", "Please log in using your %s account", map[string]interface{}{"Provider": user.Provider})})
+		json.NewEncoder(w).Encode(map[string]string{"error": localizedMessage(r.Context(), "TplLoginProviderRequired", "Please log in using your {{.Provider}} account", map[string]interface{}{"Provider": user.Provider})})
 		return
 	}
 
@@ -146,7 +146,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	var req struct {
@@ -154,30 +154,30 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword     string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	if len(req.NewPassword) < 8 {
-		http.Error(w, "New password must be at least 8 characters", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrNewPasswordMustBeAtLeast8Characters", "New password must be at least 8 characters"), http.StatusBadRequest)
 		return
 	}
 	passwordHash, err := h.Repo.GetPasswordHash(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to verify current password", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyCurrentPassword", "Failed to verify current password"), http.StatusInternalServerError)
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.CurrentPassword)); err != nil {
-		http.Error(w, "Current password is incorrect", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrCurrentPasswordIsIncorrect", "Current password is incorrect"), http.StatusUnauthorized)
 		return
 	}
 	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToUpdatePassword", "Failed to update password"), http.StatusInternalServerError)
 		return
 	}
 	version, err := h.Repo.UpdatePasswordAndRevokeOtherSessions(r.Context(), userID, string(newHash))
 	if err != nil {
-		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToUpdatePassword2", "Failed to update password"), http.StatusInternalServerError)
 		return
 	}
 	role, _ := r.Context().Value(middlewares.RoleKey).(string)
@@ -186,7 +186,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := h.issueSessionToken(r, userID, role, version)
 	if err != nil {
-		http.Error(w, "Password updated, but session refresh failed. Please sign in again.", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "MsgPasswordUpdatedButSessionRefreshFailedPleaseSignInAgain", "Password updated, but session refresh failed. Please sign in again."), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -206,7 +206,7 @@ func (h *AuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	var req OAuthRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidPayloadShort", "Invalid payload"), http.StatusBadRequest)
 		return
 	}
 
@@ -214,7 +214,7 @@ func (h *AuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := idtoken.Validate(r.Context(), req.IDToken, clientID)
 	if err != nil {
-		http.Error(w, "Invalid Google token", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidGoogleToken", "Invalid Google token"), http.StatusUnauthorized)
 		return
 	}
 
@@ -243,14 +243,14 @@ func (h *AuthHandler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 	var req OAuthRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidPayloadShort", "Invalid payload"), http.StatusBadRequest)
 		return
 	}
 
 	// Lazy load the keys if they haven't been initialized yet
 	if appleJWKS == nil {
 		if err := InitAppleKeys(); err != nil {
-			http.Error(w, "Failed to load Apple public keys", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrFailedToLoadApplePublicKeys", "Failed to load Apple public keys"), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -258,14 +258,14 @@ func (h *AuthHandler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 	// 1. Parse and verify the token signature using Apple's public keys
 	token, err := jwt.Parse(req.IDToken, appleJWKS.Keyfunc)
 	if err != nil || !token.Valid {
-		http.Error(w, "Invalid Apple token signature", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidAppleTokenSignature", "Invalid Apple token signature"), http.StatusUnauthorized)
 		return
 	}
 
 	// 2. Extract the claims
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrInvalidTokenClaims", "Invalid token claims"), http.StatusUnauthorized)
 		return
 	}
 
@@ -273,14 +273,14 @@ func (h *AuthHandler) AppleSignIn(w http.ResponseWriter, r *http.Request) {
 	appClientID := os.Getenv("APPLE_CLIENT_ID")
 	aud, _ := claims["aud"].(string)
 	if aud != appClientID {
-		http.Error(w, "Apple token verification failed: Invalid Audience", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrAppleTokenVerificationFailedInvalidAudience", "Apple token verification failed: Invalid Audience"), http.StatusUnauthorized)
 		return
 	}
 
 	// 4. Extract Email (Apple private relay emails will also show up here)
 	email, _ := claims["email"].(string)
 	if email == "" {
-		http.Error(w, "Email not provided by Apple", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrEmailNotProvidedByApple", "Email not provided by Apple"), http.StatusBadRequest)
 		return
 	}
 
@@ -303,11 +303,11 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 		disposable, ruleErr := h.isDisposableEmail(r.Context(), email)
 		if ruleErr != nil {
 			log.Printf("[AUTH] Could not check disposable-email rule: %v", ruleErr)
-			http.Error(w, "Registration is temporarily unavailable", http.StatusServiceUnavailable)
+			http.Error(w, localized(r.Context(), "ErrRegistrationIsTemporarilyUnavailable2", "Registration is temporarily unavailable"), http.StatusServiceUnavailable)
 			return
 		}
 		if disposable {
-			http.Error(w, "Disposable email providers are not supported", http.StatusUnprocessableEntity)
+			http.Error(w, localized(r.Context(), "ErrDisposableEmailProvidersAreNotSupported2", "Disposable email providers are not supported"), http.StatusUnprocessableEntity)
 			return
 		}
 		user = &models.User{
@@ -321,7 +321,7 @@ func (h *AuthHandler) processSocialLogin(w http.ResponseWriter, r *http.Request,
 
 		if err := h.Repo.CreateUser(user); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Failed to create account"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedCreateAccount", "Failed to create account")})
 			return
 		}
 
@@ -390,7 +390,7 @@ func (h *AuthHandler) sendAuthResponse(w http.ResponseWriter, r *http.Request, u
 	if err != nil {
 		log.Printf("[AUTH] Failed to create login session for user %s: %v", user.ID, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Could not generate token"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrCouldNotGenerateToken", "Could not generate token")})
 		return
 	}
 	if err := h.Repo.RecordSuccessfulLogin(r.Context(), user.ID); err != nil {

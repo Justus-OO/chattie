@@ -30,19 +30,19 @@ func NewADInteractionsHandler(repo *repository.ADInteractionsRepository, events 
 func (h *ADInteractionsHandler) ToggleLike(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	postID := chi.URLParam(r, "postId")
 	if postID == "" {
-		http.Error(w, "Post ID is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrPostIDIsRequired", "Post ID is required"), http.StatusBadRequest)
 		return
 	}
 
 	liked, err := h.Repo.ToggleLike(r.Context(), userID, postID)
 	if err != nil {
-		http.Error(w, "Failed to toggle like", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToToggleLike", "Failed to toggle like"), http.StatusInternalServerError)
 		return
 	}
 	if liked && h.Events != nil {
@@ -58,7 +58,7 @@ func (h *ADInteractionsHandler) ToggleLike(w http.ResponseWriter, r *http.Reques
 				RecipientID: creatorID,
 				WSEventType: "AFTER_DARK_LIKE",
 				WSPayload: map[string]interface{}{
-					"title": "New After Dark like", "message": "A member liked your post.", "post_id": postID,
+					"title": localized(r.Context(), "MsgNewAfterDarkLike", "New After Dark like"), "message": localized(r.Context(), "MsgAMemberLikedYourPost", "A member liked your post."), "post_id": postID,
 					"action_url": "/afterdark/feed", "action_label": "View post", "category": "social",
 				},
 				EmailTemplate: "afterdark_notification",
@@ -81,7 +81,7 @@ func (h *ADInteractionsHandler) ToggleLike(w http.ResponseWriter, r *http.Reques
 func (h *ADInteractionsHandler) GetComments(w http.ResponseWriter, r *http.Request) {
 	postID := chi.URLParam(r, "postId")
 	if postID == "" {
-		http.Error(w, "Post ID is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrPostIDIsRequired2", "Post ID is required"), http.StatusBadRequest)
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *ADInteractionsHandler) GetComments(w http.ResponseWriter, r *http.Reque
 
 	comments, err := h.Repo.GetComments(r.Context(), postID, limit, offset)
 	if err != nil {
-		http.Error(w, "Failed to fetch comments", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchComments", "Failed to fetch comments"), http.StatusInternalServerError)
 		return
 	}
 
@@ -108,13 +108,13 @@ func (h *ADInteractionsHandler) GetComments(w http.ResponseWriter, r *http.Reque
 func (h *ADInteractionsHandler) AddComment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	postID := chi.URLParam(r, "postId")
 	if postID == "" {
-		http.Error(w, "Post ID is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrPostIDIsRequired3", "Post ID is required"), http.StatusBadRequest)
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *ADInteractionsHandler) AddComment(w http.ResponseWriter, r *http.Reques
 		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Content == "" {
-		http.Error(w, "Invalid request body or missing content", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBodyOrMissingContent", "Invalid request body or missing content"), http.StatusBadRequest)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *ADInteractionsHandler) AddComment(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.Repo.AddComment(r.Context(), comment); err != nil {
-		http.Error(w, "Failed to add comment", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToAddComment", "Failed to add comment"), http.StatusInternalServerError)
 		return
 	}
 
@@ -149,7 +149,7 @@ func (h *ADInteractionsHandler) AddComment(w http.ResponseWriter, r *http.Reques
 func (h *ADInteractionsHandler) SubmitReport(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -160,7 +160,7 @@ func (h *ADInteractionsHandler) SubmitReport(w http.ResponseWriter, r *http.Requ
 		Details    string `json:"details"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 
@@ -176,7 +176,7 @@ func (h *ADInteractionsHandler) SubmitReport(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.Repo.SubmitReport(r.Context(), report); err != nil {
-		http.Error(w, "Failed to submit report", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedSubmitReport", "Failed to submit report"), http.StatusInternalServerError)
 		return
 	}
 
@@ -184,6 +184,6 @@ func (h *ADInteractionsHandler) SubmitReport(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "success",
-		"message": "Report submitted for review",
+		"message": localized(r.Context(), "MsgReportSubmittedForReview", "Report submitted for review"),
 	})
 }

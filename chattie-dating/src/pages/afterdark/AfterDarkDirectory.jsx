@@ -577,7 +577,7 @@ export default function AfterDarkDirectory() {
                 <p className="mb-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.25em] text-zinc-500">
                   <Sparkles className="h-3.5 w-3.5 text-white" /> Find your next favorite
                 </p>
-                <h1 className="flex items-center gap-3 text-xl font-black uppercase tracking-widest text-white sm:text-2xl">
+                <h1 className="hidden items-center gap-3 text-xl font-black uppercase tracking-widest text-white sm:text-2xl md:flex">
                   <Users className="h-6 w-6 text-white" /> CREATOR DIRECTORY
                 </h1>
                 <p className="mt-2 max-w-2xl text-[9px] font-bold uppercase leading-relaxed tracking-widest text-zinc-500">

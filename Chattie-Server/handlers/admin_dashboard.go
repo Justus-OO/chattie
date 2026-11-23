@@ -11,7 +11,7 @@ func (h *AdminHandler) GetDashboardTelemetry(w http.ResponseWriter, r *http.Requ
 	telemetry, err := h.Repo.GetDashboardTelemetry(r.Context())
 	if err != nil {
 		log.Printf("Failed to load admin dashboard telemetry: %v", err)
-		http.Error(w, "Failed to load dashboard data", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedLoadDashboardData", "Failed to load dashboard data"), http.StatusInternalServerError)
 		return
 	}
 	telemetry.GeneratedAt = time.Now()

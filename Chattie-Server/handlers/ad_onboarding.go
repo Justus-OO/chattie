@@ -27,27 +27,27 @@ func NewADPerformerHandler(repo *repository.ADPerformerRepository) *ADPerformerH
 func (h *ADPerformerHandler) GetMyApplication(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	application, err := h.Repo.GetApplicationByUserID(r.Context(), userID)
 	if err != nil {
 		log.Printf("[AFTER DARK ONBOARDING] Failed to fetch creator application for user %s: %v", userID, err)
-		http.Error(w, "Failed to fetch creator application", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchCreatorApplication", "Failed to fetch creator application"), http.StatusInternalServerError)
 		return
 	}
 
 	isCreator, err := h.Repo.IsActiveCreator(r.Context(), userID)
 	if err != nil {
 		log.Printf("[AFTER DARK ONBOARDING] Failed to fetch creator status for user %s: %v", userID, err)
-		http.Error(w, "Failed to fetch creator status", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchCreatorStatus", "Failed to fetch creator status"), http.StatusInternalServerError)
 		return
 	}
 	canManageCreatorProfile, err := h.Repo.CanManageCreatorProfile(r.Context(), userID)
 	if err != nil {
 		log.Printf("[AFTER DARK ONBOARDING] Failed to fetch creator profile access for user %s: %v", userID, err)
-		http.Error(w, "Failed to fetch creator profile access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchCreatorProfileAccess", "Failed to fetch creator profile access"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -61,17 +61,17 @@ func (h *ADPerformerHandler) GetMyApplication(w http.ResponseWriter, r *http.Req
 func (h *ADPerformerHandler) SubmitApplication(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	existingApplication, err := h.Repo.GetApplicationByUserID(r.Context(), userID)
 	if err != nil {
 		log.Printf("[AFTER DARK ONBOARDING] Failed to check existing application for user %s: %v", userID, err)
-		http.Error(w, "Failed to check creator application", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToCheckCreatorApplication", "Failed to check creator application"), http.StatusInternalServerError)
 		return
 	}
 	if existingApplication != nil && (existingApplication.Status == "pending" || existingApplication.Status == "approved") {
-		http.Error(w, "A creator application is already pending or approved", http.StatusConflict)
+		http.Error(w, localized(r.Context(), "MsgACreatorApplicationIsAlreadyPendingOrApproved", "A creator application is already pending or approved"), http.StatusConflict)
 		return
 	}
 
@@ -86,21 +86,21 @@ func (h *ADPerformerHandler) SubmitApplication(w http.ResponseWriter, r *http.Re
 		} `json:"consents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	req.CreatorAlias = strings.TrimSpace(req.CreatorAlias)
 	req.PolicyVersion = strings.TrimSpace(req.PolicyVersion)
 	if req.CreatorAlias == "" || utf8.RuneCountInString(req.CreatorAlias) > 100 {
-		http.Error(w, "Creator name is required and must be 100 characters or fewer", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrCreatorNameIsRequiredAndMustBe100CharactersOrFewer", "Creator name is required and must be 100 characters or fewer"), http.StatusBadRequest)
 		return
 	}
 	if req.PolicyVersion == "" || utf8.RuneCountInString(req.PolicyVersion) > 50 {
-		http.Error(w, "A valid creator policy version is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidCreatorPolicyVersionIsRequired", "A valid creator policy version is required"), http.StatusBadRequest)
 		return
 	}
 	if !req.Consents.Age || !req.Consents.ContentOwnership || !req.Consents.RevenueSplit || !req.Consents.ZeroTolerance {
-		http.Error(w, "All creator eligibility and policy agreements must be accepted", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAllCreatorEligibilityAndPolicyAgreementsMustBeAccepted", "All creator eligibility and policy agreements must be accepted"), http.StatusBadRequest)
 		return
 	}
 
@@ -127,21 +127,21 @@ func (h *ADPerformerHandler) SubmitApplication(w http.ResponseWriter, r *http.Re
 
 	if err := h.Repo.SubmitApplication(r.Context(), app, consents); err != nil {
 		if errors.Is(err, repository.ErrCreatorApplicationIncomplete) {
-			http.Error(w, "Complete identity verification and confirm you are 18 or older before submitting", http.StatusConflict)
+			http.Error(w, localized(r.Context(), "MsgCompleteIdentityVerificationAndConfirmYouAre18OrOlderBe", "Complete identity verification and confirm you are 18 or older before submitting"), http.StatusConflict)
 			return
 		}
 		if errors.Is(err, repository.ErrCreatorApplicationPending) || errors.Is(err, repository.ErrCreatorApplicationAlreadyApproved) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Error(w, "Failed to submit application", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToSubmitApplication", "Failed to submit application"), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "Creator application submitted successfully",
+		"message": localized(r.Context(), "MsgCreatorApplicationSubmittedSuccessfully", "Creator application submitted successfully"),
 		"status":  app.Status,
 		"id":      app.ID,
 	})

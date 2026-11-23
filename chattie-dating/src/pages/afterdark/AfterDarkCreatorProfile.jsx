@@ -645,11 +645,11 @@ export default function AfterDarkCreatorProfile() {
         {/* HEADER */}
         <header className="p-4 md:p-6 border-b-2 border-zinc-800 bg-zinc-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0 z-20">
           <div className="flex items-center gap-3">
-            <div className="p-2 border-2 border-zinc-600 bg-black rounded-none">
+            <div className="hidden p-2 border-2 border-zinc-600 bg-black rounded-none md:block">
               <Users className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold uppercase tracking-widest text-white leading-none">
+              <h1 className="hidden text-xl md:text-2xl font-bold uppercase tracking-widest text-white leading-none md:block">
                 {t('afterDarkUiAvailableCreators')}
               </h1>
               <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">

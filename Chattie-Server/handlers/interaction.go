@@ -107,7 +107,7 @@ func (h *InteractionHandler) HandleAction(w http.ResponseWriter, r *http.Request
 				targetMatchPayload := map[string]interface{}{
 					"type": "NEW_MATCH", "match_user_id": userID,
 					"action_url": "/messages", "action_label": "Open messages", "category": "matches",
-					"title": "It's a Match!", "message": "You matched with someone new.",
+					"title": localized(r.Context(), "MsgItSAMatch", "It's a Match!"), "message": localized(r.Context(), "MsgYouMatchedWithSomeoneNew", "You matched with someone new."),
 				}
 				go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 					RecipientID: req.TargetID, WSEventType: "NEW_MATCH",
@@ -118,7 +118,7 @@ func (h *InteractionHandler) HandleAction(w http.ResponseWriter, r *http.Request
 				actorMatchPayload := map[string]interface{}{
 					"type": "NEW_MATCH", "match_user_id": req.TargetID,
 					"action_url": "/messages", "action_label": "Open messages", "category": "matches",
-					"title": "It's a Match!", "message": "You matched with someone new.",
+					"title": localized(r.Context(), "MsgItSAMatch2", "It's a Match!"), "message": localized(r.Context(), "MsgYouMatchedWithSomeoneNew2", "You matched with someone new."),
 				}
 				go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 					RecipientID: userID, WSEventType: "NEW_MATCH",
@@ -158,7 +158,7 @@ func (h *InteractionHandler) GetMatches(w http.ResponseWriter, r *http.Request) 
 		matches[i].AvatarURL, err = presignMediaURL(r.Context(), h.UploadService, matches[i].AvatarURL)
 		if err != nil {
 			log.Printf("[MATCH MEDIA] Could not sign avatar for user %s: %v", matches[i].ID, err)
-			http.Error(w, "Could not load match images", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrCouldNotLoadMatchImages", "Could not load match images"), http.StatusBadGateway)
 			return
 		}
 	}
@@ -201,7 +201,7 @@ func (h *InteractionHandler) GetFullProfile(w http.ResponseWriter, r *http.Reque
 		profile.Images[i], err = presignMediaURL(r.Context(), h.UploadService, profile.Images[i])
 		if err != nil {
 			log.Printf("[PROFILE MEDIA] Could not sign image for user %s: %v", targetID, err)
-			http.Error(w, "Could not load profile images", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrCouldNotLoadProfileImages", "Could not load profile images"), http.StatusBadGateway)
 			return
 		}
 	}

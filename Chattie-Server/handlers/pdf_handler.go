@@ -313,12 +313,12 @@ func (h *PDFHandler) GenerateSecurityReport(w http.ResponseWriter, r *http.Reque
 func (h *PDFHandler) GenerateModerationReport(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	admin, err := h.Repo.GetUserByID(r.Context(), adminID)
 	if err != nil || admin.Role != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrForbiddenAdminRequired", "Forbidden: Admin access required"), http.StatusForbidden)
 		return
 	}
 
@@ -336,7 +336,7 @@ func (h *PDFHandler) GenerateModerationReport(w http.ResponseWriter, r *http.Req
 		       COALESCE(status, 'open'), COALESCE(reason, 'No reason supplied')
 		FROM reports ORDER BY created_at DESC LIMIT 100`)
 	if err != nil {
-		http.Error(w, "Failed to fetch moderation report", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchModerationReport", "Failed to fetch moderation report"), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -365,12 +365,12 @@ func (h *PDFHandler) GenerateModerationReport(w http.ResponseWriter, r *http.Req
 func (h *PDFHandler) GeneratePlatformOverview(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	admin, err := h.Repo.GetUserByID(r.Context(), adminID)
 	if err != nil || admin.Role != "admin" {
-		http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrForbiddenAdminRequired", "Forbidden: Admin access required"), http.StatusForbidden)
 		return
 	}
 
@@ -392,13 +392,18 @@ func (h *PDFHandler) GeneratePlatformOverview(w http.ResponseWriter, r *http.Req
 // FIX: Added 'r *http.Request' to the parameter list
 func (h *PDFHandler) renderAndStreamPDF(w http.ResponseWriter, r *http.Request, templateName string, data interface{}, filename string) {
 	if len(filename) == 0 || len(templateName) == 0 {
-		http.Error(w, "Invalid report parameters", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidReportParameters", "Invalid report parameters"), http.StatusBadRequest)
 		return
 	}
 	var htmlBuffer bytes.Buffer
 	if err := h.Templates.ExecuteTemplate(&htmlBuffer, templateName, data); err != nil {
 		log.Printf("Template execution error: %v", err)
-		http.Error(w, localized(r.Context(), "ErrFailedRenderTemplate", "Failed to render template. Ensure "+templateName+" exists in /templates."), http.StatusInternalServerError)
+		http.Error(w, localizedMessage(
+			r.Context(),
+			"ErrFailedRenderTemplate",
+			"Failed to render template. Ensure {{.TemplateName}} exists in /templates.",
+			map[string]interface{}{"TemplateName": templateName},
+		), http.StatusInternalServerError)
 		return
 	}
 

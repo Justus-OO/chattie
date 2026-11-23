@@ -22,13 +22,13 @@ func NewADBillingHandler(repo *repository.ADBillingRepository) *ADBillingHandler
 func (h *ADBillingHandler) GetWallet(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	wallet, err := h.Repo.GetWallet(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch wallet", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchWallet", "Failed to fetch wallet"), http.StatusInternalServerError)
 		return
 	}
 
@@ -40,7 +40,7 @@ func (h *ADBillingHandler) GetWallet(w http.ResponseWriter, r *http.Request) {
 func (h *ADBillingHandler) UnlockPostWithWallet(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -51,31 +51,31 @@ func (h *ADBillingHandler) UnlockPostWithWallet(w http.ResponseWriter, r *http.R
 		ItemType   string `json:"item_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	if req.ItemType != "" {
-		http.Error(w, "Provider checkout for After Dark purchases is not configured", http.StatusNotImplemented)
+		http.Error(w, localized(r.Context(), "ErrProviderCheckoutForAfterDarkPurchasesIsNotConfigured", "Provider checkout for After Dark purchases is not configured"), http.StatusNotImplemented)
 		return
 	}
 	if req.PostID == "" {
-		http.Error(w, "post_id is required for wallet purchases", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrPostIdIsRequiredForWalletPurchases", "post_id is required for wallet purchases"), http.StatusBadRequest)
 		return
 	}
 
 	err := h.Repo.PurchasePPV(r.Context(), userID, req.CreatorID, req.PostID, req.PriceCents)
 	if err != nil {
 		if err.Error() == "insufficient funds" {
-			http.Error(w, "Insufficient wallet balance", http.StatusPaymentRequired)
+			http.Error(w, localized(r.Context(), "ErrInsufficientWalletBalance", "Insufficient wallet balance"), http.StatusPaymentRequired)
 			return
 		}
 		if errors.Is(err, sql.ErrNoRows) || err.Error() == "post is not available for PPV purchase" {
-			http.Error(w, "Post not found or unavailable for purchase", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrPostNotFoundOrUnavailableForPurchase", "Post not found or unavailable for purchase"), http.StatusNotFound)
 			return
 		}
 		if err.Error() == "post is already unlocked" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Post already unlocked"})
+			json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": localized(r.Context(), "MsgPostAlreadyUnlocked", "Post already unlocked")})
 			return
 		}
 		if err.Error() == "creators cannot purchase their own post" {
@@ -86,7 +86,7 @@ func (h *ADBillingHandler) UnlockPostWithWallet(w http.ResponseWriter, r *http.R
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		http.Error(w, "Transaction failed", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrTransactionFailed", "Transaction failed"), http.StatusInternalServerError)
 		return
 	}
 
@@ -94,6 +94,6 @@ func (h *ADBillingHandler) UnlockPostWithWallet(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "success",
-		"message": "Post unlocked successfully",
+		"message": localized(r.Context(), "MsgPostUnlockedSuccessfully", "Post unlocked successfully"),
 	})
 }

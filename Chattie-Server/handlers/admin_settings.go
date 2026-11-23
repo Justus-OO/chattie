@@ -22,7 +22,7 @@ func (h *AdminHandler) GetAfterDarkAutoModeration(w http.ResponseWriter, r *http
 	enabled, err := h.Repo.GetAfterDarkAutoApprove(r.Context())
 	if err != nil {
 		log.Printf("Failed to load After Dark auto-moderation setting: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load After Dark moderation setting")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToLoadAfterDarkModerationSetting", "Failed to load After Dark moderation setting"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, map[string]bool{"auto_approve_new_posts": enabled})
@@ -31,7 +31,7 @@ func (h *AdminHandler) GetAfterDarkAutoModeration(w http.ResponseWriter, r *http
 func (h *AdminHandler) UpdateAfterDarkAutoModeration(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
@@ -39,12 +39,12 @@ func (h *AdminHandler) UpdateAfterDarkAutoModeration(w http.ResponseWriter, r *h
 		Enabled *bool `json:"auto_approve_new_posts"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Enabled == nil {
-		sendAdminError(w, http.StatusBadRequest, "Provide auto_approve_new_posts as a boolean")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrProvideAutoApproveNewPostsAsABoolean", "Provide auto_approve_new_posts as a boolean"))
 		return
 	}
 	if err := h.Repo.SetAfterDarkAutoApprove(r.Context(), adminID, *payload.Enabled); err != nil {
 		log.Printf("Failed to update After Dark auto-moderation setting: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to update After Dark moderation setting")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToUpdateAfterDarkModerationSetting", "Failed to update After Dark moderation setting"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, map[string]bool{"auto_approve_new_posts": *payload.Enabled})
@@ -54,7 +54,7 @@ func (h *AdminHandler) GetRegionalCountries(w http.ResponseWriter, r *http.Reque
 	countries, err := h.Repo.GetRegionalCountries(r.Context())
 	if err != nil {
 		log.Printf("Failed to load regional countries: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load regional settings")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToLoadRegionalSettings", "Failed to load regional settings"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, countries)
@@ -63,25 +63,25 @@ func (h *AdminHandler) GetRegionalCountries(w http.ResponseWriter, r *http.Reque
 func (h *AdminHandler) BlockRegionalCountry(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	var payload struct {
 		CountryCode string `json:"country_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid country code payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidCountryCodePayload", "Invalid country code payload"))
 		return
 	}
 	payload.CountryCode = strings.ToUpper(strings.TrimSpace(payload.CountryCode))
 	if !regionalCountryCodePattern.MatchString(payload.CountryCode) || payload.CountryCode == "XX" || payload.CountryCode == "T1" {
-		sendAdminError(w, http.StatusBadRequest, "Enter a valid two-letter country code")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrEnterAValidTwoLetterCountryCode", "Enter a valid two-letter country code"))
 		return
 	}
 	changed, err := h.Repo.BlockRegionalCountry(r.Context(), adminID, payload.CountryCode)
 	if err != nil {
 		log.Printf("Failed to block country %s: %v", payload.CountryCode, err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to block country")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToBlockCountry", "Failed to block country"))
 		return
 	}
 	if h.Events != nil && h.Events.NotifService != nil {
@@ -100,17 +100,17 @@ func (h *AdminHandler) BlockRegionalCountry(w http.ResponseWriter, r *http.Reque
 func (h *AdminHandler) UnblockRegionalCountry(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	countryCode := strings.ToUpper(strings.TrimSpace(chi.URLParam(r, "code")))
 	if !regionalCountryCodePattern.MatchString(countryCode) || countryCode == "XX" || countryCode == "T1" {
-		sendAdminError(w, http.StatusBadRequest, "Enter a valid two-letter country code")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrEnterAValidTwoLetterCountryCode2", "Enter a valid two-letter country code"))
 		return
 	}
 	if _, err := h.Repo.UnblockRegionalCountry(r.Context(), adminID, countryCode); err != nil {
 		log.Printf("Failed to unblock country %s: %v", countryCode, err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to unblock country")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToUnblockCountry", "Failed to unblock country"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, map[string]interface{}{"country_code": countryCode, "blocked": false})
@@ -120,7 +120,7 @@ func (h *AdminHandler) GetModerationTerms(w http.ResponseWriter, r *http.Request
 	terms, err := h.Repo.GetModerationTerms(r.Context())
 	if err != nil {
 		log.Printf("Failed to load moderation terms: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load moderation terms")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToLoadModerationTerms", "Failed to load moderation terms"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, terms)
@@ -129,7 +129,7 @@ func (h *AdminHandler) GetModerationTerms(w http.ResponseWriter, r *http.Request
 func (h *AdminHandler) CreateModerationTerm(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
@@ -138,61 +138,61 @@ func (h *AdminHandler) CreateModerationTerm(w http.ResponseWriter, r *http.Reque
 		Category string `json:"category"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid moderation term payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidModerationTermPayload", "Invalid moderation term payload"))
 		return
 	}
 	payload.Word = strings.TrimSpace(payload.Word)
 	payload.Category = strings.ToLower(strings.TrimSpace(payload.Category))
 	if payload.Word == "" || utf8.RuneCountInString(payload.Word) > 255 ||
 		strings.ContainsAny(payload.Word, "\r\n") {
-		sendAdminError(w, http.StatusBadRequest, "Term must contain 1 to 255 characters on one line")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrTermMustContain1To255CharactersOnOneLine", "Term must contain 1 to 255 characters on one line"))
 		return
 	}
 	if payload.Category != "social" && payload.Category != "profanity" {
-		sendAdminError(w, http.StatusBadRequest, "Category must be social or profanity")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrCategoryMustBeSocialOrProfanity", "Category must be social or profanity"))
 		return
 	}
 	if err := h.Repo.CreateModerationTerm(r.Context(), adminID, payload.Word, payload.Category); err != nil {
 		if errors.Is(err, repository.ErrModerationTermExists) {
-			sendAdminError(w, http.StatusConflict, "That moderation term already exists")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrThatModerationTermAlreadyExists", "That moderation term already exists"))
 			return
 		}
 		log.Printf("Failed to create moderation term: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to add moderation term")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToAddModerationTerm", "Failed to add moderation term"))
 		return
 	}
 	if err := ReloadFilters(h.Repo.DB); err != nil {
 		log.Printf("Moderation term was saved but filters could not be reloaded: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Term was saved, but moderation filters could not be reloaded")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "MsgTermWasSavedButModerationFiltersCouldNotBeReloaded", "Term was saved, but moderation filters could not be reloaded"))
 		return
 	}
-	sendAdminJSON(w, http.StatusCreated, map[string]string{"message": "Moderation term added"})
+	sendAdminJSON(w, http.StatusCreated, map[string]string{"message": localized(r.Context(), "MsgModerationTermAdded", "Moderation term added")})
 }
 
 func (h *AdminHandler) DeleteModerationTerm(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	termID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(termID); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid moderation term ID")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidModerationTermID", "Invalid moderation term ID"))
 		return
 	}
 	if err := h.Repo.DeleteModerationTerm(r.Context(), adminID, termID); err != nil {
 		if errors.Is(err, repository.ErrModerationTermMissing) {
-			sendAdminError(w, http.StatusNotFound, "Moderation term not found")
+			sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrModerationTermNotFound", "Moderation term not found"))
 			return
 		}
 		log.Printf("Failed to delete moderation term %s: %v", termID, err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to remove moderation term")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToRemoveModerationTerm", "Failed to remove moderation term"))
 		return
 	}
 	if err := ReloadFilters(h.Repo.DB); err != nil {
 		log.Printf("Moderation term was removed but filters could not be reloaded: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Term was removed, but moderation filters could not be reloaded")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "MsgTermWasRemovedButModerationFiltersCouldNotBeReloaded", "Term was removed, but moderation filters could not be reloaded"))
 		return
 	}
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Moderation term removed"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgModerationTermRemoved", "Moderation term removed")})
 }

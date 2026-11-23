@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { Globe, SunMedium, Moon, Flame, MoreHorizontal, X } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { useI18n } from './i18n';
+import { settingsService } from './api/settings.service';
 import { DialogProvider } from './components/modals/DialogProvider';
 
 // Layout & Security
@@ -73,7 +74,10 @@ export default function App() {
   const [areGlobalActionsOpen, setAreGlobalActionsOpen] = useState(false);
   const theme = useAppStore((state) => state.userPreferences.theme);
   const updatePreferences = useAppStore((state) => state.updatePreferences);
+  const isAuthenticated = useAppStore((state) => state.isAuthenticated);
   const { locale, language, languages, setLanguage, t } = useI18n();
+  const languagePreferenceSyncAttempted = useRef(false);
+  const languageSelectionVersion = useRef(0);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -82,8 +86,51 @@ export default function App() {
     document.documentElement.lang = locale;
   }, [theme, locale]);
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      languagePreferenceSyncAttempted.current = false;
+      return;
+    }
+    if (languagePreferenceSyncAttempted.current) return;
+
+    languagePreferenceSyncAttempted.current = true;
+    const selectionVersion = languageSelectionVersion.current;
+    const localLanguage = language;
+
+    settingsService.getLanguagePreference()
+      .then(({ language: preferredLanguage }) => {
+        if (selectionVersion !== languageSelectionVersion.current) return;
+        if (preferredLanguage) {
+          setLanguage(preferredLanguage);
+          return;
+        }
+        return settingsService.updateLanguagePreference(localLanguage);
+      })
+      .catch((error) => {
+        console.error('Failed to load the account language preference:', error);
+      });
+  }, [isAuthenticated, language, setLanguage]);
+
   const toggleTheme = () => {
     updatePreferences({ theme: theme === 'dark' ? 'light' : 'dark' });
+  };
+
+  const handleLanguageChange = async (nextLanguage) => {
+    const selectionVersion = ++languageSelectionVersion.current;
+    if (!isAuthenticated) {
+      setLanguage(nextLanguage);
+      return;
+    }
+
+    try {
+      await settingsService.updateLanguagePreference(nextLanguage);
+      if (selectionVersion === languageSelectionVersion.current) {
+        setLanguage(nextLanguage);
+      }
+    } catch (error) {
+      console.error('Failed to save the account language preference:', error);
+      throw error;
+    }
   };
 
   return (
@@ -139,7 +186,7 @@ export default function App() {
         onClose={() => setIsLanguageModalOpen(false)}
         languages={languages}
         language={language}
-        setLanguage={setLanguage}
+        setLanguage={handleLanguageChange}
         title={t('selectLanguage')}
       />
 

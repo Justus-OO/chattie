@@ -1,11 +1,17 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, Globe, X } from 'lucide-react';
 import { useI18n } from '../../i18n';
 
 export default function LanguageModal({ isOpen, onClose, languages, language, setLanguage, title }) {
   const { t } = useI18n();
+  const [error, setError] = useState('');
+  const [savingCode, setSavingCode] = useState('');
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen) {
+      setError('');
+      setSavingCode('');
+      return undefined;
+    }
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') onClose();
@@ -17,9 +23,17 @@ export default function LanguageModal({ isOpen, onClose, languages, language, se
 
   if (!isOpen) return null;
 
-  const selectLanguage = (code) => {
-    setLanguage(code);
-    onClose();
+  const selectLanguage = async (code) => {
+    setError('');
+    setSavingCode(code);
+    try {
+      await setLanguage(code);
+      onClose();
+    } catch {
+      setError(t('coreUiPreferencesSaveFailed'));
+    } finally {
+      setSavingCode('');
+    }
   };
 
   return (
@@ -34,6 +48,7 @@ export default function LanguageModal({ isOpen, onClose, languages, language, se
             <X className="h-4 w-4" />
           </button>
         </header>
+        {error && <p className="px-5 pt-3 text-sm text-red-500" role="alert">{error}</p>}
         <div className="space-y-2 p-3">
           {languages.map((item) => {
             const isSelected = item.code === language;
@@ -41,7 +56,9 @@ export default function LanguageModal({ isOpen, onClose, languages, language, se
               <button
                 key={item.code}
                 type="button"
-                onClick={() => selectLanguage(item.code)}
+                onClick={() => void selectLanguage(item.code)}
+                disabled={Boolean(savingCode)}
+                aria-busy={savingCode === item.code}
                 aria-pressed={isSelected}
                 className="flex w-full items-center justify-between border px-4 py-3 text-left text-sm font-semibold transition-colors"
                 style={{

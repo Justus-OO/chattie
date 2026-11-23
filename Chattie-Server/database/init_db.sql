@@ -692,6 +692,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 
 CREATE TABLE IF NOT EXISTS user_settings (
                                              user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                                             language VARCHAR(10) NULL CHECK (language IN ('en', 'es', 'fr', 'de', 'pt', 'ja', 'sw', 'hi', 'zh-CN')),
                                              global_mode BOOLEAN DEFAULT FALSE,
                                              show_me VARCHAR(20) DEFAULT 'Everyone',
                                              notif_new_matches BOOLEAN DEFAULT TRUE,

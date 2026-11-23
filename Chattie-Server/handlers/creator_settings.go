@@ -22,14 +22,14 @@ import (
 func (h *CreatorHandler) GetModelSettings(w http.ResponseWriter, r *http.Request) {
 	modelID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || modelID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	settings, err := h.Repo.GetModelSettings(r.Context(), modelID)
 	if err != nil {
 		log.Printf("Failed to load model settings for %s: %v", modelID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load model settings")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToLoadModelSettings", "Failed to load model settings"))
 		return
 	}
 	sendJSON(w, http.StatusOK, settings)
@@ -38,29 +38,29 @@ func (h *CreatorHandler) GetModelSettings(w http.ResponseWriter, r *http.Request
 func (h *CreatorHandler) UpdateModelSettings(w http.ResponseWriter, r *http.Request) {
 	modelID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || modelID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	var payload models.UpdateModelSettingsRequest
 	if err := decodeModelSettingsJSON(w, r, &payload, 1024); err != nil || payload.AIDraftsEnabled == nil {
-		sendError(w, http.StatusBadRequest, "Invalid model settings")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidModelSettings", "Invalid model settings"))
 		return
 	}
 	if err := h.Repo.UpdateModelAIDrafts(r.Context(), modelID, *payload.AIDraftsEnabled); err != nil {
 		if errors.Is(err, repository.ErrInvalidModelRole) {
-			sendError(w, http.StatusForbidden, "Model account required")
+			sendError(w, http.StatusForbidden, localized(r.Context(), "ErrModelAccountRequired", "Model account required"))
 			return
 		}
 		log.Printf("Failed to update model settings for %s: %v", modelID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to save model settings")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToSaveModelSettings", "Failed to save model settings"))
 		return
 	}
 
 	settings, err := h.Repo.GetModelSettings(r.Context(), modelID)
 	if err != nil {
 		log.Printf("Model settings saved but could not be reloaded for %s: %v", modelID, err)
-		sendError(w, http.StatusInternalServerError, "Settings saved but could not be reloaded")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "MsgSettingsSavedButCouldNotBeReloaded", "Settings saved but could not be reloaded"))
 		return
 	}
 	sendJSON(w, http.StatusOK, settings)
@@ -69,18 +69,18 @@ func (h *CreatorHandler) UpdateModelSettings(w http.ResponseWriter, r *http.Requ
 func (h *CreatorHandler) UpdateManagedProfileDetails(w http.ResponseWriter, r *http.Request) {
 	modelID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || modelID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	profileID := chi.URLParam(r, "profile_id")
 	if _, err := uuid.Parse(profileID); err != nil {
-		sendError(w, http.StatusBadRequest, "Invalid profile ID")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidProfileID", "Invalid profile ID"))
 		return
 	}
 
 	var payload models.UpdateManagedProfileRequest
 	if err := decodeModelSettingsJSON(w, r, &payload, 16<<10); err != nil {
-		sendError(w, http.StatusBadRequest, "Invalid profile details")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidProfileDetails", "Invalid profile details"))
 		return
 	}
 	payload.Name = strings.TrimSpace(payload.Name)
@@ -93,11 +93,11 @@ func (h *CreatorHandler) UpdateManagedProfileDetails(w http.ResponseWriter, r *h
 
 	if err := h.Repo.UpdateManagedProfileDetails(r.Context(), modelID, profileID, payload); err != nil {
 		if errors.Is(err, repository.ErrManagedProfileNotFound) {
-			sendError(w, http.StatusNotFound, "Assigned profile not found")
+			sendError(w, http.StatusNotFound, localized(r.Context(), "ErrAssignedProfileNotFound7", "Assigned profile not found"))
 			return
 		}
 		log.Printf("Failed to update managed profile %s for model %s: %v", profileID, modelID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to update profile details")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToUpdateProfileDetails", "Failed to update profile details"))
 		return
 	}
 	sendJSON(w, http.StatusOK, map[string]string{

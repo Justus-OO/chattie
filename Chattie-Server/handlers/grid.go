@@ -50,7 +50,7 @@ func (h *GridHandler) GetGridBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, err := parseQueryInt("limit", 24)
 	if err != nil {
-		http.Error(w, "Invalid limit", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidLimit", "Invalid limit"), http.StatusBadRequest)
 		return
 	}
 	if limit <= 0 {
@@ -62,30 +62,30 @@ func (h *GridHandler) GetGridBrowse(w http.ResponseWriter, r *http.Request) {
 
 	offset, err := parseQueryInt("offset", 0)
 	if err != nil || offset < 0 || offset > 10000 {
-		http.Error(w, "Offset must be between 0 and 10000", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrOffsetMustBeBetween0And100002", "Offset must be between 0 and 10000"), http.StatusBadRequest)
 		return
 	}
 
 	minAge, err := parseQueryInt("min_age", 0)
 	if err != nil {
-		http.Error(w, "Invalid minimum age", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidMinimumAge", "Invalid minimum age"), http.StatusBadRequest)
 		return
 	}
 	maxAge, err := parseQueryInt("max_age", 0)
 	if err != nil {
-		http.Error(w, "Invalid maximum age", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidMaximumAge", "Invalid maximum age"), http.StatusBadRequest)
 		return
 	}
 	if (minAge != 0 && (minAge < 18 || minAge > 99)) ||
 		(maxAge != 0 && (maxAge < 18 || maxAge > 99)) ||
 		(minAge != 0 && maxAge != 0 && minAge > maxAge) {
-		http.Error(w, "Age range must be between 18 and 99 with minimum no greater than maximum", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAgeRangeMustBeBetween18And99WithMinimumNoGreaterThanMax", "Age range must be between 18 and 99 with minimum no greater than maximum"), http.StatusBadRequest)
 		return
 	}
 
 	status := strings.TrimSpace(query.Get("status"))
 	if status != "" && !strings.EqualFold(status, "all") && !strings.EqualFold(status, "online") {
-		http.Error(w, "Status must be All or Online", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrStatusMustBeAllOrOnline", "Status must be All or Online"), http.StatusBadRequest)
 		return
 	}
 	intent := strings.TrimSpace(query.Get("intent"))
@@ -93,12 +93,12 @@ func (h *GridHandler) GetGridBrowse(w http.ResponseWriter, r *http.Request) {
 		!strings.EqualFold(intent, "casual") &&
 		!strings.EqualFold(intent, "dating") &&
 		!strings.EqualFold(intent, "friends") {
-		http.Error(w, "Intent must be All, Casual, Dating, or Friends", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrIntentMustBeAllCasualDatingOrFriends", "Intent must be All, Casual, Dating, or Friends"), http.StatusBadRequest)
 		return
 	}
 	searchQuery := strings.TrimSpace(query.Get("q"))
 	if len(searchQuery) > 100 {
-		http.Error(w, "Search query cannot exceed 100 characters", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrSearchQueryCannotExceed100Characters", "Search query cannot exceed 100 characters"), http.StatusBadRequest)
 		return
 	}
 
@@ -155,7 +155,7 @@ func (h *GridHandler) GetGridBrowse(w http.ResponseWriter, r *http.Request) {
 			profiles[i].Images[j], err = presignMediaURL(r.Context(), h.UploadService, profiles[i].Images[j])
 			if err != nil {
 				log.Printf("[GRID MEDIA] Could not sign profile image for user %s: %v", profiles[i].ID, err)
-				http.Error(w, "Could not load profile images", http.StatusBadGateway)
+				http.Error(w, localized(r.Context(), "ErrCouldNotLoadProfileImages", "Could not load profile images"), http.StatusBadGateway)
 				return
 			}
 		}

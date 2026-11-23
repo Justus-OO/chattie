@@ -6,6 +6,16 @@ export const settingsService = {
     return response.data;
   },
 
+  getLanguagePreference: async () => {
+    const response = await apiClient.get('/settings/language');
+    return response.data;
+  },
+
+  updateLanguagePreference: async (language) => {
+    const response = await apiClient.patch('/settings/language', { language });
+    return response.data;
+  },
+
   getDiscoveryPreferences: async () => {
     const response = await apiClient.get('/settings/discovery');
     return response.data;

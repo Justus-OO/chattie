@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -145,6 +146,39 @@ func TestSupportMessagesAreTranslatedInEveryLocale(t *testing.T) {
 			}
 			if translated == "" || translated == english || strings.Contains(translated, "{{.") {
 				t.Errorf("message %s is untranslated or has an unresolved template in %s: %q", messageID, locale, translated)
+			}
+		}
+	}
+}
+
+func TestLocaleCatalogsCoverEveryEnglishMessage(t *testing.T) {
+	readCatalog := func(locale string) map[string]string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "locales", locale+".json"))
+		if err != nil {
+			t.Fatalf("read %s locale: %v", locale, err)
+		}
+		var catalog map[string]string
+		if err := json.Unmarshal(data, &catalog); err != nil {
+			t.Fatalf("decode %s locale: %v", locale, err)
+		}
+		return catalog
+	}
+
+	english := readCatalog("en")
+	for _, locale := range supportedTestLocales() {
+		if locale == "en" {
+			continue
+		}
+		translated := readCatalog(locale)
+		for messageID := range english {
+			if strings.TrimSpace(translated[messageID]) == "" {
+				t.Errorf("%s locale is missing translation for %s", locale, messageID)
+			}
+		}
+		for messageID := range translated {
+			if _, exists := english[messageID]; !exists {
+				t.Errorf("%s locale contains message %s without an English source", locale, messageID)
 			}
 		}
 	}

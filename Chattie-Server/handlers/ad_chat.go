@@ -42,7 +42,7 @@ func NewADChatHandler(repo *repository.ADChatRepository, mediaRepo *repository.A
 func (h *ADChatHandler) InitConversation(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -50,43 +50,43 @@ func (h *ADChatHandler) InitConversation(w http.ResponseWriter, r *http.Request)
 		TargetUserID string `json:"target_user_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TargetUserID == "" {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequest", "Invalid request"), http.StatusBadRequest)
 		return
 	}
 	if req.TargetUserID == userID {
-		http.Error(w, "Cannot start a conversation with yourself", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrCannotStartAConversationWithYourself", "Cannot start a conversation with yourself"), http.StatusBadRequest)
 		return
 	}
 
 	targetUserID, dmControl, isSubscriber, err := h.Repo.ResolveMessageTarget(r.Context(), userID, req.TargetUserID)
 	if err != nil {
-		http.Error(w, "Failed to resolve conversation target", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResolveConversationTarget", "Failed to resolve conversation target"), http.StatusInternalServerError)
 		return
 	}
 	if dmControl == "none" {
-		http.Error(w, "This creator is not accepting direct messages", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrThisCreatorIsNotAcceptingDirectMessages", "This creator is not accepting direct messages"), http.StatusForbidden)
 		return
 	}
 	blocked, err := h.Repo.IsBlocked(r.Context(), userID, targetUserID)
 	if err != nil {
-		http.Error(w, "Failed to verify block status", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyBlockStatus", "Failed to verify block status"), http.StatusInternalServerError)
 		return
 	}
 	if blocked {
-		http.Error(w, "Messaging is unavailable for this conversation", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrMessagingIsUnavailableForThisConversation", "Messaging is unavailable for this conversation"), http.StatusForbidden)
 		return
 	}
 
 	convID, err := h.Repo.GetOrCreateConversation(r.Context(), userID, targetUserID)
 	if err != nil {
-		http.Error(w, "Failed to initialize conversation", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToInitializeConversation", "Failed to initialize conversation"), http.StatusInternalServerError)
 		return
 	}
 	hasAccess := dmControl == "all" || isSubscriber
 	if !hasAccess && dmControl == "subscribers" {
 		hasAccess, err = h.Repo.HasChatEntitlement(r.Context(), userID, targetUserID)
 		if err != nil {
-			http.Error(w, "Failed to verify chat access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrFailedToVerifyChatAccess", "Failed to verify chat access"), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -107,12 +107,12 @@ func (h *ADChatHandler) InitConversation(w http.ResponseWriter, r *http.Request)
 func (h *ADChatHandler) GetConversations(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	conversations, err := h.Repo.GetConversations(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch conversations", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchConversations", "Failed to fetch conversations"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -123,73 +123,73 @@ func (h *ADChatHandler) GetConversations(w http.ResponseWriter, r *http.Request)
 func (h *ADChatHandler) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	if h.UploadService == nil {
-		http.Error(w, "Attachment storage is unavailable", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrAttachmentStorageIsUnavailable", "Attachment storage is unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	conversationID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to resolve conversation participant", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResolveConversationParticipant", "Failed to resolve conversation participant"), http.StatusInternalServerError)
 		return
 	}
 	blocked, err := h.Repo.IsBlocked(r.Context(), userID, otherUserID)
 	if err != nil {
-		http.Error(w, "Failed to verify block status", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyBlockStatus2", "Failed to verify block status"), http.StatusInternalServerError)
 		return
 	}
 	if blocked {
-		http.Error(w, "Messaging is unavailable for this conversation", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrMessagingIsUnavailableForThisConversation2", "Messaging is unavailable for this conversation"), http.StatusForbidden)
 		return
 	}
 	canSend, err := h.Repo.CanSendMessage(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify messaging access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyMessagingAccess", "Failed to verify messaging access"), http.StatusInternalServerError)
 		return
 	}
 	if !canSend {
-		http.Error(w, "Unlock this creator's chat or subscribe to continue messaging", http.StatusPaymentRequired)
+		http.Error(w, localized(r.Context(), "ErrUnlockThisCreatorSChatOrSubscribeToContinueMessaging", "Unlock this creator's chat or subscribe to continue messaging"), http.StatusPaymentRequired)
 		return
 	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, "File upload too large or invalid", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFileUploadTooLargeOrInvalid", "File upload too large or invalid"), http.StatusBadRequest)
 		return
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "File is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFileIsRequired", "File is required"), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
 	mimeType, err := sniffUploadType(file)
 	if err != nil {
-		http.Error(w, "Failed to read uploaded file", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFailedToReadUploadedFile", "Failed to read uploaded file"), http.StatusBadRequest)
 		return
 	}
 	if !strings.HasPrefix(mimeType, "image/") &&
 		!strings.HasPrefix(mimeType, "video/") &&
 		!strings.HasPrefix(mimeType, "audio/") &&
 		mimeType != "application/pdf" {
-		http.Error(w, "Unsupported attachment type", http.StatusUnsupportedMediaType)
+		http.Error(w, localized(r.Context(), "ErrUnsupportedAttachmentType", "Unsupported attachment type"), http.StatusUnsupportedMediaType)
 		return
 	}
 	uploadURL, size, err := h.UploadService.SaveFile(file, header, "afterdark/messages")
 	if err != nil {
 		log.Printf("[AFTERDARK CHAT] Failed to upload attachment for user %s: %v", userID, err)
-		http.Error(w, "Failed to upload attachment", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToUploadAttachment", "Failed to upload attachment"), http.StatusInternalServerError)
 		return
 	}
 	asset := &models.ADAsset{
@@ -201,7 +201,7 @@ func (h *ADChatHandler) UploadAttachment(w http.ResponseWriter, r *http.Request)
 		if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
 			log.Printf("[AFTERDARK CHAT] Failed to clean up uploaded attachment: %v", deleteErr)
 		}
-		http.Error(w, "Failed to save attachment record", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToSaveAttachmentRecord", "Failed to save attachment record"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -218,41 +218,41 @@ func (h *ADChatHandler) UploadAttachment(w http.ResponseWriter, r *http.Request)
 func (h *ADChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	convID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), convID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess2", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound2", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), convID, userID)
 	if err != nil {
-		http.Error(w, "Failed to resolve conversation participant", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResolveConversationParticipant2", "Failed to resolve conversation participant"), http.StatusInternalServerError)
 		return
 	}
 	blocked, err := h.Repo.IsBlocked(r.Context(), userID, otherUserID)
 	if err != nil {
-		http.Error(w, "Failed to verify block status", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyBlockStatus3", "Failed to verify block status"), http.StatusInternalServerError)
 		return
 	}
 	if blocked {
-		http.Error(w, "Messaging is unavailable for this conversation", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrMessagingIsUnavailableForThisConversation3", "Messaging is unavailable for this conversation"), http.StatusForbidden)
 		return
 	}
 	canSend, err := h.Repo.CanSendMessage(r.Context(), convID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify messaging access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyMessagingAccess2", "Failed to verify messaging access"), http.StatusInternalServerError)
 		return
 	}
 	if !canSend {
-		http.Error(w, "Unlock this creator's chat or subscribe to continue messaging", http.StatusPaymentRequired)
+		http.Error(w, localized(r.Context(), "ErrUnlockThisCreatorSChatOrSubscribeToContinueMessaging2", "Unlock this creator's chat or subscribe to continue messaging"), http.StatusPaymentRequired)
 		return
 	}
 
@@ -263,16 +263,16 @@ func (h *ADChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		ReplyToMessageID string `json:"reply_to_message_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequest2", "Invalid request"), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.Content) == "" && req.MediaAssetID == "" {
-		http.Error(w, "Message content or an attachment is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMessageContentOrAnAttachmentIsRequired", "Message content or an attachment is required"), http.StatusBadRequest)
 		return
 	}
 	if req.ReplyToMessageID != "" {
 		if _, err := uuid.Parse(req.ReplyToMessageID); err != nil {
-			http.Error(w, "reply_to_message_id must be a UUID", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "ErrReplyToMessageIdMustBeAUUID", "reply_to_message_id must be a UUID"), http.StatusBadRequest)
 			return
 		}
 	}
@@ -291,10 +291,10 @@ func (h *ADChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.Repo.SaveMessage(r.Context(), msg); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Message was not saved; check attachment ownership and conversation access", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "MsgMessageWasNotSavedCheckAttachmentOwnershipAndConversati", "Message was not saved; check attachment ownership and conversation access"), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, "Failed to save message", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToSaveMessage", "Failed to save message"), http.StatusInternalServerError)
 		return
 	}
 
@@ -316,7 +316,7 @@ func (h *ADChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			RecipientID: recipientID,
 			WSEventType: "AFTER_DARK_MESSAGE",
 			WSPayload: map[string]interface{}{
-				"title": "New After Dark message", "message": "You received a new message.",
+				"title": localized(r.Context(), "MsgNewAfterDarkMessage", "New After Dark message"), "message": localized(r.Context(), "MsgYouReceivedANewMessage", "You received a new message."),
 				"conversation_id": convID, "action_url": "/afterdark/chats", "action_label": "Open conversation", "category": "messages",
 			},
 			EmailTemplate: "afterdark_notification",
@@ -336,17 +336,17 @@ func (h *ADChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 func (h *ADChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	convID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), convID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess3", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound3", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -355,13 +355,13 @@ func (h *ADChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	if offset < 0 {
-		http.Error(w, "Invalid offset", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidOffset", "Invalid offset"), http.StatusBadRequest)
 		return
 	}
 
 	messages, err := h.Repo.GetMessages(r.Context(), convID, userID, limit, offset)
 	if err != nil {
-		http.Error(w, "Failed to fetch messages", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchMessages", "Failed to fetch messages"), http.StatusInternalServerError)
 		return
 	}
 
@@ -372,7 +372,7 @@ func (h *ADChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 func (h *ADChatHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	conversationID := chi.URLParam(r, "conversationId")
@@ -381,20 +381,20 @@ func (h *ADChatHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 		Pinned    *bool  `json:"pinned"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.MessageID == "" || request.Pinned == nil {
-		http.Error(w, "message_id and pinned are required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMessageIdAndPinnedAreRequired", "message_id and pinned are required"), http.StatusBadRequest)
 		return
 	}
 	if _, err := uuid.Parse(request.MessageID); err != nil {
-		http.Error(w, "message_id must be a UUID", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMessageIdMustBeAUUID", "message_id must be a UUID"), http.StatusBadRequest)
 		return
 	}
 	if err := h.Repo.PinMessage(r.Context(), conversationID, userID, request.MessageID, *request.Pinned); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Message not found in this conversation", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrMessageNotFoundInThisConversation", "Message not found in this conversation"), http.StatusNotFound)
 			return
 		}
 		log.Printf("[AFTERDARK CHAT] Failed to pin message %s in conversation %s: %v", request.MessageID, conversationID, err)
-		http.Error(w, "Unable to update message pin", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrUnableToUpdateMessagePin", "Unable to update message pin"), http.StatusInternalServerError)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), conversationID, userID)
@@ -414,7 +414,7 @@ func (h *ADChatHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 func (h *ADChatHandler) ToggleMessageReaction(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	conversationID := chi.URLParam(r, "conversationId")
@@ -423,32 +423,32 @@ func (h *ADChatHandler) ToggleMessageReaction(w http.ResponseWriter, r *http.Req
 		Emoji     string `json:"emoji"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.MessageID == "" {
-		http.Error(w, "message_id and emoji are required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMessageIdAndEmojiAreRequired", "message_id and emoji are required"), http.StatusBadRequest)
 		return
 	}
 	if _, err := uuid.Parse(request.MessageID); err != nil {
-		http.Error(w, "message_id must be a UUID", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMessageIdMustBeAUUID2", "message_id must be a UUID"), http.StatusBadRequest)
 		return
 	}
 	request.Emoji = strings.TrimSpace(request.Emoji)
 	allowedEmoji := map[string]bool{"❤️": true, "👍": true, "😂": true, "🔥": true, "😮": true, "🙏": true}
 	if !allowedEmoji[request.Emoji] {
-		http.Error(w, "Unsupported reaction", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrUnsupportedReaction", "Unsupported reaction"), http.StatusBadRequest)
 		return
 	}
 	added, err := h.Repo.ToggleMessageReaction(r.Context(), conversationID, userID, request.MessageID, request.Emoji)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Message not found in this conversation", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrMessageNotFoundInThisConversation2", "Message not found in this conversation"), http.StatusNotFound)
 			return
 		}
 		log.Printf("[AFTERDARK CHAT] Failed to update reaction for message %s: %v", request.MessageID, err)
-		http.Error(w, "Unable to update message reaction", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrUnableToUpdateMessageReaction", "Unable to update message reaction"), http.StatusInternalServerError)
 		return
 	}
 	reactions, err := h.Repo.GetMessageReactions(r.Context(), conversationID, userID, request.MessageID)
 	if err != nil {
-		http.Error(w, "Unable to load message reactions", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrUnableToLoadMessageReactions", "Unable to load message reactions"), http.StatusInternalServerError)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), conversationID, userID)
@@ -472,52 +472,52 @@ func (h *ADChatHandler) ToggleMessageReaction(w http.ResponseWriter, r *http.Req
 func (h *ADChatHandler) GenerateCallToken(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	conversationID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess4", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound4", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to resolve conversation participant", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResolveConversationParticipant3", "Failed to resolve conversation participant"), http.StatusInternalServerError)
 		return
 	}
 	blocked, err := h.Repo.IsBlocked(r.Context(), userID, otherUserID)
 	if err != nil {
-		http.Error(w, "Failed to verify block status", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyBlockStatus4", "Failed to verify block status"), http.StatusInternalServerError)
 		return
 	}
 	if blocked {
-		http.Error(w, "Calls are unavailable while this conversation is blocked", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "MsgCallsAreUnavailableWhileThisConversationIsBlocked", "Calls are unavailable while this conversation is blocked"), http.StatusForbidden)
 		return
 	}
 	canSend, err := h.Repo.CanSendMessage(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify messaging access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyMessagingAccess3", "Failed to verify messaging access"), http.StatusInternalServerError)
 		return
 	}
 	otherCanSend, err := h.Repo.CanSendMessage(r.Context(), conversationID, otherUserID)
 	if err != nil {
-		http.Error(w, "Failed to verify participant access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyParticipantAccess", "Failed to verify participant access"), http.StatusInternalServerError)
 		return
 	}
 	if !canSend || !otherCanSend {
-		http.Error(w, "Unlock this creator's chat or subscribe to start a call", http.StatusPaymentRequired)
+		http.Error(w, localized(r.Context(), "ErrUnlockThisCreatorSChatOrSubscribeToStartACall", "Unlock this creator's chat or subscribe to start a call"), http.StatusPaymentRequired)
 		return
 	}
 	var request struct {
 		ParticipantName string `json:"participant_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid call token request", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidCallTokenRequest", "Invalid call token request"), http.StatusBadRequest)
 		return
 	}
 
@@ -540,7 +540,7 @@ func (h *ADChatHandler) GenerateCallToken(w http.ResponseWriter, r *http.Request
 	jwt, err := token.ToJWT()
 	if err != nil {
 		log.Printf("[AFTERDARK CHAT] Failed to issue call token for user %s: %v", userID, err)
-		http.Error(w, "Failed to generate secure call token", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToGenerateSecureCallToken", "Failed to generate secure call token"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -554,17 +554,17 @@ func (h *ADChatHandler) GenerateCallToken(w http.ResponseWriter, r *http.Request
 func (h *ADChatHandler) RecordCallEvent(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	conversationID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess5", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound5", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 	var request struct {
@@ -572,11 +572,11 @@ func (h *ADChatHandler) RecordCallEvent(w http.ResponseWriter, r *http.Request) 
 		Mode  string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid call event", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidCallEvent", "Invalid call event"), http.StatusBadRequest)
 		return
 	}
 	if request.Mode != "audio" && request.Mode != "video" {
-		http.Error(w, "mode must be audio or video", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrModeMustBeAudioOrVideo", "mode must be audio or video"), http.StatusBadRequest)
 		return
 	}
 	eventLabels := map[string]string{
@@ -585,32 +585,32 @@ func (h *ADChatHandler) RecordCallEvent(w http.ResponseWriter, r *http.Request) 
 	}
 	label, valid := eventLabels[request.Event]
 	if !valid {
-		http.Error(w, "Unsupported call event", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrUnsupportedCallEvent", "Unsupported call event"), http.StatusBadRequest)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to resolve conversation participant", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResolveConversationParticipant4", "Failed to resolve conversation participant"), http.StatusInternalServerError)
 		return
 	}
 	if request.Event == "started" || request.Event == "connected" {
 		blocked, err := h.Repo.IsBlocked(r.Context(), userID, otherUserID)
 		if err != nil {
-			http.Error(w, "Failed to verify block status", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrFailedToVerifyBlockStatus5", "Failed to verify block status"), http.StatusInternalServerError)
 			return
 		}
 		canSend, err := h.Repo.CanSendMessage(r.Context(), conversationID, userID)
 		if err != nil {
-			http.Error(w, "Failed to verify messaging access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrFailedToVerifyMessagingAccess4", "Failed to verify messaging access"), http.StatusInternalServerError)
 			return
 		}
 		otherCanSend, err := h.Repo.CanSendMessage(r.Context(), conversationID, otherUserID)
 		if err != nil {
-			http.Error(w, "Failed to verify participant access", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrFailedToVerifyParticipantAccess2", "Failed to verify participant access"), http.StatusInternalServerError)
 			return
 		}
 		if blocked || !canSend || !otherCanSend {
-			http.Error(w, "Call history cannot be added to an unavailable conversation", http.StatusForbidden)
+			http.Error(w, localized(r.Context(), "ErrCallHistoryCannotBeAddedToAnUnavailableConversation", "Call history cannot be added to an unavailable conversation"), http.StatusForbidden)
 			return
 		}
 	}
@@ -621,7 +621,7 @@ func (h *ADChatHandler) RecordCallEvent(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := h.Repo.SaveMessage(r.Context(), message); err != nil {
 		log.Printf("[AFTERDARK CHAT] Failed to save call event in conversation %s: %v", conversationID, err)
-		http.Error(w, "Unable to save call history", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrUnableToSaveCallHistory", "Unable to save call history"), http.StatusInternalServerError)
 		return
 	}
 	if h.Hub != nil {
@@ -642,22 +642,22 @@ func (h *ADChatHandler) RecordCallEvent(w http.ResponseWriter, r *http.Request) 
 func (h *ADChatHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	convID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), convID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess6", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound6", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 
 	if err := h.Repo.UpdateReadCursor(r.Context(), convID, userID); err != nil {
-		http.Error(w, "Failed to update read cursor", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToUpdateReadCursor", "Failed to update read cursor"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -667,33 +667,33 @@ func (h *ADChatHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 func (h *ADChatHandler) SetConversationBlock(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	conversationID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess7", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound7", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to resolve conversation participant", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResolveConversationParticipant5", "Failed to resolve conversation participant"), http.StatusInternalServerError)
 		return
 	}
 	var req struct {
 		Blocked *bool `json:"blocked"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Blocked == nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequest3", "Invalid request"), http.StatusBadRequest)
 		return
 	}
 	if err := h.Repo.SetBlock(r.Context(), userID, otherUserID, *req.Blocked); err != nil {
-		http.Error(w, "Failed to update block", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToUpdateBlock", "Failed to update block"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -703,37 +703,37 @@ func (h *ADChatHandler) SetConversationBlock(w http.ResponseWriter, r *http.Requ
 func (h *ADChatHandler) UnlockChat(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	conversationID := chi.URLParam(r, "conversationId")
 	isParticipant, err := h.Repo.IsParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to verify conversation access", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyConversationAccess8", "Failed to verify conversation access"), http.StatusInternalServerError)
 		return
 	}
 	if !isParticipant {
-		http.Error(w, "Conversation not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrConversationNotFound8", "Conversation not found"), http.StatusNotFound)
 		return
 	}
 	otherUserID, err := h.Repo.GetOtherParticipant(r.Context(), conversationID, userID)
 	if err != nil {
-		http.Error(w, "Failed to resolve conversation participant", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResolveConversationParticipant6", "Failed to resolve conversation participant"), http.StatusInternalServerError)
 		return
 	}
 	blocked, err := h.Repo.IsBlocked(r.Context(), userID, otherUserID)
 	if err != nil {
-		http.Error(w, "Failed to verify block status", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToVerifyBlockStatus6", "Failed to verify block status"), http.StatusInternalServerError)
 		return
 	}
 	if blocked {
-		http.Error(w, "Messaging is unavailable for this conversation", http.StatusForbidden)
+		http.Error(w, localized(r.Context(), "ErrMessagingIsUnavailableForThisConversation4", "Messaging is unavailable for this conversation"), http.StatusForbidden)
 		return
 	}
 	if err := h.Repo.PurchaseChatAccess(r.Context(), conversationID, userID); err != nil {
 		switch err.Error() {
 		case "insufficient funds":
-			http.Error(w, "Insufficient wallet balance", http.StatusPaymentRequired)
+			http.Error(w, localized(r.Context(), "ErrInsufficientWalletBalance2", "Insufficient wallet balance"), http.StatusPaymentRequired)
 		case "creators cannot purchase their own chat", "creator is not accepting direct messages":
 			http.Error(w, err.Error(), http.StatusForbidden)
 		case "chat access is already included":
@@ -741,10 +741,10 @@ func (h *ADChatHandler) UnlockChat(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"status": "success", "has_access": true, "already_unlocked": true})
 		default:
 			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, "Conversation or creator not found", http.StatusNotFound)
+				http.Error(w, localized(r.Context(), "ErrConversationOrCreatorNotFound", "Conversation or creator not found"), http.StatusNotFound)
 				return
 			}
-			http.Error(w, "Chat access purchase failed", http.StatusInternalServerError)
+			http.Error(w, localized(r.Context(), "ErrChatAccessPurchaseFailed", "Chat access purchase failed"), http.StatusInternalServerError)
 		}
 		return
 	}

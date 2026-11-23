@@ -15,6 +15,19 @@ export default function MainLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const isMessagesRoute = location.pathname === '/messages' || location.pathname.startsWith('/messages/');
+  const mobilePageTitle = isMessagesRoute
+    ? t('inbox')
+    : location.pathname === '/rooms' || location.pathname.startsWith('/rooms/')
+      ? t('lounge')
+      : location.pathname === '/browse'
+        ? t('browse')
+        : location.pathname === '/support'
+          ? t('coreUiSupport')
+          : location.pathname === '/settings'
+            ? t('settings')
+            : location.pathname === '/profile'
+              ? t('profile')
+              : '';
 
   // Automatically close the mobile sidebar when the route changes (e.g. clicking a link)
   useEffect(() => {
@@ -34,16 +47,19 @@ export default function MainLayout() {
     <div className="flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-black font-mono text-zinc-300 md:flex-row">
       
       {/* MOBILE HEADER (Visible only on small screens) */}
-      <header className="md:hidden flex items-center justify-between p-2.5 border-b-2 border-zinc-800 bg-zinc-950 shrink-0 z-20">
-        <div className="flex items-center gap-2">
-          {!isMessagesRoute && <div className="w-3 h-3 bg-green-500 border border-black animate-pulse" aria-hidden="true"></div>}
-          <h1 className="font-bold text-lg text-white uppercase tracking-widest leading-none">
-            {isMessagesRoute ? t('inbox') : 'Chattie'}
-          </h1>
+      <header className="md:hidden grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b-2 border-zinc-800 bg-zinc-950 p-2.5 shrink-0 z-20">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="h-3 w-3 shrink-0 animate-pulse border border-black bg-green-500" aria-hidden="true"></div>
+          <span className="truncate font-bold text-lg leading-none tracking-widest text-white">
+            Chattie
+          </span>
         </div>
+        <h1 className="max-w-[35vw] truncate text-center text-xs font-bold uppercase tracking-widest text-zinc-300 sm:text-sm">
+          {mobilePageTitle}
+        </h1>
         <button 
           onClick={() => setIsMobileMenuOpen(true)}
-          className="p-2 border-2 border-zinc-800 bg-black text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+          className="justify-self-end border-2 border-zinc-800 bg-black p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white"
           aria-label={t('openMenu')}
         >
           <Menu className="w-5 h-5" />

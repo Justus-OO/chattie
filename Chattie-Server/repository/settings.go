@@ -14,6 +14,7 @@ var (
 	ErrPlaidIdentityVerificationRateLimited = errors.New("Plaid Identity Verification session creation is rate limited")
 	ErrPlaidIdentityVerificationNotFound    = errors.New("Plaid Identity Verification session not found")
 	ErrPlaidIdentityVerificationConflict    = errors.New("Plaid Identity Verification session is already attached")
+	ErrInvalidLanguage                      = errors.New("invalid language")
 )
 
 type SettingsRepository struct {
@@ -22,6 +23,42 @@ type SettingsRepository struct {
 
 func NewSettingsRepository(db *sql.DB) *SettingsRepository {
 	return &SettingsRepository{DB: db}
+}
+
+var supportedUserLanguages = map[string]bool{
+	"en": true, "es": true, "fr": true, "de": true, "pt": true,
+	"ja": true, "sw": true, "hi": true, "zh-CN": true,
+}
+
+func ValidUserLanguage(language string) bool {
+	return supportedUserLanguages[language]
+}
+
+func (r *SettingsRepository) GetLanguage(ctx context.Context, userID string) (sql.NullString, error) {
+	var language sql.NullString
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT language
+		FROM user_settings
+		WHERE user_id = $1
+	`, userID).Scan(&language)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sql.NullString{}, nil
+	}
+	return language, err
+}
+
+func (r *SettingsRepository) UpdateLanguage(ctx context.Context, userID, language string) error {
+	if !ValidUserLanguage(language) {
+		return ErrInvalidLanguage
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO user_settings (user_id, language)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE SET
+			language = EXCLUDED.language,
+			updated_at = CURRENT_TIMESTAMP
+	`, userID, language)
+	return err
 }
 
 func (r *SettingsRepository) CanUseIncognito(ctx context.Context, userID string) (bool, error) {

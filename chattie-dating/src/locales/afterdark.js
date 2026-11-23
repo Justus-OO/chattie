@@ -104,7 +104,7 @@ const rows = [
   ['afterDarkUiVipSubscribersOnly', 'VIP SUBSCRIBERS ONLY', 'SOLO SUSCRIPTORES VIP', 'RÉSERVÉ AUX ABONNÉS VIP', 'NUR FÜR VIP-ABONNENTEN', 'SOMENTE ASSINANTES VIP', 'VIP登録者限定', 'WANACHAMA WA VIP PEKEE', 'केवल VIP सब्सक्राइबर', '仅限 VIP 订阅者'],
   ['afterDarkUiCaptionHiddenUnlock', 'Caption hidden. Unlock to view full description...', 'Descripción oculta. Desbloquea para ver el texto completo...', 'Légende masquée. Déverrouillez pour voir la description complète...', 'Bildunterschrift verborgen. Freischalten, um die vollständige Beschreibung zu sehen …', 'Legenda oculta. Desbloqueie para ver a descrição completa...', 'キャプションは非表示です。全文を見るにはロックを解除...', 'Maelezo yamefichwa. Fungua ili kuona maelezo kamili...', 'कैप्शन छिपा है। पूरा विवरण देखने के लिए अनलॉक करें...', '说明已隐藏。解锁后查看完整描述...'],
   ['afterDarkUiUnlike', 'Unlike', 'Ya no me gusta', 'Je n’aime plus', 'Gefällt mir nicht mehr', 'Descurtir', 'いいねを取り消す', 'Ondoa like', 'अनलाइक करें', '取消赞'],
-  ['afterDarkUiLike', 'Like', 'Me gusta', 'J’aime', 'Gefällt mir', 'Curtir', 'いいね', 'Like', 'लाइक करें', '点赞'],
+  ['afterDarkUiLike', 'Like', 'Me gusta', 'J’aime', 'Gefällt mir', 'Curtir', 'いいね', 'Penda', 'लाइक करें', '点赞'],
   ['afterDarkUiToggleComments', 'Toggle comments', 'Mostrar u ocultar comentarios', 'Afficher ou masquer les commentaires', 'Kommentare umschalten', 'Alternar comentários', 'コメントを切り替え', 'Badili maoni', 'टिप्पणियाँ दिखाएँ या छिपाएँ', '切换评论'],
   ['afterDarkUiCopyPostLink', 'Copy post link', 'Copiar enlace de la publicación', 'Copier le lien de la publication', 'Beitragslink kopieren', 'Copiar link da publicação', '投稿リンクをコピー', 'Nakili kiungo cha chapisho', 'पोस्ट लिंक कॉपी करें', '复制帖子链接'],
   ['afterDarkUiSendTip', 'SEND TIP', 'ENVIAR PROPINA', 'ENVOYER UN POURBOIRE', 'TRINKGELD SENDEN', 'ENVIAR GORJETA', 'チップを送る', 'TUMA BAKSHISHI', 'टिप भेजें', '发送打赏'],
@@ -158,7 +158,7 @@ const rows = [
   ['afterDarkUiBiography', 'Biography', 'Biografía', 'Biographie', 'Biografie', 'Biografia', 'プロフィール', 'Wasifu', 'जीवनी', '简介'],
   ['afterDarkUiQuickView', 'Quick View', 'Vista rápida', 'Aperçu rapide', 'Schnellansicht', 'Visualização rápida', 'クイック表示', 'Muhtasari wa haraka', 'त्वरित दृश्य', '快速查看'],
   ['afterDarkUiMedia', 'Media', 'Contenido', 'Média', 'Medien', 'Mídia', 'メディア', 'Maudhui', 'मीडिया', '媒体'],
-  ['afterDarkUiLikes', 'Likes', 'Me gusta', 'J’aime', 'Gefällt mir', 'Curtidas', 'いいね', 'Likes', 'लाइक', '赞'],
+  ['afterDarkUiLikes', 'Likes', 'Me gusta', 'J’aime', 'Gefällt mir', 'Curtidas', 'いいね', 'Alama za kupenda', 'लाइक', '赞'],
   ['afterDarkUiPerMonth', 'Per Month', 'Al mes', 'Par mois', 'Pro Monat', 'Por mês', '月額', 'Kwa mwezi', 'प्रति माह', '每月'],
   ['afterDarkUiCollapseFilters', 'Collapse filters', 'Contraer filtros', 'Réduire les filtres', 'Filter einklappen', 'Recolher filtros', 'フィルターを閉じる', 'Funga vichujio', 'फ़िल्टर समेटें', '收起筛选条件'],
   ['afterDarkUiAnyCityRegion', 'Any city or region', 'Cualquier ciudad o región', 'Toute ville ou région', 'Beliebige Stadt oder Region', 'Qualquer cidade ou região', '任意の都市または地域', 'Jiji au eneo lolote', 'कोई भी शहर या क्षेत्र', '任意城市或地区'],
@@ -853,6 +853,7 @@ const rows = [
   ['afterDarkUiBlockSettingUpdateFailed', 'Could not update the block setting.', 'No se pudo actualizar el ajuste de bloqueo.', 'Impossible de mettre à jour le paramètre de blocage.', 'Die Blockierungseinstellung konnte nicht aktualisiert werden.', 'Não foi possível atualizar a configuração de bloqueio.', 'ブロック設定を更新できませんでした。', 'Haikuwezekana kusasisha mipangilio ya kuzuia.', 'ब्लॉक सेटिंग अपडेट नहीं हो सकी।', '无法更新屏蔽设置。'],
   ['afterDarkUiStartCallFailed', 'Could not start this call.', 'No se pudo iniciar esta llamada.', 'Impossible de démarrer cet appel.', 'Dieser Anruf konnte nicht gestartet werden.', 'Não foi possível iniciar esta chamada.', 'この通話を開始できませんでした。', 'Haikuwezekana kuanzisha simu hii.', 'यह कॉल शुरू नहीं हो सकी।', '无法发起此通话。'],
   ['afterDarkUiAnswerCallFailed', 'Could not answer this call.', 'No se pudo responder esta llamada.', 'Impossible de répondre à cet appel.', 'Dieser Anruf konnte nicht angenommen werden.', 'Não foi possível atender esta chamada.', 'この通話に応答できませんでした。', 'Haikuwezekana kujibu simu hii.', 'इस कॉल का जवाब नहीं दिया जा सका।', '无法接听此通话。'],
+  ['afterDarkUiAdultChatBadge', '18+ chat', 'Chat 18+', 'Chat 18+', 'Chat ab 18', 'Chat 18+', '18歳以上のチャット', 'Gumzo la watu wazima', '18+ चैट', '18+聊天'],
 ];
 const localeCodes = ['en', 'es', 'fr', 'de', 'pt', 'ja', 'sw', 'hi', 'zh-CN'];
 const afterDarkUiTranslations = Object.fromEntries(

@@ -72,23 +72,74 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if settings.Avatar, err = presignMediaURL(r.Context(), h.Storage, settings.Avatar); err != nil {
 		log.Printf("[SETTINGS] Could not sign profile avatar for user %s: %v", userID, err)
-		http.Error(w, `{"error":"Could not load profile images"}`, http.StatusBadGateway)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrCouldNotLoadProfileImages", "Could not load profile images")), http.StatusBadGateway)
 		return
 	}
 	if settings.Cover, err = presignMediaURL(r.Context(), h.Storage, settings.Cover); err != nil {
 		log.Printf("[SETTINGS] Could not sign profile cover for user %s: %v", userID, err)
-		http.Error(w, `{"error":"Could not load profile images"}`, http.StatusBadGateway)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrCouldNotLoadProfileImages", "Could not load profile images")), http.StatusBadGateway)
 		return
 	}
 	for i := range settings.Photos {
 		if settings.Photos[i], err = presignMediaURL(r.Context(), h.Storage, settings.Photos[i]); err != nil {
 			log.Printf("[SETTINGS] Could not sign profile photo for user %s: %v", userID, err)
-			http.Error(w, `{"error":"Could not load profile images"}`, http.StatusBadGateway)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrCouldNotLoadProfileImages", "Could not load profile images")), http.StatusBadGateway)
 			return
 		}
 	}
 
 	json.NewEncoder(w).Encode(settings)
+}
+
+func (h *SettingsHandler) GetLanguage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrUnauthorizedMissingContext", "Unauthorized: Missing context")})
+		return
+	}
+	language, err := h.Repo.GetLanguage(r.Context(), userID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedFetchLanguage", "Failed to fetch language setting")})
+		return
+	}
+	if !language.Valid {
+		json.NewEncoder(w).Encode(map[string]*string{"language": nil})
+		return
+	}
+	value := language.String
+	json.NewEncoder(w).Encode(map[string]*string{"language": &value})
+}
+
+func (h *SettingsHandler) UpdateLanguage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
+	if !ok || userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrUnauthorizedMissingContext", "Unauthorized: Missing context")})
+		return
+	}
+	var payload struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidLanguagePayload", "Invalid language payload")})
+		return
+	}
+	if !repository.ValidUserLanguage(payload.Language) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidLanguage", "Invalid language")})
+		return
+	}
+	if err := h.Repo.UpdateLanguage(r.Context(), userID, payload.Language); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedUpdateLanguage", "Failed to update language setting")})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"language": payload.Language, "message": localized(r.Context(), "MsgLanguageUpdated", "Language updated successfully")})
 }
 
 func (h *SettingsHandler) GetDiscoveryPreferences(w http.ResponseWriter, r *http.Request) {
@@ -97,14 +148,14 @@ func (h *SettingsHandler) GetDiscoveryPreferences(w http.ResponseWriter, r *http
 
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrUnauthorized", "Unauthorized")), http.StatusUnauthorized)
 		return
 	}
 
 	preferences, err := h.Repo.GetDiscoveryPreferences(r.Context(), userID)
 	if err != nil {
 		log.Printf("[SETTINGS] Failed to load discovery preferences for user %s: %v", userID, err)
-		http.Error(w, `{"error":"Failed to load discovery preferences"}`, http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrFailedLoadDiscoveryPreferences", "Failed to load discovery preferences")), http.StatusInternalServerError)
 		return
 	}
 	if err := json.NewEncoder(w).Encode(preferences); err != nil {
@@ -117,28 +168,28 @@ func (h *SettingsHandler) UpdateDiscoveryPreferences(w http.ResponseWriter, r *h
 
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrUnauthorized", "Unauthorized")), http.StatusUnauthorized)
 		return
 	}
 
 	var preferences models.DiscoveryPreferences
 	if err := json.NewDecoder(r.Body).Decode(&preferences); err != nil {
-		http.Error(w, `{"error":"Invalid discovery preferences"}`, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrInvalidDiscoveryPreferences", "Invalid discovery preferences")), http.StatusBadRequest)
 		return
 	}
 
 	if err := h.Repo.UpdateDiscoveryPreferences(r.Context(), userID, preferences); err != nil {
 		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
-			http.Error(w, `{"error":"Invalid discovery preferences"}`, http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrInvalidDiscoveryPreferences", "Invalid discovery preferences")), http.StatusBadRequest)
 			return
 		}
 		log.Printf("[SETTINGS] Failed to update discovery preferences for user %s: %v", userID, err)
-		http.Error(w, `{"error":"Failed to update discovery preferences"}`, http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrFailedUpdateDiscoveryPreferences", "Failed to update discovery preferences")), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"message": "Discovery preferences saved"}); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgDiscoveryPreferencesSaved", "Discovery preferences saved")}); err != nil {
 		log.Printf("[SETTINGS] Failed to encode discovery-preferences response for user %s: %v", userID, err)
 	}
 }
@@ -175,11 +226,11 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		allowed, err := h.Repo.CanUseIncognito(r.Context(), userID)
 		if err != nil {
 			log.Printf("[SETTINGS] Failed to verify Incognito entitlement for %s: %v", userID, err)
-			http.Error(w, `{"error":"Could not verify Premium access"}`, http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrVerifyPremiumAccess", "Could not verify Premium access")), http.StatusInternalServerError)
 			return
 		}
 		if !allowed {
-			http.Error(w, `{"error":"An active Premium membership is required for Incognito Mode"}`, http.StatusPaymentRequired)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrPremiumIncognitoRequired", "An active Premium membership is required for Incognito Mode")), http.StatusPaymentRequired)
 			return
 		}
 	}
@@ -187,7 +238,7 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 	if err := h.Repo.UpdateSettings(userID, payload); err != nil {
 		log.Printf("500 Error in UpdateSettings for user %s: %v\n", userID, err)
 		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
-			http.Error(w, `{"error":"Invalid matching preferences"}`, http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrInvalidMatchingPreferences", "Invalid matching preferences")), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -202,7 +253,7 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Settings saved successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgSettingsSaved", "Settings saved successfully")})
 }
 
 func (h *SettingsHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +308,7 @@ func (h *SettingsHandler) GetMediaVault(w http.ResponseWriter, r *http.Request) 
 		media[i].URL, err = presignMediaURL(r.Context(), h.Storage, media[i].URL)
 		if err != nil {
 			log.Printf("[SETTINGS] Could not sign media vault image for user %s: %v", userID, err)
-			http.Error(w, `{"error":"Could not load media vault images"}`, http.StatusBadGateway)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrCouldNotLoadMediaVaultImages", "Could not load media vault images")), http.StatusBadGateway)
 			return
 		}
 	}
@@ -294,21 +345,21 @@ func (h *SettingsHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	if header.Size <= 0 || header.Size > maxImageSize {
-		http.Error(w, `{"error":"Image must be smaller than 10 MB"}`, http.StatusRequestEntityTooLarge)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrImageTooLarge", "Image must be smaller than 10 MB")), http.StatusRequestEntityTooLarge)
 		return
 	}
 	sniff := make([]byte, 512)
 	n, readErr := file.Read(sniff)
 	if readErr != nil && readErr != io.EOF {
-		http.Error(w, `{"error":"Could not read uploaded image"}`, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrReadUploadedImage", "Could not read uploaded image")), http.StatusBadRequest)
 		return
 	}
 	if !strings.HasPrefix(http.DetectContentType(sniff[:n]), "image/") {
-		http.Error(w, `{"error":"Only image files are supported"}`, http.StatusUnsupportedMediaType)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrOnlyImageFilesSupported", "Only image files are supported")), http.StatusUnsupportedMediaType)
 		return
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		http.Error(w, `{"error":"Could not process uploaded image"}`, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrProcessUploadedImage", "Could not process uploaded image")), http.StatusBadRequest)
 		return
 	}
 
@@ -334,7 +385,7 @@ func (h *SettingsHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 	media.URL, err = presignMediaURL(r.Context(), h.Storage, media.URL)
 	if err != nil {
 		log.Printf("[SETTINGS] Uploaded media but could not sign response URL for user %s: %v", userID, err)
-		http.Error(w, `{"error":"Image uploaded but could not be displayed"}`, http.StatusBadGateway)
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrImageUploadedNotDisplayed", "Image uploaded but could not be displayed")), http.StatusBadGateway)
 		return
 	}
 
@@ -346,7 +397,7 @@ func (h *SettingsHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message":     "File uploaded successfully",
+		"message":     localized(r.Context(), "MsgFileUploadedSuccessfully", "File uploaded successfully"),
 		"id":          media.ID,
 		"url":         media.URL,
 		"storage_url": fileURL,
@@ -425,7 +476,7 @@ func (h *SettingsHandler) RequestDataDownload(w http.ResponseWriter, r *http.Req
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Your gorgeous data dossier is compiling. You will receive an email shortly.",
+		"message": localized(r.Context(), "MsgDataExportPreparing", "Your gorgeous data dossier is compiling. You will receive an email shortly."),
 		"job_id":  jobID,
 	})
 
@@ -481,8 +532,8 @@ func (h *SettingsHandler) RequestDataDownload(w http.ResponseWriter, r *http.Req
 			RecipientID: uid,
 			WSEventType: "SYSTEM_ALERT",
 			WSPayload: map[string]string{
-				"title":   "Export Complete",
-				"message": "Your Data Dossier has been successfully generated and sent to your email.",
+				"title":   localized(detachedCtx, "TitleDataExportComplete", "Export Complete"),
+				"message": localized(detachedCtx, "MsgDataExportComplete", "Your Data Dossier has been successfully generated and sent to your email."),
 				"type":    "success",
 			},
 		})
@@ -519,7 +570,7 @@ func (h *SettingsHandler) TerminateOtherSessions(w http.ResponseWriter, r *http.
 	if err != nil {
 		log.Printf("[SETTINGS] Failed to refresh current session for %s: %v", userID, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to refresh current session"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrRefreshCurrentSession", "Failed to refresh current session")})
 		return
 	}
 
@@ -528,8 +579,8 @@ func (h *SettingsHandler) TerminateOtherSessions(w http.ResponseWriter, r *http.
 		RecipientID: userID,
 		WSEventType: "SYSTEM_ALERT",
 		WSPayload: map[string]string{
-			"title":   "Security Update",
-			"message": "All other devices have been securely logged out.",
+			"title":   localized(r.Context(), "TitleSecurityUpdate", "Security Update"),
+			"message": localized(r.Context(), "MsgDevicesLoggedOutSecurely", "All other devices have been securely logged out."),
 			"type":    "info",
 		},
 	})
@@ -544,14 +595,14 @@ func (h *SettingsHandler) TerminateOtherSessions(w http.ResponseWriter, r *http.
 func (h *SettingsHandler) GetActiveSessions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	currentID, _ := r.Context().Value(middlewares.SessionIDKey).(string)
 	sessions, err := h.Repo.ListAuthSessions(r.Context(), userID, currentID)
 	if err != nil {
 		log.Printf("[SETTINGS] Failed to list sessions for %s: %v", userID, err)
-		http.Error(w, "Could not load active sessions", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrLoadActiveSessions", "Could not load active sessions"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -561,27 +612,27 @@ func (h *SettingsHandler) GetActiveSessions(w http.ResponseWriter, r *http.Reque
 func (h *SettingsHandler) RevokeActiveSession(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "ErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	sessionID := chi.URLParam(r, "sessionId")
 	if sessionID == "" {
-		http.Error(w, "Session ID is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrSessionIDRequired", "Session ID is required"), http.StatusBadRequest)
 		return
 	}
 	currentID, _ := r.Context().Value(middlewares.SessionIDKey).(string)
 	if sessionID == currentID {
-		http.Error(w, "Use sign out to end the current session", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrUseSignOutForCurrentSession", "Use sign out to end the current session"), http.StatusBadRequest)
 		return
 	}
 	revoked, err := h.Repo.RevokeAuthSession(r.Context(), userID, sessionID)
 	if err != nil {
 		log.Printf("[SETTINGS] Failed to revoke session for %s: %v", userID, err)
-		http.Error(w, "Could not revoke session", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrRevokeSession", "Could not revoke session"), http.StatusInternalServerError)
 		return
 	}
 	if !revoked {
-		http.Error(w, "Session was not found or is already revoked", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrSessionNotFoundOrRevoked", "Session was not found or is already revoked"), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

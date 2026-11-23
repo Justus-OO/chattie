@@ -37,7 +37,7 @@ func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
 
 	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
 	if r.URL.Query().Get("offset") != "" && (err != nil || offset < 0 || offset > 10000) {
-		http.Error(w, "Offset must be between 0 and 10000", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrOffsetMustBeBetween0And10000", "Offset must be between 0 and 10000"), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
@@ -61,7 +61,7 @@ func (h *DiscoverHandler) GetSwipeDeck(w http.ResponseWriter, r *http.Request) {
 			profiles[i].Images[j], err = presignMediaURL(r.Context(), h.UploadService, profiles[i].Images[j])
 			if err != nil {
 				log.Printf("[DISCOVERY MEDIA] Could not sign profile image for user %s: %v", profiles[i].ID, err)
-				http.Error(w, "Could not load profile images", http.StatusBadGateway)
+				http.Error(w, localized(r.Context(), "ErrCouldNotLoadProfileImages", "Could not load profile images"), http.StatusBadGateway)
 				return
 			}
 		}

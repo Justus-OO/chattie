@@ -29,7 +29,7 @@ func NewAdminRoomHandler(repo *repository.Repository, hub *Hub) *AdminRoomHandle
 func (h *AdminRoomHandler) GetRooms(w http.ResponseWriter, r *http.Request) {
 	rooms, err := h.Repo.GetAdminRooms(r.Context())
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load active spaces")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadActiveSpaces", "Failed to load active spaces"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, rooms)
@@ -40,7 +40,7 @@ func (h *AdminRoomHandler) TerminateRoom(w http.ResponseWriter, r *http.Request)
 
 	// 1. Delete from database
 	if err := h.Repo.TerminateRoom(r.Context(), roomID); err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to terminate space")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedTerminateSpace", "Failed to terminate space"))
 		return
 	}
 
@@ -49,33 +49,33 @@ func (h *AdminRoomHandler) TerminateRoom(w http.ResponseWriter, r *http.Request)
 		h.Hub.TerminateRoomLive(roomID, "Room closed by administrator")
 	}
 
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Space terminated successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgSpaceTerminated", "Space terminated successfully")})
 }
 
 func (h *AdminRoomHandler) UpdateRoomStatus(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || adminID == "" {
-		sendAdminError(w, http.StatusUnauthorized, "Unauthorized")
+		sendAdminError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 	var payload struct {
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid request body")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"))
 		return
 	}
 	if payload.Status != "ACTIVE" && payload.Status != "WARNING" && payload.Status != "SUSPENDED" {
-		sendAdminError(w, http.StatusBadRequest, "Invalid room status")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRoomStatus", "Invalid room status"))
 		return
 	}
 	if err := h.Repo.UpdateAdminRoomStatus(r.Context(), chi.URLParam(r, "id"), adminID, payload.Status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			sendAdminError(w, http.StatusNotFound, "Room not found")
+			sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrRoomNotFound", "Room not found"))
 			return
 		}
 		log.Printf("Failed to update room %s status: %v", chi.URLParam(r, "id"), err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to update room status")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToUpdateRoomStatus", "Failed to update room status"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, map[string]string{"status": payload.Status})
@@ -85,7 +85,7 @@ func (h *AdminRoomHandler) GetParticipants(w http.ResponseWriter, r *http.Reques
 	roomID := chi.URLParam(r, "id")
 	participants, err := h.Repo.GetRoomParticipants(r.Context(), roomID)
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load participants")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadParticipants", "Failed to load participants"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, participants)
@@ -94,7 +94,7 @@ func (h *AdminRoomHandler) GetParticipants(w http.ResponseWriter, r *http.Reques
 func (h *AdminRoomHandler) GetKnocks(w http.ResponseWriter, r *http.Request) {
 	knocks, err := h.Repo.GetAdminKnocks(r.Context())
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load access queue")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadAccessQueue", "Failed to load access queue"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, knocks)
@@ -106,7 +106,7 @@ func (h *AdminRoomHandler) ResolveKnock(w http.ResponseWriter, r *http.Request) 
 		Action string `json:"action"` // APPROVE, REJECT
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidPayloadShort", "Invalid payload"))
 		return
 	}
 
@@ -118,7 +118,7 @@ func (h *AdminRoomHandler) ResolveKnock(w http.ResponseWriter, r *http.Request) 
 	// Update DB and retrieve the target user/room IDs
 	userID, roomID, err := h.Repo.ResolveKnock(r.Context(), knockID, status)
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to resolve knock")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedResolveKnock", "Failed to resolve knock"))
 		return
 	}
 
@@ -132,7 +132,7 @@ func (h *AdminRoomHandler) ResolveKnock(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Access request updated"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgAccessRequestUpdated", "Access request updated")})
 }
 
 func (h *AdminRoomHandler) KickParticipant(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +141,7 @@ func (h *AdminRoomHandler) KickParticipant(w http.ResponseWriter, r *http.Reques
 
 	// 1. Remove from Database
 	if err := h.Repo.KickUserFromRoom(r.Context(), roomID, userID); err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to kick user")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedKickUser", "Failed to kick user"))
 		return
 	}
 
@@ -150,7 +150,7 @@ func (h *AdminRoomHandler) KickParticipant(w http.ResponseWriter, r *http.Reques
 		h.Hub.KickUserLive(roomID, userID, "You were kicked by an administrator")
 	}
 
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "User kicked successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgUserKicked", "User kicked successfully")})
 }
 
 // =========================================================================

@@ -124,7 +124,7 @@ func (h *AdminCreatorHandler) UpdateOperatorStatus(w http.ResponseWriter, r *htt
 		// }
 	}
 
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Status updated successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgStatusUpdated", "Status updated successfully")})
 }
 
 // ToggleAutoPilot handles PATCH /api/admin/operators/{id}/autopilot
@@ -150,7 +150,7 @@ func (h *AdminCreatorHandler) BindPersona(w http.ResponseWriter, r *http.Request
 	operatorID := chi.URLParam(r, "id")
 	personaID := chi.URLParam(r, "personaId")
 	if operatorID == "" || personaID == "" {
-		sendAdminError(w, http.StatusBadRequest, "Operator and profile IDs are required")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrOperatorAndProfileIDsAreRequired", "Operator and profile IDs are required"))
 		return
 	}
 
@@ -158,21 +158,21 @@ func (h *AdminCreatorHandler) BindPersona(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		switch {
 		case errors.Is(err, repository.ErrOperatorNotFound), errors.Is(err, repository.ErrPersonaNotFound):
-			sendAdminError(w, http.StatusNotFound, "Operator or profile not found")
+			sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrOperatorOrProfileNotFound", "Operator or profile not found"))
 		case errors.Is(err, repository.ErrInvalidOperatorRole):
-			sendAdminError(w, http.StatusBadRequest, "This account cannot manage profiles")
+			sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrThisAccountCannotManageProfiles", "This account cannot manage profiles"))
 		case errors.Is(err, repository.ErrOperatorProfileLimit):
-			sendAdminError(w, http.StatusConflict, "A creator cannot manage more than eight profiles at once")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrACreatorCannotManageMoreThanEightProfilesAtOnce", "A creator cannot manage more than eight profiles at once"))
 		case errors.Is(err, repository.ErrPersonaAlreadyAssigned):
-			sendAdminError(w, http.StatusConflict, "This profile has already been assigned. Refresh and try again.")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrThisProfileHasAlreadyBeenAssignedRefreshAndTryAgain", "This profile has already been assigned. Refresh and try again."))
 		default:
 			log.Printf("Failed to assign profile %s to operator %s: %v", personaID, operatorID, err)
-			sendAdminError(w, http.StatusInternalServerError, "Failed to assign profile")
+			sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToAssignProfile", "Failed to assign profile"))
 		}
 		return
 	}
 
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Persona bound successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgPersonaBound", "Persona bound successfully")})
 }
 
 // UnbindPersona handles DELETE /api/admin/operators/{id}/personas/{personaId}
@@ -180,45 +180,45 @@ func (h *AdminCreatorHandler) UnbindPersona(w http.ResponseWriter, r *http.Reque
 	operatorID := chi.URLParam(r, "id")
 	personaID := chi.URLParam(r, "personaId")
 	if operatorID == "" || personaID == "" {
-		sendAdminError(w, http.StatusBadRequest, "Operator and profile IDs are required")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrOperatorAndProfileIDsAreRequired2", "Operator and profile IDs are required"))
 		return
 	}
 
 	if err := h.Repo.UnbindPersonaFromOperator(r.Context(), operatorID, personaID); err != nil {
 		if errors.Is(err, repository.ErrAssignmentNotFound) {
-			sendAdminError(w, http.StatusNotFound, "This profile is not assigned to that operator")
+			sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrThisProfileIsNotAssignedToThatOperator", "This profile is not assigned to that operator"))
 			return
 		}
 		log.Printf("Failed to unassign profile %s from operator %s: %v", personaID, operatorID, err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to unassign profile")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToUnassignProfile", "Failed to unassign profile"))
 		return
 	}
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Persona unbound successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgPersonaUnbound", "Persona unbound successfully")})
 }
 
 func (h *AdminCreatorHandler) NotifyOperatorPendingReplies(w http.ResponseWriter, r *http.Request) {
 	operatorID := chi.URLParam(r, "id")
 	if operatorID == "" {
-		sendAdminError(w, http.StatusBadRequest, "Operator ID is required")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrOperatorIDIsRequired", "Operator ID is required"))
 		return
 	}
 
 	pendingReplies, err := h.Repo.GetOperatorPendingReplyCount(r.Context(), operatorID)
 	if errors.Is(err, repository.ErrOperatorNotFound) {
-		sendAdminError(w, http.StatusNotFound, "Creator not found")
+		sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrCreatorNotFound", "Creator not found"))
 		return
 	}
 	if err != nil {
 		log.Printf("Failed to count pending creator replies for %s: %v", operatorID, err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to check pending replies")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToCheckPendingReplies", "Failed to check pending replies"))
 		return
 	}
 	if pendingReplies == 0 {
-		sendAdminError(w, http.StatusConflict, "This creator has no conversations awaiting a reply")
+		sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrThisCreatorHasNoConversationsAwaitingAReply", "This creator has no conversations awaiting a reply"))
 		return
 	}
 	if h.Events == nil {
-		sendAdminError(w, http.StatusServiceUnavailable, "Creator notifications are unavailable")
+		sendAdminError(w, http.StatusServiceUnavailable, localized(r.Context(), "ErrCreatorNotificationsAreUnavailable", "Creator notifications are unavailable"))
 		return
 	}
 
@@ -226,13 +226,13 @@ func (h *AdminCreatorHandler) NotifyOperatorPendingReplies(w http.ResponseWriter
 		RecipientID: operatorID,
 		WSEventType: "CREATOR_REPLY_REMINDER",
 		WSPayload: map[string]interface{}{
-			"title":           "Client conversations need replies",
+			"title": localized(r.Context(), "MsgClientConversationsNeedReplies", "Client conversations need replies"),
 			"message":         fmt.Sprintf("%d client conversation(s) across your assigned profiles are awaiting a reply.", pendingReplies),
 			"pending_replies": pendingReplies,
 		},
 	})
 	sendAdminJSON(w, http.StatusOK, map[string]interface{}{
-		"message":        "Reply reminder sent",
+		"message": localized(r.Context(), "MsgReplyReminderSent", "Reply reminder sent"),
 		"pendingReplies": pendingReplies,
 	})
 }
@@ -241,13 +241,13 @@ func (h *AdminCreatorHandler) NotifyOperatorPendingReplies(w http.ResponseWriter
 func (h *AdminCreatorHandler) GetPersonasMetrics(w http.ResponseWriter, r *http.Request) {
 	if err := h.Repo.EnsurePersonaManagedProfiles(r.Context()); err != nil {
 		log.Printf("Error repairing managed profiles for persona accounts: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to prepare persona profiles")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToPreparePersonaProfiles", "Failed to prepare persona profiles"))
 		return
 	}
 	metrics, err := h.Repo.GetManagedPersonasMetrics(r.Context())
 	if err != nil {
 		log.Printf("Error fetching managed profile metrics: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load persona metrics")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadPersonaMetrics", "Failed to load persona metrics"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, metrics)
@@ -274,30 +274,30 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 	payload.Gender = strings.ToLower(strings.TrimSpace(payload.Gender))
 	if payload.Email == "" || payload.Username == "" || payload.Password == "" ||
 		payload.DisplayName == "" || payload.Gender == "" || payload.DateOfBirth == "" {
-		sendAdminError(w, http.StatusBadRequest, "Display name, email, username, password, gender, and date of birth are required")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrDisplayNameEmailUsernamePasswordGenderAndDateOfBirthAre", "Display name, email, username, password, gender, and date of birth are required"))
 		return
 	}
 	if utf8.RuneCountInString(payload.DisplayName) > 50 {
-		sendAdminError(w, http.StatusBadRequest, "Display name must be 50 characters or fewer")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrDisplayNameMustBe50CharactersOrFewer", "Display name must be 50 characters or fewer"))
 		return
 	}
 	if payload.Gender != "male" && payload.Gender != "female" && payload.Gender != "other" {
-		sendAdminError(w, http.StatusBadRequest, "Gender must be male, female, or other")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrGenderMustBeMaleFemaleOrOther", "Gender must be male, female, or other"))
 		return
 	}
 	birthDate, err := time.Parse("2006-01-02", payload.DateOfBirth)
 	if err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Date of birth must use YYYY-MM-DD format")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrDateOfBirthMustUseYYYYMMDDFormat", "Date of birth must use YYYY-MM-DD format"))
 		return
 	}
 	if birthDate.After(time.Now().AddDate(-18, 0, 0)) {
-		sendAdminError(w, http.StatusBadRequest, "Creator must be at least 18 years old")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrCreatorMustBeAtLeast18YearsOld", "Creator must be at least 18 years old"))
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to process credentials")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedProcessCredentials", "Failed to process credentials"))
 		return
 	}
 
@@ -305,7 +305,7 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 	tx, err := h.Repo.DB.BeginTx(ctx, nil)
 	if err != nil {
 		log.Printf("Failed to start creator provisioning transaction: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to provision creator account")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToProvisionCreatorAccount", "Failed to provision creator account"))
 		return
 	}
 	defer tx.Rollback()
@@ -319,11 +319,11 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 	if err != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
-			sendAdminError(w, http.StatusConflict, "Email or username already exists")
+			sendAdminError(w, http.StatusConflict, localized(r.Context(), "ErrEmailUsernameExists", "Email or username already exists"))
 			return
 		}
 		log.Printf("Failed to create creator login: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to create creator login")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToCreateCreatorLogin", "Failed to create creator login"))
 		return
 	}
 
@@ -334,7 +334,7 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 
 	if err != nil {
 		log.Printf("Failed to create creator profile metadata: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to create creator profile metadata")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToCreateCreatorProfileMetadata", "Failed to create creator profile metadata"))
 		return
 	}
 
@@ -345,7 +345,7 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
     `, userID)
 	if err != nil {
 		log.Printf("Failed to initialize creator stats: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to initialize creator stats")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToInitializeCreatorStats", "Failed to initialize creator stats"))
 		return
 	}
 
@@ -355,17 +355,17 @@ func (h *AdminCreatorHandler) CreateCreatorAccount(w http.ResponseWriter, r *htt
 	`, userID)
 	if err != nil {
 		log.Printf("Failed to initialize operator settings: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to initialize operator settings")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToInitializeOperatorSettings", "Failed to initialize operator settings"))
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit creator provisioning transaction: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to provision creator account")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToProvisionCreatorAccount2", "Failed to provision creator account"))
 		return
 	}
 	sendAdminJSON(w, http.StatusCreated, map[string]string{
-		"message": "Creator account provisioned successfully",
+		"message": localized(r.Context(), "MsgCreatorProvisioned", "Creator account provisioned successfully"),
 		"user_id": userID,
 	})
 }
@@ -376,7 +376,7 @@ func (h *AdminCreatorHandler) CreatePersona(w http.ResponseWriter, r *http.Reque
 	defer r.Body.Close()
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Invalid request payload")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload"))
 		return
 	}
 
@@ -388,17 +388,17 @@ func (h *AdminCreatorHandler) CreatePersona(w http.ResponseWriter, r *http.Reque
 	newID, err := h.Repo.CreatePersona(r.Context(), payload)
 	if err != nil {
 		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
-			sendAdminError(w, http.StatusBadRequest, "Select between 3 and 7 unique interests")
+			sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrSelectBetween3And7UniqueInterests", "Select between 3 and 7 unique interests"))
 			return
 		}
 		log.Printf("CRITICAL: Failed to provision new persona: %v", err)
-		sendAdminError(w, http.StatusInternalServerError, "Failed to provision persona account. Check server logs for the failing setup step.")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToProvisionPersonaAccountCheckServerLogsForTheFai", "Failed to provision persona account. Check server logs for the failing setup step."))
 		return
 	}
 
 	sendAdminJSON(w, http.StatusCreated, map[string]string{
 		"id":      newID,
-		"message": "Persona provisioned successfully",
+		"message": localized(r.Context(), "MsgPersonaProvisioned", "Persona provisioned successfully"),
 	})
 }
 

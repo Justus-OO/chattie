@@ -9,6 +9,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	texttemplate "text/template"
 
 	"chattie-backend/repository"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
@@ -59,9 +60,17 @@ func (s *NotificationService) SendTemplatedEmail(ctx context.Context, toEmail, t
 	if toEmail == "" {
 		return fmt.Errorf("recipient email required")
 	}
+	recipientLanguage := "en"
+	if storedLanguage, err := s.Repo.GetUserLanguageByEmail(ctx, toEmail); err == nil && storedLanguage.Valid {
+		if isSupportedRecipientLanguage(storedLanguage.String) {
+			recipientLanguage = storedLanguage.String
+		}
+	}
+
 	if templateName == "support_ticket_update" {
 		if data, ok := templateData.(map[string]interface{}); ok {
-			subject, body, err := localizeSupportTicketEmail(ctx, data)
+			recipientCtx := context.WithValue(ctx, localizerKey, GetOfflineLocalizer(recipientLanguage))
+			subject, body, err := localizeSupportTicketEmail(recipientCtx, data)
 			if err != nil {
 				return fmt.Errorf("localize support ticket email: %w", err)
 			}
@@ -72,6 +81,18 @@ func (s *NotificationService) SendTemplatedEmail(ctx context.Context, toEmail, t
 			return nil
 		}
 		return fmt.Errorf("support ticket email data must be a string map")
+	}
+
+	if recipientLanguage != "en" {
+		subject, body, err := renderLocalizedEmailTemplate(recipientLanguage, templateName, templateData)
+		if err == nil {
+			if err := s.Email.QueueHTML(ctx, toEmail, subject, body, nil); err != nil {
+				return fmt.Errorf("queue template %s: %w", templateName, err)
+			}
+			log.Printf("[NOTIF] Queued recipient-localized template %s to %s", templateName, toEmail)
+			return nil
+		}
+		log.Printf("[NOTIF WARN] Built-in locale template %s unavailable for %s: %v", templateName, recipientLanguage, err)
 	}
 
 	// 1. Try to load the compiled template from RAM (Read Lock)
@@ -179,6 +200,77 @@ func localizeSupportTicketEmail(ctx context.Context, data map[string]interface{}
 func stringValue(value interface{}) string {
 	text, _ := value.(string)
 	return text
+}
+
+func isSupportedRecipientLanguage(language string) bool {
+	switch language {
+	case "en", "es", "fr", "de", "pt", "ja", "sw", "hi", "zh-CN":
+		return true
+	default:
+		return false
+	}
+}
+
+func pascalEmailTemplateName(templateName string) string {
+	parts := strings.FieldsFunc(templateName, func(r rune) bool {
+		return r == '_' || r == '-' || r == ' '
+	})
+	var name strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		name.WriteString(strings.ToUpper(part[:1]))
+		name.WriteString(part[1:])
+	}
+	return name.String()
+}
+
+func renderLocalizedEmailTemplate(language, templateName string, templateData interface{}) (string, string, error) {
+	localizer := GetOfflineLocalizer(language)
+	suffix := pascalEmailTemplateName(templateName)
+	if suffix == "" {
+		return "", "", fmt.Errorf("invalid template name")
+	}
+	subject, err := localizer.Localize(&i18n.LocalizeConfig{
+		MessageID: "EmailSubject" + suffix,
+		DefaultMessage: &i18n.Message{
+			ID:    "EmailSubject" + suffix,
+			Other: "",
+		},
+	})
+	if err != nil || subject == "" {
+		return "", "", fmt.Errorf("missing localized subject for %s", templateName)
+	}
+	body, err := localizer.Localize(&i18n.LocalizeConfig{
+		MessageID: "EmailBody" + suffix,
+		DefaultMessage: &i18n.Message{
+			ID:    "EmailBody" + suffix,
+			Other: "",
+		},
+	})
+	if err != nil || body == "" {
+		return "", "", fmt.Errorf("missing localized body for %s", templateName)
+	}
+
+	var subjectBuffer bytes.Buffer
+	subjectTemplate, err := texttemplate.New(templateName + "_subject").Option("missingkey=zero").Parse(subject)
+	if err != nil {
+		return "", "", fmt.Errorf("parse localized subject %s: %w", templateName, err)
+	}
+	if err := subjectTemplate.Execute(&subjectBuffer, templateData); err != nil {
+		return "", "", fmt.Errorf("execute localized subject %s: %w", templateName, err)
+	}
+
+	var bodyBuffer bytes.Buffer
+	bodyTemplate, err := template.New(templateName + "_body").Option("missingkey=zero").Parse(body)
+	if err != nil {
+		return "", "", fmt.Errorf("parse localized body %s: %w", templateName, err)
+	}
+	if err := bodyTemplate.Execute(&bodyBuffer, templateData); err != nil {
+		return "", "", fmt.Errorf("execute localized body %s: %w", templateName, err)
+	}
+	return subjectBuffer.String(), bodyBuffer.String(), nil
 }
 
 // SendWebSocketMessage pushes a JSON payload to an active connection

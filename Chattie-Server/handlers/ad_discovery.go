@@ -36,7 +36,7 @@ func (h *ADDiscoveryHandler) signProfileMedia(ctx context.Context, profile *mode
 func (h *ADDiscoveryHandler) GetDirectory(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	query := r.URL.Query().Get("q")
@@ -55,12 +55,12 @@ func (h *ADDiscoveryHandler) GetDirectory(w http.ResponseWriter, r *http.Request
 	onlineOnly, _ := strconv.ParseBool(r.URL.Query().Get("online_only"))
 	minPriceCents, err := parseDirectoryPrice(r.URL.Query().Get("min_price_cents"))
 	if err != nil {
-		http.Error(w, "Invalid minimum subscription price", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidMinimumSubscriptionPrice", "Invalid minimum subscription price"), http.StatusBadRequest)
 		return
 	}
 	maxPriceCents, err := parseDirectoryPrice(r.URL.Query().Get("max_price_cents"))
 	if err != nil {
-		http.Error(w, "Invalid maximum subscription price", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidMaximumSubscriptionPrice", "Invalid maximum subscription price"), http.StatusBadRequest)
 		return
 	}
 	profiles, total, err := h.Repo.GetDirectory(
@@ -78,17 +78,17 @@ func (h *ADDiscoveryHandler) GetDirectory(w http.ResponseWriter, r *http.Request
 	)
 	if err != nil {
 		if errors.Is(err, repository.ErrInvalidDirectoryPriceRange) {
-			http.Error(w, "Minimum price cannot exceed maximum price", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "ErrMinimumPriceCannotExceedMaximumPrice", "Minimum price cannot exceed maximum price"), http.StatusBadRequest)
 			return
 		}
 		log.Printf("[AFTER DARK DISCOVERY] Directory query failed: %v", err)
-		http.Error(w, "Failed to fetch directory", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchDirectory", "Failed to fetch directory"), http.StatusInternalServerError)
 		return
 	}
 	for i := range profiles {
 		if err := h.signProfileMedia(r.Context(), &profiles[i]); err != nil {
 			log.Printf("[AFTER DARK MEDIA] Could not sign directory images: %v", err)
-			http.Error(w, "Could not load creator images", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrCouldNotLoadCreatorImages", "Could not load creator images"), http.StatusBadGateway)
 			return
 		}
 	}
@@ -162,14 +162,14 @@ func parseFeedPagination(limitValue, pageValue, offsetValue string) (int, int, e
 func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	creatorID := r.URL.Query().Get("creator_id")
 	if creatorID != "" {
 		parsedCreatorID, err := parseFeedCreatorID(creatorID)
 		if err != nil {
-			http.Error(w, "Invalid creator ID", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "ErrInvalidCreatorID", "Invalid creator ID"), http.StatusBadRequest)
 			return
 		}
 		creatorID = parsedCreatorID
@@ -178,17 +178,17 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	mediaType := r.URL.Query().Get("media_type")
 	accessType := r.URL.Query().Get("access")
 	if len(searchQuery) > 200 {
-		http.Error(w, "Search query is too long", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrSearchQueryIsTooLong", "Search query is too long"), http.StatusBadRequest)
 		return
 	}
 
 	if accessType != "" && accessType != "all" && accessType != "free" &&
 		accessType != "subscriber" && accessType != "ppv" {
-		http.Error(w, "Invalid access filter", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidAccessFilter", "Invalid access filter"), http.StatusBadRequest)
 		return
 	}
 	if mediaType != "" && mediaType != "all" && mediaType != "image" && mediaType != "video" {
-		http.Error(w, "Invalid media type filter", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidMediaTypeFilter", "Invalid media type filter"), http.StatusBadRequest)
 		return
 	}
 	feedScope := r.URL.Query().Get("feed_scope")
@@ -196,7 +196,7 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		feedScope = "discover"
 	}
 	if feedScope != "discover" && feedScope != "following" {
-		http.Error(w, "Invalid feed scope", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidFeedScope", "Invalid feed scope"), http.StatusBadRequest)
 		return
 	}
 
@@ -206,7 +206,7 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("offset"),
 	)
 	if err != nil {
-		http.Error(w, "Invalid feed pagination", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidFeedPagination", "Invalid feed pagination"), http.StatusBadRequest)
 		return
 	}
 
@@ -224,7 +224,7 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("[AFTER DARK DISCOVERY] Feed query failed for user %s (creator %q): %v", userID, creatorID, err)
-		http.Error(w, "Failed to fetch feed", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchFeed", "Failed to fetch feed"), http.StatusInternalServerError)
 		return
 	}
 	hasMore := len(posts) > limit
@@ -234,7 +234,7 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 	for i := range posts {
 		if err := h.signProfileMedia(r.Context(), &posts[i].Creator); err != nil {
 			log.Printf("[AFTER DARK MEDIA] Could not sign feed creator images: %v", err)
-			http.Error(w, "Could not load creator images", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrCouldNotLoadCreatorImages2", "Could not load creator images"), http.StatusBadGateway)
 			return
 		}
 	}
@@ -253,7 +253,7 @@ func (h *ADDiscoveryHandler) GetFeed(w http.ResponseWriter, r *http.Request) {
 func (h *ADDiscoveryHandler) GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	creatorID := chi.URLParam(r, "creatorId")
@@ -261,16 +261,16 @@ func (h *ADDiscoveryHandler) GetCreatorProfile(w http.ResponseWriter, r *http.Re
 	profile, err := h.Repo.GetPublicCreatorProfile(r.Context(), userID, creatorID)
 	if err != nil {
 		log.Printf("[AFTER DARK DISCOVERY] Creator profile query failed for %q: %v", creatorID, err)
-		http.Error(w, "Failed to fetch creator profile", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchCreatorProfile", "Failed to fetch creator profile"), http.StatusInternalServerError)
 		return
 	}
 	if profile == nil {
-		http.Error(w, "Creator not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrCreatorNotFound2", "Creator not found"), http.StatusNotFound)
 		return
 	}
 	if err := h.signProfileMedia(r.Context(), profile); err != nil {
 		log.Printf("[AFTER DARK MEDIA] Could not sign creator profile images: %v", err)
-		http.Error(w, "Could not load creator images", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrCouldNotLoadCreatorImages3", "Could not load creator images"), http.StatusBadGateway)
 		return
 	}
 
@@ -283,18 +283,18 @@ func (h *ADDiscoveryHandler) GetCreatorProfile(w http.ResponseWriter, r *http.Re
 func (h *ADDiscoveryHandler) GetStories(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	stories, err := h.Repo.GetActiveStories(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch stories", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchStories", "Failed to fetch stories"), http.StatusInternalServerError)
 		return
 	}
 	for i := range stories {
 		if stories[i].AvatarURL, err = presignMediaURL(r.Context(), h.UploadService, stories[i].AvatarURL); err != nil {
 			log.Printf("[AFTER DARK MEDIA] Could not sign story avatar: %v", err)
-			http.Error(w, "Could not load creator images", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrCouldNotLoadCreatorImages4", "Could not load creator images"), http.StatusBadGateway)
 			return
 		}
 	}
@@ -307,7 +307,7 @@ func (h *ADDiscoveryHandler) GetStories(w http.ResponseWriter, r *http.Request) 
 func (h *ADDiscoveryHandler) ToggleFollow(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middlewares.UserIDKey).(string)
 	if userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	creatorID := chi.URLParam(r, "creatorId")
@@ -315,14 +315,14 @@ func (h *ADDiscoveryHandler) ToggleFollow(w http.ResponseWriter, r *http.Request
 	isFollowing, err := h.Repo.ToggleFollow(r.Context(), userID, creatorID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Creator not found", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrCreatorNotFound3", "Creator not found"), http.StatusNotFound)
 			return
 		}
 		if err.Error() == "cannot follow yourself" {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, "Failed to toggle follow", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToToggleFollow", "Failed to toggle follow"), http.StatusInternalServerError)
 		return
 	}
 
@@ -332,7 +332,7 @@ func (h *ADDiscoveryHandler) ToggleFollow(w http.ResponseWriter, r *http.Request
 func (h *ADDiscoveryHandler) CreateShareLink(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -341,7 +341,7 @@ func (h *ADDiscoveryHandler) CreateShareLink(w http.ResponseWriter, r *http.Requ
 		TargetID   string `json:"target_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequest4", "Invalid request"), http.StatusBadRequest)
 		return
 	}
 
@@ -349,7 +349,7 @@ func (h *ADDiscoveryHandler) CreateShareLink(w http.ResponseWriter, r *http.Requ
 
 	// Call the Repository instead of raw SQL
 	if err := h.Repo.CreateShareLink(r.Context(), linkID, userID, req.TargetType, req.TargetID); err != nil {
-		http.Error(w, "Failed to create share link", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToCreateShareLink", "Failed to create share link"), http.StatusInternalServerError)
 		return
 	}
 

@@ -215,8 +215,8 @@ func (h *SettingsHandler) refreshPlaidIdentityVerification(
 			RecipientID: userID,
 			WSEventType: "PROFILE_VERIFIED",
 			WSPayload: map[string]string{
-				"title":   "Identity Verified!",
-				"message": "Your identity verification was approved.",
+				"title": localized(context.Background(), "MsgIdentityVerified2", "Identity Verified!"),
+				"message": localized(context.Background(), "MsgYourIdentityVerificationWasApproved", "Your identity verification was approved."),
 				"type":    "success",
 			},
 		})

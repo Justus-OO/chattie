@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -37,7 +38,7 @@ func (h *OnboardingHandler) SetupProfile(w http.ResponseWriter, r *http.Request)
 
 	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request payload"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload")})
 		return
 	}
 
@@ -52,12 +53,12 @@ func (h *OnboardingHandler) SetupProfile(w http.ResponseWriter, r *http.Request)
 		log.Printf("[ONBOARDING ERROR] Failed to save profile for user %s: %v", userID, err)
 		if errors.Is(err, repository.ErrInvalidOnboardingProfile) {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "A valid display name, adult date of birth, bio, and height are required."})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrAValidDisplayNameAdultDateOfBirthBioAndHeightAreRequire", "A valid display name, adult date of birth, bio, and height are required.")})
 			return
 		}
 		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid gender"})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidGender", "Invalid gender")})
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -65,7 +66,7 @@ func (h *OnboardingHandler) SetupProfile(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Profile saved successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgProfileSaved", "Profile saved successfully")})
 }
 
 func isValidCountryCode(code string) bool {
@@ -99,7 +100,7 @@ func (h *OnboardingHandler) SetupLocation(w http.ResponseWriter, r *http.Request
 	} else {
 		loc.CountryCode = strings.ToUpper(strings.TrimSpace(loc.CountryCode))
 		if !isValidCountryCode(loc.CountryCode) {
-			http.Error(w, `{"error":"A valid two-letter country code is required."}`, http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, localized(r.Context(), "ErrAValidTwoLetterCountryCodeIsRequired", "A valid two-letter country code is required.")), http.StatusBadRequest)
 			return
 		}
 	}
@@ -107,7 +108,7 @@ func (h *OnboardingHandler) SetupLocation(w http.ResponseWriter, r *http.Request
 		math.IsNaN(loc.Latitude) || math.IsInf(loc.Latitude, 0) || loc.Latitude < -90 || loc.Latitude > 90 ||
 		math.IsNaN(loc.Longitude) || math.IsInf(loc.Longitude, 0) || loc.Longitude < -180 || loc.Longitude > 180 {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "A city and valid location coordinates are required."})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrACityAndValidLocationCoordinatesAreRequired", "A city and valid location coordinates are required.")})
 		return
 	}
 
@@ -118,7 +119,7 @@ func (h *OnboardingHandler) SetupLocation(w http.ResponseWriter, r *http.Request
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Location saved successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgLocationSaved", "Location saved successfully")})
 }
 
 // SetupPreferences handles Step 4
@@ -143,7 +144,7 @@ func (h *OnboardingHandler) SetupPreferences(w http.ResponseWriter, r *http.Requ
 		log.Printf("[ONBOARDING ERROR] Failed to save preferences for user %s: %v", userID, err)
 		if errors.Is(err, repository.ErrInvalidDiscoveryPreferences) {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Choose valid discovery preferences and between 3 and 7 interests."})
+			json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrChooseValidDiscoveryPreferencesAndBetween3And7Interests", "Choose valid discovery preferences and between 3 and 7 interests.")})
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -151,7 +152,7 @@ func (h *OnboardingHandler) SetupPreferences(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Preferences saved successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgPreferencesSaved", "Preferences saved successfully")})
 }
 
 // VerifyOTP handles Step 1.5: Proving identity before saving profile data
@@ -172,12 +173,12 @@ func (h *OnboardingHandler) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	isValid, err := h.Repo.ValidateOTP(r.Context(), userID, payload.Code)
 	if err != nil || !isValid {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid or expired verification code"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrInvalidOrExpiredVerificationCode7", "Invalid or expired verification code")})
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Identity verified"})
+	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgIdentityVerified", "Identity verified")})
 }
 
 // SetupInitialMedia handles Step 5: Forcing at least one photo upload
@@ -192,14 +193,14 @@ func (h *OnboardingHandler) SetupInitialMedia(w http.ResponseWriter, r *http.Req
 	// 1. Parse Multipart Form (e.g., 10MB limit)
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "File too large or invalid form data"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFileTooLargeOrInvalidFormData", "File too large or invalid form data")})
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Image file is required"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrImageFileIsRequired2", "Image file is required")})
 		return
 	}
 	defer file.Close()
@@ -209,20 +210,20 @@ func (h *OnboardingHandler) SetupInitialMedia(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		log.Printf("[ONBOARDING ERROR] Engine failed to save initial file for %s: %v", userID, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to upload image to storage"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedToUploadImageToStorage", "Failed to upload image to storage")})
 		return
 	}
 
 	// 3. Save the resulting public URL to the DB as the primary photo (true)
 	if err := h.Repo.SaveUserMedia(userID, fileURL, true); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to link image to profile"})
+		json.NewEncoder(w).Encode(map[string]string{"error": localized(r.Context(), "ErrFailedToLinkImageToProfile", "Failed to link image to profile")})
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "Initial photo uploaded successfully",
+		"message": localized(r.Context(), "MsgInitialPhotoUploadedSuccessfully", "Initial photo uploaded successfully"),
 		"url":     fileURL,
 	})
 }
@@ -251,7 +252,7 @@ func (h *OnboardingHandler) ActivateAccount(w http.ResponseWriter, r *http.Reque
 	if len(missing) > 0 {
 		w.WriteHeader(http.StatusPreconditionFailed)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":   "Complete the required onboarding fields before activating your account.",
+			"error": localized(r.Context(), "ErrCompleteTheRequiredOnboardingFieldsBeforeActivatingYour", "Complete the required onboarding fields before activating your account."),
 			"missing": missing,
 		})
 		return
@@ -265,5 +266,5 @@ func (h *OnboardingHandler) ActivateAccount(w http.ResponseWriter, r *http.Reque
 	}(userID)
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Account fully activated securely"})
+	json.NewEncoder(w).Encode(map[string]string{"message": localized(r.Context(), "MsgAccountFullyActivatedSecurely", "Account fully activated securely")})
 }

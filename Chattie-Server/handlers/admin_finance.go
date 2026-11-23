@@ -31,14 +31,14 @@ func (h *AdminHandler) GetFinanceAnalytics(w http.ResponseWriter, r *http.Reques
 	}
 	since, ok := adminFinancePeriodStart(period, time.Now())
 	if !ok {
-		http.Error(w, "Unsupported finance period. Use 7D, 30D, 90D, or YTD.", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrUnsupportedFinancePeriodUse7D30D90DOrYTD", "Unsupported finance period. Use 7D, 30D, 90D, or YTD."), http.StatusBadRequest)
 		return
 	}
 
 	analytics, err := h.Repo.GetFinanceAnalytics(r.Context(), since)
 	if err != nil {
 		log.Printf("Failed to load admin finance analytics: %v", err)
-		http.Error(w, "Failed to load finance analytics", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToLoadFinanceAnalytics", "Failed to load finance analytics"), http.StatusInternalServerError)
 		return
 	}
 	analytics.Period = period

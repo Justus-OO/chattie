@@ -192,7 +192,7 @@ func (h *ExtrasHandler) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 	go h.Events.ProcessEvent(detachedCtx, services.AppEvent{
 		RecipientID:   userID,
 		WSEventType:   "VIP_UPGRADE_SUCCESS",
-		WSPayload:     map[string]interface{}{"months": months, "message": "Welcome to Premium!"},
+		WSPayload:     map[string]interface{}{"months": months, "message": localized(r.Context(), "MsgWelcomePremium", "Welcome to Premium!")},
 		EmailTemplate: "premium_welcome",
 	})
 

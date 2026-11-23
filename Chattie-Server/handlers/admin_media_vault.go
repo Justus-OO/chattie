@@ -25,7 +25,7 @@ func NewAdminMediaHandler(repo *repository.Repository) *AdminMediaHandler {
 func (h *AdminMediaHandler) GetVaults(w http.ResponseWriter, r *http.Request) {
 	vaults, err := h.Repo.GetAdminPersonaVaults(r.Context())
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load persona vaults")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadPersonaVaults", "Failed to load persona vaults"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, vaults)
@@ -36,7 +36,7 @@ func (h *AdminMediaHandler) GetVaultGallery(w http.ResponseWriter, r *http.Reque
 	personaID := chi.URLParam(r, "id")
 	items, err := h.Repo.GetVaultGallery(r.Context(), personaID)
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load vault gallery")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadVaultGallery", "Failed to load vault gallery"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, items)
@@ -48,29 +48,29 @@ func (h *AdminMediaHandler) SetPrimary(w http.ResponseWriter, r *http.Request) {
 	mediaID := chi.URLParam(r, "mediaId")
 
 	if err := h.Repo.SetPrimaryVaultImage(r.Context(), personaID, mediaID); err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to set primary asset")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedSetPrimaryAsset", "Failed to set primary asset"))
 		return
 	}
 	_ = h.Repo.LogMediaAudit(r.Context(), "SET_PRIMARY", personaID, "ROOT_ADMIN", mediaID)
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Primary updated successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgPrimaryUpdated", "Primary updated successfully")})
 }
 
 // DeleteMedia handles DELETE /api/admin/media/assets/{mediaId}
 func (h *AdminMediaHandler) DeleteMedia(w http.ResponseWriter, r *http.Request) {
 	mediaID := chi.URLParam(r, "mediaId")
 	if err := h.Repo.DeleteVaultMedia(r.Context(), mediaID); err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to delete asset")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedDeleteAsset", "Failed to delete asset"))
 		return
 	}
 	_ = h.Repo.LogMediaAudit(r.Context(), "DELETE_MEDIA", "", "ROOT_ADMIN", mediaID)
-	sendAdminJSON(w, http.StatusOK, map[string]string{"message": "Asset deleted successfully"})
+	sendAdminJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgAssetDeleted", "Asset deleted successfully")})
 }
 
 // GetAuditLogs handles GET /api/admin/media/audit-logs
 func (h *AdminMediaHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	logs, err := h.Repo.GetMediaAuditLogs(r.Context())
 	if err != nil {
-		sendAdminError(w, http.StatusInternalServerError, "Failed to load audit logs")
+		sendAdminError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadAuditLogs", "Failed to load audit logs"))
 		return
 	}
 	sendAdminJSON(w, http.StatusOK, logs)
@@ -84,13 +84,13 @@ func (h *AdminMediaHandler) InjectAssets(w http.ResponseWriter, r *http.Request)
 	var exists bool
 	err := h.Repo.DB.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM managed_profiles WHERE id = $1)`, personaID).Scan(&exists)
 	if err != nil || !exists {
-		sendAdminError(w, http.StatusNotFound, "Persona vault not found in database")
+		sendAdminError(w, http.StatusNotFound, localized(r.Context(), "ErrPersonaVaultNotFound", "Persona vault not found in database"))
 		return
 	}
 
 	err = r.ParseMultipartForm(50 << 20) // 50MB limit
 	if err != nil {
-		sendAdminError(w, http.StatusBadRequest, "Files too large or invalid multipart form")
+		sendAdminError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidMultipartForm", "Files too large or invalid multipart form"))
 		return
 	}
 
@@ -128,5 +128,5 @@ func (h *AdminMediaHandler) InjectAssets(w http.ResponseWriter, r *http.Request)
 		_ = h.Repo.LogMediaAudit(r.Context(), "INJECT_MEDIA", personaID, "ROOT_ADMIN", fileHeader.Filename)
 	}
 
-	sendAdminJSON(w, http.StatusCreated, map[string]string{"message": "Assets successfully injected into vault"})
+	sendAdminJSON(w, http.StatusCreated, map[string]string{"message": localized(r.Context(), "MsgAssetsInjected", "Assets successfully injected into vault")})
 }

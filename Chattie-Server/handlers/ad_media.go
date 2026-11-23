@@ -35,19 +35,19 @@ func NewADMediaHandler(repo *repository.ADMediaRepository, uploadService *servic
 func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	requestID := uuid.NewString()
 	if h.UploadService == nil {
-		http.Error(w, "Media storage is unavailable", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrMediaStorageIsUnavailable", "Media storage is unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 
 	// Safely limit RAM usage to 32MB (larger files will be spooled to disk temp files)
 	r.Body = http.MaxBytesReader(w, r.Body, 512<<20)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, "File upload too large or invalid", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFileUploadTooLargeOrInvalid2", "File upload too large or invalid"), http.StatusBadRequest)
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	if priceStr := r.FormValue("price_cents"); priceStr != "" {
 		parsed, err := strconv.ParseInt(priceStr, 10, 64)
 		if err != nil || parsed < 0 {
-			http.Error(w, "Invalid price", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "ErrInvalidPrice", "Invalid price"), http.StatusBadRequest)
 			return
 		}
 		priceCents = parsed
@@ -69,7 +69,7 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	if explicitValue := r.FormValue("is_explicit"); explicitValue != "" {
 		parsed, err := strconv.ParseBool(explicitValue)
 		if err != nil {
-			http.Error(w, "Invalid explicit-content setting", http.StatusBadRequest)
+			http.Error(w, localized(r.Context(), "ErrInvalidExplicitContentSetting", "Invalid explicit-content setting"), http.StatusBadRequest)
 			return
 		}
 		isExplicit = parsed
@@ -77,11 +77,11 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	switch accessType {
 	case "free", "subscriber", "ppv":
 	default:
-		http.Error(w, "Invalid access type", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidAccessType", "Invalid access type"), http.StatusBadRequest)
 		return
 	}
 	if accessType == "ppv" && priceCents < 5000 {
-		http.Error(w, "A valid price is required for PPV posts", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidPriceIsRequiredForPPVPosts", "A valid price is required for PPV posts"), http.StatusBadRequest)
 		return
 	}
 	if accessType != "ppv" {
@@ -101,17 +101,17 @@ func (h *ADMediaHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 
 	file, header, err := r.FormFile("media") // Match this with your React FormData field name!
 	if err != nil {
-		http.Error(w, "Media file is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrMediaFileIsRequired", "Media file is required"), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 	mimeType, err := sniffUploadType(file)
 	if err != nil {
-		http.Error(w, "Failed to read uploaded media", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFailedToReadUploadedMedia", "Failed to read uploaded media"), http.StatusBadRequest)
 		return
 	}
 	if !strings.HasPrefix(mimeType, "image/") && !strings.HasPrefix(mimeType, "video/") {
-		http.Error(w, "Only image and video posts are supported", http.StatusUnsupportedMediaType)
+		http.Error(w, localized(r.Context(), "ErrOnlyImageAndVideoPostsAreSupported", "Only image and video posts are supported"), http.StatusUnsupportedMediaType)
 		return
 	}
 
@@ -177,40 +177,40 @@ func writeADMediaError(w http.ResponseWriter, status int, message, requestID str
 func (h *ADMediaHandler) UploadCreatorImage(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	if h.UploadService == nil {
-		http.Error(w, "Image storage is unavailable", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrImageStorageIsUnavailable", "Image storage is unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	kind := chi.URLParam(r, "kind")
 	if kind != "avatar" && kind != "cover" {
-		http.Error(w, "Unsupported image type", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrUnsupportedImageType", "Unsupported image type"), http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseMultipartForm(16 << 20); err != nil {
-		http.Error(w, "File upload too large or invalid", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFileUploadTooLargeOrInvalid3", "File upload too large or invalid"), http.StatusBadRequest)
 		return
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "Image file is required", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrImageFileIsRequired", "Image file is required"), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 	mimeType, err := sniffUploadType(file)
 	if err != nil {
-		http.Error(w, "Failed to read uploaded image", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFailedToReadUploadedImage", "Failed to read uploaded image"), http.StatusBadRequest)
 		return
 	}
 	if !strings.HasPrefix(mimeType, "image/") {
-		http.Error(w, "Only image files are supported", http.StatusUnsupportedMediaType)
+		http.Error(w, localized(r.Context(), "ErrOnlyImageFilesSupported", "Only image files are supported"), http.StatusUnsupportedMediaType)
 		return
 	}
 	uploadURL, size, err := h.UploadService.SaveFile(file, header, "afterdark/profiles")
 	if err != nil {
-		http.Error(w, "Failed to upload creator image", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToUploadCreatorImage", "Failed to upload creator image"), http.StatusInternalServerError)
 		return
 	}
 	asset := &models.ADAsset{
@@ -223,7 +223,7 @@ func (h *ADMediaHandler) UploadCreatorImage(w http.ResponseWriter, r *http.Reque
 		if deleteErr := h.UploadService.DeleteFile(uploadURL); deleteErr != nil {
 			log.Printf("[AFTERDARK MEDIA] Failed to clean up creator image after signing failed: %v", deleteErr)
 		}
-		http.Error(w, "Could not prepare creator image for display", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrCouldNotPrepareCreatorImageForDisplay", "Could not prepare creator image for display"), http.StatusBadGateway)
 		return
 	}
 	if err := h.Repo.CreateCreatorImage(r.Context(), asset, kind); err != nil {
@@ -231,10 +231,10 @@ func (h *ADMediaHandler) UploadCreatorImage(w http.ResponseWriter, r *http.Reque
 			log.Printf("[AFTERDARK MEDIA] Failed to clean up uploaded creator image: %v", deleteErr)
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Creator profile not found", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrCreatorProfileNotFound", "Creator profile not found"), http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to save creator image", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToSaveCreatorImage", "Failed to save creator image"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -251,7 +251,7 @@ func (h *ADMediaHandler) UploadCreatorImage(w http.ResponseWriter, r *http.Reque
 func (h *ADMediaHandler) GetVaultPosts(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
@@ -259,14 +259,14 @@ func (h *ADMediaHandler) GetVaultPosts(w http.ResponseWriter, r *http.Request) {
 
 	posts, err := h.Repo.GetVaultPosts(r.Context(), userID, statusFilter)
 	if err != nil {
-		http.Error(w, "Failed to fetch vault posts", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToFetchVaultPosts", "Failed to fetch vault posts"), http.StatusInternalServerError)
 		return
 	}
 	for i := range posts {
 		posts[i].MediaURL, err = presignMediaURL(r.Context(), h.UploadService, posts[i].MediaURL)
 		if err != nil {
 			log.Printf("[AFTERDARK MEDIA] Could not sign vault image for user %s: %v", userID, err)
-			http.Error(w, "Could not load your media vault images", http.StatusBadGateway)
+			http.Error(w, localized(r.Context(), "ErrCouldNotLoadYourMediaVaultImages", "Could not load your media vault images"), http.StatusBadGateway)
 			return
 		}
 	}
@@ -280,11 +280,11 @@ func (h *ADMediaHandler) GetVaultPosts(w http.ResponseWriter, r *http.Request) {
 func (h *ADMediaHandler) GetPostMediaURL(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	if h.UploadService == nil {
-		http.Error(w, "Media storage is unavailable", http.StatusServiceUnavailable)
+		http.Error(w, localized(r.Context(), "ErrMediaStorageIsUnavailable2", "Media storage is unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -295,18 +295,18 @@ func (h *ADMediaHandler) GetPostMediaURL(w http.ResponseWriter, r *http.Request)
 		chi.URLParam(r, "postId"),
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		http.Error(w, "Post media not found", http.StatusNotFound)
+		http.Error(w, localized(r.Context(), "ErrPostMediaNotFound2", "Post media not found"), http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		http.Error(w, "Could not authorize post media", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrCouldNotAuthorizePostMedia", "Could not authorize post media"), http.StatusInternalServerError)
 		return
 	}
 
 	const urlLifetime = 10 * time.Minute
 	mediaURL, err := h.UploadService.ReadURL(r.Context(), asset.StorageKey, urlLifetime)
 	if err != nil {
-		http.Error(w, "Could not provide post media", http.StatusBadGateway)
+		http.Error(w, localized(r.Context(), "ErrCouldNotProvidePostMedia2", "Could not provide post media"), http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
@@ -321,13 +321,13 @@ func (h *ADMediaHandler) GetPostMediaURL(w http.ResponseWriter, r *http.Request)
 func (h *ADMediaHandler) DeletePost(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	postID := chi.URLParam(r, "postId")
 	if err := h.Repo.DeletePost(r.Context(), postID, userID); err != nil {
-		http.Error(w, "Failed to delete post or post not found", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrFailedToDeletePostOrPostNotFound", "Failed to delete post or post not found"), http.StatusBadRequest)
 		return
 	}
 
@@ -339,7 +339,7 @@ func (h *ADMediaHandler) DeletePost(w http.ResponseWriter, r *http.Request) {
 func (h *ADMediaHandler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 	var req struct {
@@ -349,7 +349,7 @@ func (h *ADMediaHandler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 		PriceCents      int64  `json:"price_cents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	accessType := req.AccessType
@@ -362,11 +362,11 @@ func (h *ADMediaHandler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 	switch accessType {
 	case "free", "subscriber", "ppv":
 	default:
-		http.Error(w, "Invalid pricing strategy", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidPricingStrategy", "Invalid pricing strategy"), http.StatusBadRequest)
 		return
 	}
 	if req.PriceCents < 0 || (accessType == "ppv" && req.PriceCents < 5000) {
-		http.Error(w, "A valid price is required for PPV posts", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrAValidPriceIsRequiredForPPVPosts2", "A valid price is required for PPV posts"), http.StatusBadRequest)
 		return
 	}
 	if accessType != "ppv" {
@@ -375,10 +375,10 @@ func (h *ADMediaHandler) UpdatePost(w http.ResponseWriter, r *http.Request) {
 	post, err := h.Repo.UpdatePost(r.Context(), chi.URLParam(r, "postId"), userID, req.Caption, accessType, req.PriceCents)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Post not found", http.StatusNotFound)
+			http.Error(w, localized(r.Context(), "ErrPostNotFound", "Post not found"), http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to update post", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToUpdatePost", "Failed to update post"), http.StatusInternalServerError)
 		return
 	}
 	response := map[string]interface{}{

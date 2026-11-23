@@ -153,21 +153,21 @@ func (h *CreatorHandler) RequestPayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendJSON(w, http.StatusOK, map[string]string{"message": "Payout requested successfully"})
+	sendJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgPayoutRequested", "Payout requested successfully")})
 }
 
 // GetProfiles handles GET /api/creator/profiles
 func (h *CreatorHandler) GetProfiles(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	profiles, err := h.Repo.GetAssignedProfiles(r.Context(), userID)
 	if err != nil {
 		log.Printf("Error fetching managed profiles for user %s: %v", userID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load profiles")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadProfiles", "Failed to load profiles"))
 		return
 	}
 
@@ -183,7 +183,7 @@ func (h *CreatorHandler) GetProfileConversations(w http.ResponseWriter, r *http.
 	conversations, err := repository.NewChatRepository(h.Repo.DB).GetInbox(chatUserID)
 	if err != nil {
 		log.Printf("Error fetching conversations for managed profile %s: %v", profileID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load profile conversations")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToLoadProfileConversations", "Failed to load profile conversations"))
 		return
 	}
 	sendJSON(w, http.StatusOK, conversations)
@@ -196,7 +196,7 @@ func (h *CreatorHandler) GetProfileConversationMessages(w http.ResponseWriter, r
 	}
 	partnerID := chi.URLParam(r, "partner_id")
 	if partnerID == "" || partnerID == chatUserID {
-		sendError(w, http.StatusBadRequest, "A conversation partner is required")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrAConversationPartnerIsRequired3", "A conversation partner is required"))
 		return
 	}
 
@@ -204,12 +204,12 @@ func (h *CreatorHandler) GetProfileConversationMessages(w http.ResponseWriter, r
 	messages, err := chatRepo.GetDirectMessages(chatUserID, partnerID, 100)
 	if err != nil {
 		log.Printf("Error fetching profile conversation %s/%s: %v", profileID, partnerID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load conversation")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToLoadConversation", "Failed to load conversation"))
 		return
 	}
 	if err := chatRepo.MarkMessagesAsRead(chatUserID, partnerID); err != nil {
 		log.Printf("Error marking profile conversation %s/%s as read: %v", profileID, partnerID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to update read status")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToUpdateReadStatus", "Failed to update read status"))
 		return
 	}
 	sendJSON(w, http.StatusOK, messages)
@@ -222,15 +222,15 @@ func (h *CreatorHandler) BlockProfileConversationUser(w http.ResponseWriter, r *
 	}
 	partnerID := chi.URLParam(r, "partner_id")
 	if partnerID == "" || partnerID == chatUserID {
-		sendError(w, http.StatusBadRequest, "A conversation partner is required")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrAConversationPartnerIsRequired4", "A conversation partner is required"))
 		return
 	}
 	if err := h.Repo.BlockUser(r.Context(), chatUserID, partnerID); err != nil {
 		log.Printf("Creator %s failed to block user %s for profile %s: %v", creatorID, partnerID, profileID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to block user")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedBlockUser", "Failed to block user"))
 		return
 	}
-	sendJSON(w, http.StatusOK, map[string]string{"message": "User blocked"})
+	sendJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgUserBlocked", "User blocked")})
 }
 
 func (h *CreatorHandler) ReportProfileConversationUser(w http.ResponseWriter, r *http.Request) {
@@ -243,17 +243,17 @@ func (h *CreatorHandler) ReportProfileConversationUser(w http.ResponseWriter, r 
 		Reason string `json:"reason"`
 	}
 	if partnerID == "" || partnerID == chatUserID {
-		sendError(w, http.StatusBadRequest, "A conversation partner is required")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrAConversationPartnerIsRequired5", "A conversation partner is required"))
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Reason == "" {
-		sendError(w, http.StatusBadRequest, "A report reason is required")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrAReportReasonIsRequired", "A report reason is required"))
 		return
 	}
 	restricted, err := h.Repo.ReportUser(r.Context(), chatUserID, partnerID, payload.Reason)
 	if err != nil {
 		log.Printf("Creator %s failed to report user %s for profile %s: %v", creatorID, partnerID, profileID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to submit report")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedSubmitReport", "Failed to submit report"))
 		return
 	}
 	if restricted && h.Events != nil && h.Events.NotifService != nil {
@@ -266,28 +266,28 @@ func (h *CreatorHandler) ReportProfileConversationUser(w http.ResponseWriter, r 
 			EmailTemplate: "account_banned",
 		})
 	}
-	sendJSON(w, http.StatusOK, map[string]string{"message": "Report submitted"})
+	sendJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgReportSubmitted", "Report submitted")})
 }
 
 func (h *CreatorHandler) profileChatIdentity(w http.ResponseWriter, r *http.Request) (string, string, string, bool) {
 	creatorID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || creatorID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return "", "", "", false
 	}
 	profileID := chi.URLParam(r, "profile_id")
 	if profileID == "" {
-		sendError(w, http.StatusBadRequest, "Missing profile_id URL parameter")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrMissingProfileIdUrl", "Missing profile_id URL parameter"))
 		return "", "", "", false
 	}
 	chatUserID, err := h.Repo.ResolveManagedProfileChatIdentity(r.Context(), profileID, creatorID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			sendError(w, http.StatusNotFound, "Assigned profile not found")
+			sendError(w, http.StatusNotFound, localized(r.Context(), "ErrAssignedProfileNotFound5", "Assigned profile not found"))
 			return "", "", "", false
 		}
 		log.Printf("Error resolving chat identity for profile %s and creator %s: %v", profileID, creatorID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to validate assigned profile")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedToValidateAssignedProfile", "Failed to validate assigned profile"))
 		return "", "", "", false
 	}
 	return creatorID, profileID, chatUserID, true
@@ -297,60 +297,60 @@ func (h *CreatorHandler) profileChatIdentity(w http.ResponseWriter, r *http.Requ
 func (h *CreatorHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	profileID := chi.URLParam(r, "profile_id")
 	if profileID == "" {
-		sendError(w, http.StatusBadRequest, "Missing profile_id URL parameter")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrMissingProfileIdUrl", "Missing profile_id URL parameter"))
 		return
 	}
 
 	var payload models.UpdateStatusRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendError(w, http.StatusBadRequest, "Invalid request payload")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidRequestPayload", "Invalid request payload"))
 		return
 	}
 
 	if payload.Status != "online" && payload.Status != "offline" && payload.Status != "busy" {
-		sendError(w, http.StatusBadRequest, "Invalid status value")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidStatusValue", "Invalid status value"))
 		return
 	}
 
 	err := h.Repo.UpdateProfileStatus(r.Context(), profileID, userID, payload.Status)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			sendError(w, http.StatusNotFound, "Assigned profile not found")
+			sendError(w, http.StatusNotFound, localized(r.Context(), "ErrAssignedProfileNotFound6", "Assigned profile not found"))
 			return
 		}
 		log.Printf("Error updating status for profile %s: %v", profileID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to update profile status")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedUpdateProfileStatus", "Failed to update profile status"))
 		return
 	}
 
-	sendJSON(w, http.StatusOK, map[string]string{"message": "Status updated successfully"})
+	sendJSON(w, http.StatusOK, map[string]string{"message": localized(r.Context(), "MsgStatusUpdated", "Status updated successfully")})
 }
 
 // GetQueue handles GET /api/creator/queue?profile_id=XYZ
 func (h *CreatorHandler) GetQueue(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	profileID := r.URL.Query().Get("profile_id")
 	if profileID == "" {
-		sendError(w, http.StatusBadRequest, "Missing profile_id query parameter")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrMissingProfileIdParameter", "Missing profile_id query parameter"))
 		return
 	}
 
 	queue, err := h.Repo.GetChatQueueForProfile(r.Context(), profileID)
 	if err != nil {
 		log.Printf("Error fetching queue for profile %s: %v", profileID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load queue")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadCreatorQueue", "Failed to load queue"))
 		return
 	}
 
@@ -361,20 +361,20 @@ func (h *CreatorHandler) GetQueue(w http.ResponseWriter, r *http.Request) {
 func (h *CreatorHandler) GetProfileMedia(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
 	profileID := chi.URLParam(r, "profile_id")
 	if profileID == "" {
-		sendError(w, http.StatusBadRequest, "Missing profile_id URL parameter")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrMissingProfileIdUrl", "Missing profile_id URL parameter"))
 		return
 	}
 
 	media, err := h.Repo.GetProfileMedia(r.Context(), profileID, userID)
 	if err != nil {
 		log.Printf("Error fetching media for profile %s: %v", profileID, err)
-		sendError(w, http.StatusInternalServerError, "Failed to load profile media")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedLoadProfileMedia", "Failed to load profile media"))
 		return
 	}
 
@@ -385,7 +385,7 @@ func (h *CreatorHandler) GetProfileMedia(w http.ResponseWriter, r *http.Request)
 func (h *CreatorHandler) ToggleOnlineStatus(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		sendError(w, http.StatusUnauthorized, "Unauthorized")
+		sendError(w, http.StatusUnauthorized, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"))
 		return
 	}
 
@@ -394,13 +394,13 @@ func (h *CreatorHandler) ToggleOnlineStatus(w http.ResponseWriter, r *http.Reque
 	}
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		sendError(w, http.StatusBadRequest, "Invalid payload")
+		sendError(w, http.StatusBadRequest, localized(r.Context(), "ErrInvalidPayloadShort", "Invalid payload"))
 		return
 	}
 
 	err := h.Repo.UpdateCreatorOnlineStatus(r.Context(), userID, payload.IsOnline)
 	if err != nil {
-		sendError(w, http.StatusInternalServerError, "Failed to update status")
+		sendError(w, http.StatusInternalServerError, localized(r.Context(), "ErrFailedUpdateStatus", "Failed to update status"))
 		return
 	}
 

@@ -870,7 +870,7 @@ export default function AfterDarkChatHub() {
   return (
     <div className="chat-theme-sharp flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden font-mono text-zinc-300" style={{ backgroundColor: themeStyle.page, color: themeStyle.text }}>
       <header className="flex shrink-0 flex-col justify-between gap-4 border-b-2 border-zinc-800 bg-zinc-950 px-4 py-4 sm:flex-row sm:items-center md:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="hidden min-w-0 items-center gap-3 md:flex">
           <div className="border-2 border-zinc-600 bg-black p-2.5"><MessageCircle className="h-5 w-5 text-white" /></div>
           <div>
             <h1 className="text-lg font-black uppercase tracking-widest text-white">{t(isCreator ? 'afterDarkUiCustomerMessages' : 'afterDarkUiAfterDarkChats')}</h1>
@@ -936,7 +936,7 @@ export default function AfterDarkChatHub() {
                 <button type="button" onClick={() => setShowChatSettings(value => !value)} aria-label={t('afterDarkUiChatPreferences')} title={t('afterDarkUiChatPreferences')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-white hover:text-white"><Settings2 className="h-4 w-4" /></button>
                 <button type="button" onClick={handleReport} aria-label={t('afterDarkUiReportConversationPartner')} title={t('afterDarkUiReport')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-amber-500 hover:text-amber-400"><Flag className="h-4 w-4" /></button>
                 <button type="button" onClick={handleBlock} disabled={!conversationId || selectedContact?.blockedMe} aria-label={t(selectedContact?.blockedByMe ? 'afterDarkUiUnblockConversationPartner' : 'afterDarkUiBlockConversationPartner')} title={t(selectedContact?.blockedByMe ? 'afterDarkUiUnblock' : 'afterDarkUiBlock')} className="border-2 border-zinc-800 p-2 text-zinc-400 hover:border-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"><Ban className="h-4 w-4" /></button>
-                <span className="hidden shrink-0 border-2 border-zinc-700 bg-black px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-zinc-300 sm:inline">18+ chat</span>
+                <span className="hidden shrink-0 border-2 border-zinc-700 bg-black px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-zinc-300 sm:inline">{t('afterDarkUiAdultChatBadge')}</span>
               </header>
 
               {showChatSettings && (
@@ -1060,7 +1060,7 @@ export default function AfterDarkChatHub() {
             <h2 className="mt-2 text-lg font-black uppercase tracking-widest text-white">{incomingCall.fromName}</h2>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button type="button" onClick={rejectCall} className="flex items-center justify-center gap-2 border-2 border-red-500 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-red-400 hover:bg-red-500 hover:text-black"><PhoneOff className="h-4 w-4" /> {t('afterDarkUiDecline')}</button>
-              <button type="button" onClick={() => void acceptCall()} disabled={isConnectingCall} className="flex items-center justify-center gap-2 border-2 border-green-500 bg-green-500 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-green-400 disabled:opacity-50">{isConnectingCall ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />} Answer</button>
+              <button type="button" onClick={() => void acceptCall()} disabled={isConnectingCall} className="flex items-center justify-center gap-2 border-2 border-green-500 bg-green-500 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-green-400 disabled:opacity-50">{isConnectingCall ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />} {t('coreUiAnswer')}</button>
             </div>
           </div>
         </div>

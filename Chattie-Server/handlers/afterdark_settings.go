@@ -23,89 +23,89 @@ func NewADSettingsHandler(repo *repository.ADSettingsRepository) *ADSettingsHand
 func (h *ADSettingsHandler) PauseCreator(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	if err := h.Repo.UpdateCreatorStatus(r.Context(), userID, "paused"); err != nil {
-		http.Error(w, "Failed to pause creator profile", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToPauseCreatorProfile", "Failed to pause creator profile"), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "paused", "message": "Creator profile paused successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "paused", "message": localized(r.Context(), "MsgCreatorProfilePausedSuccessfully", "Creator profile paused successfully")})
 }
 
 // DELETE /api/afterdark/me/creator-pause
 func (h *ADSettingsHandler) ResumeCreator(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	if err := h.Repo.UpdateCreatorStatus(r.Context(), userID, "active"); err != nil {
-		http.Error(w, "Failed to resume creator profile", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToResumeCreatorProfile", "Failed to resume creator profile"), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "active", "message": "Creator profile resumed successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "active", "message": localized(r.Context(), "MsgCreatorProfileResumedSuccessfully", "Creator profile resumed successfully")})
 }
 
 // DELETE /api/afterdark/me/creator-status
 func (h *ADSettingsHandler) DeactivateCreator(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	// Sets status to deactivated, keeping historical ledger/chat data intact
 	if err := h.Repo.UpdateCreatorStatus(r.Context(), userID, "deactivated"); err != nil {
-		http.Error(w, "Failed to deactivate creator profile", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToDeactivateCreatorProfile", "Failed to deactivate creator profile"), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deactivated", "message": "Creator profile permanently deactivated"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "deactivated", "message": localized(r.Context(), "MsgCreatorProfilePermanentlyDeactivated", "Creator profile permanently deactivated")})
 }
 
 // PATCH /api/afterdark/me/settings
 func (h *ADSettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	var settings models.ADCreatorSettings
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, localized(r.Context(), "ErrInvalidRequestBody", "Invalid request body"), http.StatusBadRequest)
 		return
 	}
 	settings.UserID = userID
 
 	if err := h.Repo.UpsertCreatorSettings(r.Context(), &settings); err != nil {
-		http.Error(w, "Failed to update settings", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedUpdateSettings", "Failed to update settings"), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Settings saved"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": localized(r.Context(), "MsgSettingsSaved2", "Settings saved")})
 }
 
 // POST /api/afterdark/me/data-export
 func (h *ADSettingsHandler) RequestDataExport(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	jobID := uuid.New().String()
 	if err := h.Repo.QueueDataExport(r.Context(), jobID, userID); err != nil {
-		http.Error(w, "Failed to queue export job", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedToQueueExportJob", "Failed to queue export job"), http.StatusInternalServerError)
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *ADSettingsHandler) RequestDataExport(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(map[string]string{
 		"job_id":  jobID,
 		"status":  "pending",
-		"message": "Data export archive queued",
+		"message": localized(r.Context(), "MsgDataExportArchiveQueued", "Data export archive queued"),
 	})
 }
 
@@ -122,13 +122,13 @@ func (h *ADSettingsHandler) RequestDataExport(w http.ResponseWriter, r *http.Req
 func (h *ADSettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(middlewares.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, localized(r.Context(), "SupportErrUnauthorized", "Unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	settings, err := h.Repo.GetSettings(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Failed to fetch settings", http.StatusInternalServerError)
+		http.Error(w, localized(r.Context(), "ErrFailedFetchSettings", "Failed to fetch settings"), http.StatusInternalServerError)
 		return
 	}
 
