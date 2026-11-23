@@ -1,0 +1,14 @@
+.git
+**/.git
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/build
+Chattie-Server/.idea
+Chattie-Server/.vscode
+Chattie-Server/*.exe
+Chattie-Server/__debug_bin*
+Chattie-Server/uploads
+Chattie-Server/exports
+chattie-dating
