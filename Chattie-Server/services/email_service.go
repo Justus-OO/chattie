@@ -23,6 +23,8 @@ type EmailClient struct {
 	Repo     *repository.Repository
 }
 
+const emailSenderDisplayName = "Chattie"
+
 // NewEmailClient initializes the pure SMTP dialer
 func NewEmailClient() *EmailClient {
 	portStr := os.Getenv("SMTP_PORT")
@@ -56,7 +58,7 @@ func (c *EmailClient) isConfigured() bool {
 func (c *EmailClient) buildMessage(to, subject, htmlBody string, attachments map[string][]byte) (*mail.Msg, error) {
 	m := mail.NewMsg()
 
-	if err := m.From(c.From); err != nil {
+	if err := m.FromFormat(emailSenderDisplayName, c.From); err != nil {
 		return nil, fmt.Errorf("invalid from address: %w", err)
 	}
 	if err := m.To(to); err != nil {

@@ -7,6 +7,8 @@ import (
 	"html"
 	"html/template"
 	"log"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	texttemplate "text/template"
@@ -60,6 +62,11 @@ func (s *NotificationService) SendTemplatedEmail(ctx context.Context, toEmail, t
 	if toEmail == "" {
 		return fmt.Errorf("recipient email required")
 	}
+	templateData, err := absolutizeEmailActionURL(templateData)
+	if err != nil {
+		return fmt.Errorf("prepare email action link: %w", err)
+	}
+
 	recipientLanguage := "en"
 	if storedLanguage, err := s.Repo.GetUserLanguageByEmail(ctx, toEmail); err == nil && storedLanguage.Valid {
 		if isSupportedRecipientLanguage(storedLanguage.String) {
@@ -177,7 +184,8 @@ func localizeSupportTicketEmail(ctx context.Context, data map[string]interface{}
 	}
 
 	actionID := "SupportEmailOpen"
-	if strings.HasPrefix(stringValue(data["ActionURL"]), "/admin/") {
+	actionURL, err := url.Parse(stringValue(data["ActionURL"]))
+	if err == nil && strings.HasPrefix(actionURL.Path, "/admin/") {
 		actionID = "SupportEmailOpenAdmin"
 	}
 	actionLabel, err := localize(actionID, "Open support")
@@ -200,6 +208,71 @@ func localizeSupportTicketEmail(ctx context.Context, data map[string]interface{}
 func stringValue(value interface{}) string {
 	text, _ := value.(string)
 	return text
+}
+
+func absolutizeEmailActionURL(templateData interface{}) (interface{}, error) {
+	values, ok := templateData.(map[string]interface{})
+	if !ok {
+		return templateData, nil
+	}
+	rawActionURL, exists := values["ActionURL"]
+	if !exists {
+		return templateData, nil
+	}
+	actionURL, ok := rawActionURL.(string)
+	if !ok {
+		return nil, fmt.Errorf("ActionURL must be a string")
+	}
+	absoluteURL, err := resolveEmailActionURL(actionURL)
+	if err != nil {
+		return nil, err
+	}
+
+	normalized := make(map[string]interface{}, len(values))
+	for key, value := range values {
+		normalized[key] = value
+	}
+	normalized["ActionURL"] = absoluteURL
+	return normalized, nil
+}
+
+func resolveEmailActionURL(actionURL string) (string, error) {
+	actionURL = strings.TrimSpace(actionURL)
+	if actionURL == "" || strings.Contains(actionURL, `\`) {
+		return "", fmt.Errorf("ActionURL must be a non-empty URL path")
+	}
+
+	baseURLValue := strings.TrimSpace(os.Getenv("FRONTEND_URL"))
+	if baseURLValue == "" {
+		baseURLValue = "https://chattie.app"
+	}
+	baseURL, err := url.Parse(baseURLValue)
+	if err != nil ||
+		(baseURL.Scheme != "https" && baseURL.Scheme != "http") ||
+		baseURL.Host == "" ||
+		baseURL.User != nil ||
+		(baseURL.Path != "" && baseURL.Path != "/") ||
+		baseURL.RawQuery != "" ||
+		baseURL.Fragment != "" {
+		return "", fmt.Errorf("FRONTEND_URL must be an HTTP(S) origin")
+	}
+	baseURL.Path = ""
+
+	parsedActionURL, err := url.Parse(actionURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid ActionURL: %w", err)
+	}
+	if parsedActionURL.IsAbs() || parsedActionURL.Host != "" {
+		if !strings.EqualFold(parsedActionURL.Scheme, baseURL.Scheme) ||
+			!strings.EqualFold(parsedActionURL.Host, baseURL.Host) ||
+			parsedActionURL.User != nil {
+			return "", fmt.Errorf("ActionURL must use the configured frontend origin")
+		}
+	} else if !strings.HasPrefix(actionURL, "/") || strings.HasPrefix(actionURL, "//") {
+		return "", fmt.Errorf("ActionURL must be an absolute path")
+	}
+
+	return baseURL.ResolveReference(parsedActionURL).String(), nil
 }
 
 func isSupportedRecipientLanguage(language string) bool {

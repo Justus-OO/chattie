@@ -12,6 +12,82 @@ import (
 	"golang.org/x/text/language"
 )
 
+func TestAbsolutizeEmailActionURLUsesConfiguredFrontendURL(t *testing.T) {
+	t.Setenv("FRONTEND_URL", "https://app.example")
+	templateData := map[string]interface{}{
+		"ActionURL": "/support?ticket=123&source=email",
+		"Username":  "Alex",
+	}
+
+	normalized, err := absolutizeEmailActionURL(templateData)
+	if err != nil {
+		t.Fatalf("absolutize email action URL: %v", err)
+	}
+	normalizedData := normalized.(map[string]interface{})
+	if got, want := normalizedData["ActionURL"], "https://app.example/support?ticket=123&source=email"; got != want {
+		t.Errorf("ActionURL = %q, want %q", got, want)
+	}
+	if templateData["ActionURL"] != "/support?ticket=123&source=email" {
+		t.Errorf("input template data was mutated: %q", templateData["ActionURL"])
+	}
+	if normalizedData["Username"] != templateData["Username"] {
+		t.Errorf("unrelated template data changed: %q", normalizedData["Username"])
+	}
+}
+
+func TestResolveEmailActionURLUsesChattieDefault(t *testing.T) {
+	t.Setenv("FRONTEND_URL", "")
+
+	got, err := resolveEmailActionURL("/notifications")
+	if err != nil {
+		t.Fatalf("resolve email action URL: %v", err)
+	}
+	if want := "https://chattie.app/notifications"; got != want {
+		t.Errorf("resolved URL = %q, want %q", got, want)
+	}
+}
+
+func TestResolveEmailActionURLRejectsUnsafeOrUnrelatedURLs(t *testing.T) {
+	t.Setenv("FRONTEND_URL", "https://app.example")
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "empty", url: ""},
+		{name: "relative path", url: "relative/path"},
+		{name: "protocol-relative URL", url: "//app.example/support"},
+		{name: "javascript URL", url: "javascript:alert(1)"},
+		{name: "different origin", url: "https://other.example/support"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := resolveEmailActionURL(test.url); err == nil {
+				t.Errorf("expected %q to be rejected", test.url)
+			}
+		})
+	}
+}
+
+func TestLocalizeSupportTicketEmailKeepsAdminLabelForAbsoluteActionURL(t *testing.T) {
+	testBundle := loadTestLocaleBundle(t)
+	ctx := context.WithValue(
+		context.Background(),
+		localizerKey,
+		i18n.NewLocalizer(testBundle, "en"),
+	)
+	_, body, err := localizeSupportTicketEmail(ctx, map[string]interface{}{
+		"TicketSubject": "Question",
+		"TicketStatus":  "open",
+		"ActionURL":     "https://chattie.app/admin/support",
+	})
+	if err != nil {
+		t.Fatalf("localize admin support email: %v", err)
+	}
+	if !strings.Contains(body, "Open support inbox") {
+		t.Errorf("admin support email has incorrect action label: %s", body)
+	}
+}
+
 func TestLocalizeSupportTicketEmailUsesLocaleAndEscapesValues(t *testing.T) {
 	testBundle := loadTestLocaleBundle(t)
 	ctx := context.WithValue(
