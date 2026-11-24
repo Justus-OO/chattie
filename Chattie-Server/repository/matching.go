@@ -72,6 +72,10 @@ func normalizeProfileGender(value string) (string, error) {
 	}
 }
 
+func globalModeOverrideSQL(viewerMode, targetMode string) string {
+	return fmt.Sprintf("(%s OR %s)", viewerMode, targetMode)
+}
+
 func tagCompatibilityScoreSQL(leftTags, rightTags string) string {
 	return fmt.Sprintf(`COALESCE((
 		100.0 * (
@@ -91,7 +95,7 @@ func tagCompatibilityScoreSQL(leftTags, rightTags string) string {
 	)::INT, 0)`, leftTags, rightTags)
 }
 
-const actionEligibilityQuery = `
+var actionEligibilityQuery = `
 SELECT EXISTS (
 	SELECT 1
 	FROM users viewer
@@ -162,10 +166,10 @@ SELECT EXISTS (
 		  viewer_location.country_code IS NULL
 		  OR target_location.country_code IS NULL
 		  OR viewer_location.country_code = target_location.country_code
-		  OR (COALESCE(viewer_settings.global_mode, FALSE) AND COALESCE(target_settings.global_mode, FALSE))
+		  OR ` + globalModeOverrideSQL("COALESCE(viewer_settings.global_mode, FALSE)", "COALESCE(target_settings.global_mode, FALSE)") + `
 	  )
 	  AND (
-		  COALESCE(viewer_settings.global_mode, FALSE) AND COALESCE(target_settings.global_mode, FALSE)
+		  ` + globalModeOverrideSQL("COALESCE(viewer_settings.global_mode, FALSE)", "COALESCE(target_settings.global_mode, FALSE)") + `
 		  OR (
 			  CASE
 				  WHEN viewer_location.latitude IS NULL OR viewer_location.longitude IS NULL

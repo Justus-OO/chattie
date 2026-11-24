@@ -126,7 +126,7 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 				  cu.country_code IS NULL
 				  OR l.country_code IS NULL
 				  OR (l.country_code IS NOT NULL AND cu.country_code = l.country_code)
-				  OR (cu.global_mode = TRUE AND COALESCE(target_settings.global_mode, FALSE) = TRUE)
+				  OR ` + globalModeOverrideSQL("cu.global_mode", "COALESCE(target_settings.global_mode, FALSE)") + `
 			  )
 			  AND NULLIF(BTRIM(p.display_name), '') IS NOT NULL
 			  AND EXISTS (
@@ -188,8 +188,8 @@ func (r *Repository) GetGridProfiles(ctx context.Context, userID string, filters
 	args := []interface{}{userID} // $1 is always the current user's ID
 	argID := 2
 
-	// Cross-country discovery bypasses distance limits only with mutual Global Mode opt-in.
-	whereClauses = append(whereClauses, "((global_mode = TRUE AND target_global_mode = TRUE) OR (distance_km <= max_distance_km AND distance_km <= target_max_distance_km))")
+	// Either user's Global Mode opt-in bypasses cross-region and distance limits.
+	whereClauses = append(whereClauses, "("+globalModeOverrideSQL("global_mode", "target_global_mode")+" OR (distance_km <= max_distance_km AND distance_km <= target_max_distance_km))")
 
 	// Dynamic Age Overrides (If user adjusts sliders in the UI)
 	if filters.MinAge > 0 {

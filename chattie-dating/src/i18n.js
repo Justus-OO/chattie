@@ -288,6 +288,22 @@ const onboardingTranslations = {
       },
     };
 
+    const secureLocationTranslations = {
+      en: 'Location detection requires a secure HTTPS connection. Open Chattie over HTTPS and allow browser location access.',
+      es: 'La detección de ubicación requiere una conexión HTTPS segura. Abre Chattie con HTTPS y permite el acceso a la ubicación en el navegador.',
+      fr: 'La détection de la position nécessite une connexion HTTPS sécurisée. Ouvrez Chattie en HTTPS et autorisez l’accès à la position dans le navigateur.',
+      de: 'Die Standortermittlung erfordert eine sichere HTTPS-Verbindung. Öffne Chattie über HTTPS und erlaube den Standortzugriff im Browser.',
+      pt: 'A detecção de localização exige uma conexão HTTPS segura. Abra o Chattie por HTTPS e permita o acesso à localização no navegador.',
+      ja: '位置情報の取得には安全なHTTPS接続が必要です。HTTPSでChattieを開き、ブラウザーで位置情報へのアクセスを許可してください。',
+      sw: 'Ugunduzi wa eneo unahitaji muunganisho salama wa HTTPS. Fungua Chattie kupitia HTTPS na uruhusu kivinjari kufikia eneo lako.',
+      hi: 'लोकेशन खोजने के लिए सुरक्षित HTTPS कनेक्शन ज़रूरी है। Chattie को HTTPS पर खोलें और ब्राउज़र में लोकेशन की अनुमति दें।',
+      'zh-CN': '获取位置需要安全的 HTTPS 连接。请通过 HTTPS 打开 Chattie，并允许浏览器访问位置信息。',
+    };
+
+    Object.entries(secureLocationTranslations).forEach(([language, value]) => {
+      translations[language].locationSecureContextRequired = value;
+    });
+
 Object.entries(onboardingTranslations).forEach(([language, values]) => {
   translations[language] = { ...translations[language], ...values };
 });

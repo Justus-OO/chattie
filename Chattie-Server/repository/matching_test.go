@@ -62,6 +62,13 @@ func TestNormalizeProfileGender(t *testing.T) {
 	}
 }
 
+func TestGlobalModeOverrideAllowsEitherUser(t *testing.T) {
+	got := globalModeOverrideSQL("viewer_global_mode", "target_global_mode")
+	if got != "(viewer_global_mode OR target_global_mode)" {
+		t.Fatalf("global mode override SQL = %q, want either-user opt-in", got)
+	}
+}
+
 func TestTagCompatibilityScoreSQLUsesSymmetricTagSets(t *testing.T) {
 	scoreSQL := tagCompatibilityScoreSQL("viewer_tags", "target_tags")
 	for _, expected := range []string{

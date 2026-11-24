@@ -87,7 +87,7 @@ func (r *Repository) GetSwipeDeck(ctx context.Context, userID string, limit, off
                 cu.country_code IS NULL
                 OR l.country_code IS NULL
                 OR (l.country_code IS NOT NULL AND cu.country_code = l.country_code)
-                OR (cu.global_mode = TRUE AND COALESCE(target_settings.global_mode, FALSE) = TRUE)
+                OR ` + globalModeOverrideSQL("cu.global_mode", "COALESCE(target_settings.global_mode, FALSE)") + `
             )
             AND NULLIF(BTRIM(p.display_name), '') IS NOT NULL
             AND EXISTS (
@@ -146,9 +146,8 @@ func (r *Repository) GetSwipeDeck(ctx context.Context, userID string, limit, off
           m.images, 
           ` + tagCompatibilityScoreSQL("m.my_tags", "m.their_tags") + ` AS match_pct
        FROM potential_matches m
-       -- Global discovery requires opt-in from both users; otherwise both distance limits apply.
-       WHERE (
-          m.global_mode = TRUE AND m.target_global_mode = TRUE
+       -- Either user's Global Mode opt-in allows cross-region discovery.
+       WHERE (` + globalModeOverrideSQL("m.global_mode", "m.target_global_mode") + `
           OR (m.distance_km <= m.max_distance_km AND m.distance_km <= m.target_max_distance_km)
        )
        ORDER BY match_pct DESC, distance ASC, m.id ASC
@@ -192,7 +191,7 @@ func (r *Repository) GetSwipeDeck(ctx context.Context, userID string, limit, off
 
 func (r *Repository) GetSwipeDeckDiagnostics(ctx context.Context, userID string) (models.DiscoverDiagnostics, error) {
 	var diagnostics models.DiscoverDiagnostics
-	err := r.DB.QueryRowContext(ctx, `
+	query := `
 		WITH viewer AS (
 			SELECT
 				u.id,
@@ -316,10 +315,10 @@ func (r *Repository) GetSwipeDeckDiagnostics(ctx context.Context, userID string)
 				candidate.viewer_country_code IS NULL
 				OR candidate.target_country_code IS NULL
 				OR candidate.target_country_code = candidate.viewer_country_code
-				OR (candidate.viewer_global_mode AND candidate.target_global_mode)
+				OR ` + globalModeOverrideSQL("candidate.viewer_global_mode", "candidate.target_global_mode") + `
 			)
 			AND (
-				(candidate.viewer_global_mode AND candidate.target_global_mode)
+				` + globalModeOverrideSQL("candidate.viewer_global_mode", "candidate.target_global_mode") + `
 				OR (candidate.distance_km <= candidate.viewer_max_distance_km
 					AND candidate.distance_km <= candidate.target_max_distance_km)
 			)
@@ -334,7 +333,8 @@ func (r *Repository) GetSwipeDeckDiagnostics(ctx context.Context, userID string)
 			(SELECT COUNT(*) FROM intent_matches),
 			(SELECT COUNT(*) FROM location_matches)
 		FROM viewer
-	`, userID).Scan(
+	`
+	err := r.DB.QueryRowContext(ctx, query, userID).Scan(
 		&diagnostics.ViewerReady,
 		&diagnostics.ViewerHasPhoto,
 		&diagnostics.ViewerAgeEligible,

@@ -57,7 +57,7 @@ const getAgeFromDate = (dateValue) => {
 // ============================================================================
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, formatNumber } = useI18n();
   
   const appToken = useAppStore((state) => state.token);
 
@@ -204,6 +204,11 @@ export default function Onboarding() {
   };
 
   const handleGetLocation = () => {
+    if (!window.isSecureContext) {
+      toast.error(t('locationSecureContextRequired'));
+      return;
+    }
+
     if (!navigator.geolocation) {
       toast.error(t('locationUnavailable'));
       return;
@@ -217,6 +222,7 @@ export default function Onboarding() {
           locationCoordinates: {
             latitude: coords.latitude,
             longitude: coords.longitude,
+            accuracy: coords.accuracy,
           },
         }));
         setIsLocating(false);
@@ -230,7 +236,7 @@ export default function Onboarding() {
             ? t('locationTimedOut')
             : t('locationUnavailable'));
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
     );
   };
 
@@ -628,11 +634,21 @@ export default function Onboarding() {
                       {t('locate')}
                     </button>
                   </div>
-                  <p className="mt-2 text-[9px] font-bold uppercase tracking-widest text-zinc-500" aria-live="polite">
-                    {profileData.locationCoordinates
-                      ? t('locationCoordinatesCaptured')
-                      : t('locationCoordinatesHelp')}
-                  </p>
+                  {profileData.locationCoordinates ? (
+                    <div className="mt-2 space-y-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500" aria-live="polite">
+                      <p>{t('locationCoordinatesCaptured')}</p>
+                      <output className="block border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-zinc-300" aria-label={t('locationCoordinatesCaptured')}>
+                        {formatNumber(profileData.locationCoordinates.latitude, { maximumFractionDigits: 5 })},{' '}
+                        {formatNumber(profileData.locationCoordinates.longitude, { maximumFractionDigits: 5 })}
+                        {' · ±'}
+                        {formatNumber(Math.ceil(profileData.locationCoordinates.accuracy), { maximumFractionDigits: 0 })} m
+                      </output>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[9px] font-bold uppercase tracking-widest text-zinc-500" aria-live="polite">
+                      {t('locationCoordinatesHelp')}
+                    </p>
+                  )}
                 </div>
 
                 <div>
